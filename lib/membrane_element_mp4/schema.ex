@@ -2,6 +2,10 @@ defmodule Membrane.Element.MP4.Schema do
   use Bunch
   alias __MODULE__.Spec
 
+  @box_name_size 4
+  @box_size_size 4
+  @box_header_size @box_name_size + @box_size_size
+
   def parse(data, spec \\ Spec.spec()) do
     parse_box(data, spec, [])
   end
@@ -53,8 +57,10 @@ defmodule Membrane.Element.MP4.Schema do
   end
 
   defp parse_box_header(data) do
-    <<size::unsigned-integer-size(32)-big, name::binary-size(4), rest::binary>> = data
-    content_size = size - 8
+    <<size::integer-size(@box_size_size)-unit(8), name::binary-size(@box_name_size),
+      rest::binary>> = data
+
+    content_size = size - @box_header_size
     <<content::binary-size(content_size), rest::binary>> = rest
     {parse_box_name(name), content, rest}
   end
@@ -84,10 +90,11 @@ defmodule Membrane.Element.MP4.Schema do
   end
 
   defp serialize_header(name, content_size) do
-    <<8 + content_size::unsigned-integer-size(32)-big, serialize_box_name(name)::binary>>
+    <<@box_header_size + content_size::integer-size(@box_size_size)-unit(8),
+      serialize_box_name(name)::binary>>
   end
 
   defp serialize_box_name(name) do
-    Atom.to_string(name) |> String.pad_trailing(4, [" "])
+    Atom.to_string(name) |> String.pad_trailing(@box_name_size, [" "])
   end
 end

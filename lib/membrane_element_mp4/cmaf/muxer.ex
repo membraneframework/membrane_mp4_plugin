@@ -50,7 +50,10 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
       init_name: "init.mp4",
       fragment_prefix: "fileSequence",
       fragment_extension: "m4s",
-      init: Init.serialize(caps)
+      init:
+        caps
+        |> Map.take([:timescale, :width, :height, :content_type, :type_specific])
+        |> Init.serialize()
     }
 
     {{:ok, caps: {:output, caps}}, state}

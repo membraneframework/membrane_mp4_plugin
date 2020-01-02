@@ -189,7 +189,7 @@ defmodule Membrane.Element.MP4.Schema.Spec do
                        timescale: :uint32,
                        earliest_presentation_time: :uint64,
                        first_offset: :uint64,
-                       reserved: <<0::unsigned-integer-size(16)>>,
+                       reserved: <<0::16-integer>>,
                        reference_count: :uint16,
                        # reference_list: [
                        #   [
@@ -326,15 +326,15 @@ defmodule Membrane.Element.MP4.Schema.Spec do
     case Atom.to_string(field) do
       "int" <> s ->
         s = String.to_integer(s)
-        type_pattern_to_parlizer(<<value::integer-size(s)-big>>)
+        type_pattern_to_parlizer(<<value::integer-size(s)>>)
 
       "uint" <> s ->
         s = String.to_integer(s)
-        type_pattern_to_parlizer(<<value::unsigned-integer-size(s)-big>>)
+        type_pattern_to_parlizer(<<value::integer-size(s)>>)
 
       "bin" <> s ->
         s = String.to_integer(s)
-        type_pattern_to_parlizer(<<value::bitstring-size(s)-big>>)
+        type_pattern_to_parlizer(<<value::bitstring-size(s)>>)
 
       "str" ->
         %{
@@ -344,14 +344,14 @@ defmodule Membrane.Element.MP4.Schema.Spec do
 
       "str" <> s ->
         s = String.to_integer(s)
-        type_pattern_to_parlizer(<<value::bitstring-size(s)-big>>)
+        type_pattern_to_parlizer(<<value::bitstring-size(s)>>)
 
       "fp" <> rest ->
         {s1, "p" <> s2} = Integer.parse(rest)
         s2 = String.to_integer(s2)
 
         parse = fn
-          <<post_comma::integer-size(s1)-big, pre_comma::integer-size(s2)-big, rest::bitstring>> ->
+          <<post_comma::integer-size(s1), pre_comma::integer-size(s2), rest::bitstring>> ->
             {:ok, {pre_comma, post_comma}, rest}
 
           _ ->
@@ -359,7 +359,7 @@ defmodule Membrane.Element.MP4.Schema.Spec do
         end
 
         serialize = fn {pre_comma, post_comma} ->
-          <<post_comma::integer-size(s1)-big, pre_comma::integer-size(s2)-big>>
+          <<post_comma::integer-size(s1), pre_comma::integer-size(s2)>>
         end
 
         %{parse: parse, serialize: serialize}

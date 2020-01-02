@@ -1,6 +1,17 @@
 defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
   alias Membrane.Element.MP4.Schema
 
+  @mdat_data_offset 8
+
+  @spec serialize(%{
+          sequence_number: integer,
+          timescale: integer,
+          sample_duration: integer,
+          pts_delay: integer,
+          samples_table: [%{sample_size: integer, sample_flags: integer}],
+          samples_data: binary,
+          samples_per_subsegment: integer
+        }) :: binary
   def serialize(config) do
     sample_count = length(config.samples_table)
     subsegment_duration = sample_count * config.sample_duration
@@ -18,7 +29,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
 
     mdat = Schema.serialize(mdat: %{content: config.samples_data})
     moof = Schema.serialize(moof(config))
-    config = %{config | data_offset: byte_size(moof) + 8}
+    config = %{config | data_offset: byte_size(moof) + @mdat_data_offset}
     moof = Schema.serialize(moof(config))
     config = %{config | referenced_size: byte_size(moof) + byte_size(mdat)}
     header = Schema.serialize(header(config))

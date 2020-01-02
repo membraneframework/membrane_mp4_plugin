@@ -1,6 +1,14 @@
 defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
   alias Membrane.Element.MP4.Schema
 
+  @spec serialize(%{
+          timescale: integer,
+          width: :integer,
+          height: :integer,
+          content_type: atom,
+          type_specific: any
+        }) ::
+          binary
   def serialize(config) do
     sample_description = sample_description(config)
 
