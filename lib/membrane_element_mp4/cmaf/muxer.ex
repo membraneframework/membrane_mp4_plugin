@@ -49,7 +49,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
       container: :cmaf,
       init_name: "init.mp4",
       fragment_prefix: "fileSequence",
-      fragment_extension: "m4s",
+      fragment_extension: ".m4s",
       init:
         caps
         |> Map.take([:timescale, :width, :height, :content_type, :type_specific])
