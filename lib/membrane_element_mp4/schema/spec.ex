@@ -19,7 +19,7 @@ defmodule Membrane.Element.MP4.Schema.Spec do
                  fields: [
                    major_brand: :str32,
                    major_brand_version: :uint32,
-                   compatible_brands: {:list, of: :str32}
+                   compatible_brands: {:list, :str32}
                  ]
                ],
                moov: [
@@ -177,7 +177,7 @@ defmodule Membrane.Element.MP4.Schema.Spec do
                  fields: [
                    major_brand: :str32,
                    major_brand_version: :uint32,
-                   compatible_brands: {:list, of: :str32}
+                   compatible_brands: {:list, :str32}
                  ]
                ],
                sidx: [
@@ -249,7 +249,7 @@ defmodule Membrane.Element.MP4.Schema.Spec do
                            data_offset: :int32,
                            samples:
                              {:list,
-                              of: [
+                              [
                                 sample_size: :uint32,
                                 sample_flags: :bin32
                                 # sample_flags: :uint32
@@ -366,7 +366,7 @@ defmodule Membrane.Element.MP4.Schema.Spec do
     end
   end
 
-  defp parse_field({:list, of: field}) do
+  defp parse_field({:list, field}) do
     entry_parlizer = parse_field(field)
 
     %{
