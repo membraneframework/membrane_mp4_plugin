@@ -15,6 +15,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
        pts_delay_in_samples: 2,
        seq_num: 0,
        sample_cnt: 0,
+       total_sample_cnt: 0,
        samples: []
      }}
   end
@@ -27,19 +28,24 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
   @impl true
   def handle_process(
         :input,
-        %Buffer{} = sample,
-        _ctx,
+        %Buffer{metadata: metadata} = sample,
+        %{pads: %{input: %{caps: %{inter_frames?: inter_frames?}}}},
         %{samples_per_subsegment: per_subs, sample_cnt: cnt} = state
       )
-      when cnt < per_subs - 1 do
+      when cnt < per_subs - 1 or (inter_frames? and not :erlang.map_get(:key_frame?, metadata)) do
     {:ok, state |> Map.update!(:sample_cnt, &(&1 + 1)) |> Map.update!(:samples, &[sample | &1])}
   end
 
   @impl true
   def handle_process(:input, %Buffer{} = sample, ctx, state) do
-    state = Map.update!(state, :samples, &[sample | &1])
+    IO.inspect(state.sample_cnt)
     buffer = generate_fragment(ctx.pads.input.caps, state)
-    state = %{state | sample_cnt: 0, samples: []} |> Map.update!(:seq_num, &(&1 + 1))
+
+    state =
+      %{state | sample_cnt: 1, samples: [sample]}
+      |> Map.update!(:seq_num, &(&1 + 1))
+      |> Map.update!(:total_sample_cnt, &(&1 + state.sample_cnt))
+
     {{:ok, buffer: {:output, buffer}}, state}
   end
 
@@ -79,6 +85,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
     payload =
       Fragment.serialize(%{
         sequence_number: state.seq_num,
+        total_sample_cnt: state.total_sample_cnt,
         timescale: caps.timescale,
         sample_duration: caps.sample_duration,
         pts_delay: state.pts_delay_in_samples * caps.sample_duration,

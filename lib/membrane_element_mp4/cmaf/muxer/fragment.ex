@@ -5,17 +5,17 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
 
   @spec serialize(%{
           sequence_number: integer,
+          total_sample_cnt: integer,
           timescale: integer,
           sample_duration: integer,
           pts_delay: integer,
           samples_table: [%{sample_size: integer, sample_flags: integer}],
-          samples_data: binary,
-          samples_per_subsegment: integer
+          samples_data: binary
         }) :: binary
   def serialize(config) do
     sample_count = length(config.samples_table)
     subsegment_duration = sample_count * config.sample_duration
-    elapsed_time = config.sequence_number * config.sample_duration * config.samples_per_subsegment
+    elapsed_time = config.total_sample_cnt * config.sample_duration
 
     config =
       config

@@ -90,7 +90,8 @@ defmodule Membrane.Element.MP4.Payloader.H264 do
       width: input_caps.width,
       height: input_caps.height,
       content_type: :avc1,
-      type_specific: %{avcc: avcc}
+      type_specific: %{avcc: avcc},
+      inter_frames?: true
     }
   end
 
@@ -119,7 +120,7 @@ defmodule Membrane.Element.MP4.Payloader.H264 do
   end
 
   defp generate_access_unit_metadata(access_unit_info) do
-    %{contains_key_frame?: key_frame?} = access_unit_info
+    %{key_frame?: key_frame?} = access_unit_info
 
     is_leading = 0
     depends_on = if key_frame?, do: 2, else: 1
