@@ -326,7 +326,7 @@ defmodule Membrane.Element.MP4.Schema.Spec do
     case Atom.to_string(field) do
       "int" <> s ->
         s = String.to_integer(s)
-        type_pattern_to_parlizer(<<value::integer-size(s)>>)
+        type_pattern_to_parlizer(<<value::signed-integer-size(s)>>)
 
       "uint" <> s ->
         s = String.to_integer(s)
