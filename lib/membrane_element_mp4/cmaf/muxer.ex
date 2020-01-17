@@ -26,27 +26,36 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
   end
 
   @impl true
-  def handle_process(
-        :input,
-        %Buffer{metadata: metadata} = sample,
-        %{pads: %{input: %{caps: %{inter_frames?: inter_frames?}}}},
-        %{samples_per_subsegment: per_subs, sample_cnt: cnt} = state
-      )
-      when cnt < per_subs - 1 or (inter_frames? and not :erlang.map_get(:key_frame?, metadata)) do
-    {:ok, state |> Map.update!(:sample_cnt, &(&1 + 1)) |> Map.update!(:samples, &[sample | &1])}
-  end
+  def handle_process(:input, buffer, ctx, state) do
+    state = state |> Map.update!(:sample_cnt, &(&1 + 1))
 
-  @impl true
-  def handle_process(:input, %Buffer{} = sample, ctx, state) do
-    IO.inspect(state.sample_cnt)
-    buffer = generate_fragment(ctx.pads.input.caps, state)
+    %{inter_frames?: inter_frames?} = ctx.pads.input.caps
+    %{samples_per_subsegment: samples_per_subsegment, sample_cnt: sample_cnt} = state
 
-    state =
-      %{state | sample_cnt: 1, samples: [sample]}
-      |> Map.update!(:seq_num, &(&1 + 1))
-      |> Map.update!(:total_sample_cnt, &(&1 + state.sample_cnt))
+    {subsegment_completed?, new_samples, state} =
+      cond do
+        not inter_frames? and sample_cnt == samples_per_subsegment ->
+          {true, [], state |> Map.update!(:samples, &[buffer | &1])}
 
-    {{:ok, buffer: {:output, buffer}}, state}
+        inter_frames? and buffer.metadata.key_frame? and sample_cnt > samples_per_subsegment ->
+          {true, [buffer], state}
+
+        true ->
+          {false, nil, state |> Map.update!(:samples, &[buffer | &1])}
+      end
+
+    if subsegment_completed? do
+      buffer = generate_fragment(ctx.pads.input.caps, state)
+
+      state =
+        %{state | sample_cnt: 1, samples: new_samples}
+        |> Map.update!(:seq_num, &(&1 + 1))
+        |> Map.update!(:total_sample_cnt, &(&1 + state.sample_cnt))
+
+      {{:ok, buffer: {:output, buffer}}, state}
+    else
+      {:ok, state}
+    end
   end
 
   @impl true
