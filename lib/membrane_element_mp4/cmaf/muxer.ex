@@ -67,7 +67,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
       fragment_extension: ".m4s",
       init:
         caps
-        |> Map.take([:timescale, :width, :height, :content_type, :type_specific])
+        |> Map.take([:timescale, :width, :height, :content])
         |> Init.serialize()
     }
 
@@ -86,7 +86,10 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
     samples_table =
       samples
       |> Enum.map(
-        &%{sample_size: byte_size(&1.payload), sample_flags: &1.metadata.mp4_sample_flags}
+        &%{
+          sample_size: byte_size(&1.payload),
+          sample_flags: &1.metadata.mp4_sample_flags
+        }
       )
 
     samples_data = samples |> Enum.map(& &1.payload) |> Enum.join()

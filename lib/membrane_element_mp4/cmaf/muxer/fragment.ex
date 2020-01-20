@@ -71,7 +71,10 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
     [
       moof: %{
         children: [
-          mfhd: %{children: [], fields: %{flags: 0, sequence_number: 5, version: 0}},
+          mfhd: %{
+            children: [],
+            fields: %{flags: 0, sequence_number: config.sequence_number, version: 0}
+          },
           traf: %{
             children: [
               tfhd: %{
