@@ -51,9 +51,8 @@ defmodule Membrane.Element.MP4.MixProject do
   defp deps do
     [
       {:membrane_core, "~> 0.5.0"},
-      # {:membrane_caps_mp4,
-      #  git: "git@github.com:membraneframework/membrane-caps-mp4", branch: "develop"},
-      {:membrane_caps_mp4, path: "../membrane-caps-mp4"},
+      {:membrane_caps_mp4,
+        git: "git@github.com:membraneframework/membrane-caps-mp4", branch: "develop"},
       {:membrane_caps_http_adaptive_stream,
        git: "git@github.com:membraneframework/membrane-caps-http-adaptive-stream",
        branch: "develop"},
