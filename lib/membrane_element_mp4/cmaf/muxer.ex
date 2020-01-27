@@ -11,7 +11,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
   def handle_init(_) do
     {:ok,
      %{
-       samples_per_subsegment: 125,
+       samples_per_subsegment: 50,
        pts_delay_in_samples: 2,
        seq_num: 0,
        sample_cnt: 0,

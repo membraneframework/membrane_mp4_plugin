@@ -73,7 +73,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
         children: [
           mfhd: %{
             children: [],
-            fields: %{flags: 0, sequence_number: config.sequence_number, version: 0}
+            fields: %{flags: 0, sequence_number: config.sequence_number + 1, version: 0}
           },
           traf: %{
             children: [
@@ -100,6 +100,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
                 children: [],
                 fields: %{
                   data_offset: config.data_offset,
+                  # flags: 0b111000000001,
                   flags: 0b11000000001,
                   sample_count: config.sample_count,
                   samples: config.samples_table,

@@ -48,7 +48,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
               quicktime_selection_duration: 0,
               quicktime_selection_time: 0,
               rate: {0, 1},
-              timescale: config.timescale,
+              timescale: 1000,
               version: 0,
               volume: {0, 1}
             }
