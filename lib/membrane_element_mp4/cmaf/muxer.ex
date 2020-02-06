@@ -3,9 +3,10 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
 
   alias __MODULE__.{Init, Fragment}
   alias Membrane.{Buffer, Time}
+  alias Membrane.Caps.MP4.Payload.{AVC1, AAC}
 
   def_input_pad :input, demand_unit: :buffers, caps: Membrane.Caps.MP4.Payload
-  def_output_pad :output, caps: {Membrane.Caps.HTTPAdaptiveStream.Channel, container: :cmaf}
+  def_output_pad :output, caps: {Membrane.Caps.HTTPAdaptiveStream.Track, container: :cmaf}
 
   @impl true
   def handle_init(_) do
@@ -60,10 +61,14 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
 
   @impl true
   def handle_caps(:input, %Membrane.Caps.MP4.Payload{} = caps, _ctx, state) do
-    caps = %Membrane.Caps.HTTPAdaptiveStream.Channel{
+    caps = %Membrane.Caps.HTTPAdaptiveStream.Track{
+      content_type:
+        case caps.content do
+          %AVC1{} -> :video
+          %AAC{} -> :audio
+        end,
       container: :cmaf,
-      init_name: "init.mp4",
-      fragment_prefix: "fileSequence",
+      init_extension: ".mp4",
       fragment_extension: ".m4s",
       init:
         caps
