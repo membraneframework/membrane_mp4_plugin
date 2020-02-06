@@ -23,6 +23,7 @@ defmodule Membrane.Element.MP4.Payloader.AAC do
 
   @impl true
   def handle_process(:input, %Buffer{payload: payload}, _ctx, state) do
+    # TODO demistify sample flags constant below
     buffer = %Buffer{payload: payload, metadata: %{mp4_sample_flags: <<0x2000000::32>>}}
     {{:ok, buffer: {:output, buffer}}, state}
   end
