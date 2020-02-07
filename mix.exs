@@ -52,11 +52,10 @@ defmodule Membrane.Element.MP4.MixProject do
     [
       {:membrane_core, "~> 0.5.0"},
       {:membrane_caps_mp4,
-       git: "git@github.com:membraneframework/membrane-caps-mp4", branch: "develop"},
+       git: "git@github.com:membraneframework/membrane-caps-mp4"},
       {:membrane_caps_http_adaptive_stream,
-       git: "git@github.com:membraneframework/membrane-caps-http-adaptive-stream",
-       branch: "develop"},
-      {:membrane_caps_aac, github: "membraneframework/membrane-caps-aac", ref: "develop"},
+       git: "git@github.com:membraneframework/membrane-caps-http-adaptive-stream"},
+      {:membrane_caps_aac, github: "membraneframework/membrane-caps-aac"},
       {:membrane_caps_video_h264, "~> 0.1.0"},
       {:ex_doc, "~> 0.21", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.0.0-rc.7", only: [:dev, :test], runtime: false}
