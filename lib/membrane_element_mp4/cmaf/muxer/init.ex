@@ -1,5 +1,6 @@
 defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
   alias Membrane.Element.MP4.Schema
+  alias Membrane.Caps.MP4.Payload.{AVC1, AAC}
 
   @spec serialize(%{
           timescale: integer,
@@ -47,7 +48,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
               quicktime_selection_duration: 0,
               quicktime_selection_time: 0,
               rate: {0, 1},
-              timescale: config.timescale,
+              timescale: 1000,
               version: 0,
               volume: {0, 1}
             }
@@ -75,7 +76,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
                   modification_time: 0,
                   track_id: 1,
                   version: 0,
-                  volume: {0, 0},
+                  volume: {0, 1},
                   width: {config.width, 0}
                 }
               },
@@ -100,45 +101,38 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
                   },
                   hdlr: handler(config),
                   minf: %{
-                    children: [
-                      vmhd: %{
-                        children: [],
-                        fields: %{
-                          flags: 1,
-                          graphics_mode: 0,
-                          opcolor: 0,
-                          version: 0
-                        }
-                      },
-                      dinf: %{
-                        children: [
-                          dref: %{
+                    children:
+                      media_header(config) ++
+                        [
+                          dinf: %{
                             children: [
-                              url: %{children: [], fields: %{flags: 1, version: 0}}
+                              dref: %{
+                                children: [
+                                  url: %{children: [], fields: %{flags: 1, version: 0}}
+                                ],
+                                fields: %{entry_count: 1, flags: 0, version: 0}
+                              }
                             ],
-                            fields: %{entry_count: 1, flags: 0, version: 0}
+                            fields: %{}
+                          },
+                          stbl: %{
+                            children: [
+                              stsd: %{
+                                children: sample_description,
+                                fields: %{
+                                  entry_count: length(sample_description),
+                                  flags: 0,
+                                  version: 0
+                                }
+                              },
+                              stts: %{content: <<0, 0, 0, 0, 0, 0, 0, 0>>},
+                              stsc: %{content: <<0, 0, 0, 0, 0, 0, 0, 0>>},
+                              stsz: %{content: <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>>},
+                              stco: %{content: <<0, 0, 0, 0, 0, 0, 0, 0>>}
+                            ],
+                            fields: %{}
                           }
                         ],
-                        fields: %{}
-                      },
-                      stbl: %{
-                        children: [
-                          stsd: %{
-                            children: sample_description,
-                            fields: %{
-                              entry_count: length(sample_description),
-                              flags: 0,
-                              version: 0
-                            }
-                          },
-                          stts: %{content: <<0, 0, 0, 0, 0, 0, 0, 0>>},
-                          stsc: %{content: <<0, 0, 0, 0, 0, 0, 0, 0>>},
-                          stsz: %{content: <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>>},
-                          stco: %{content: <<0, 0, 0, 0, 0, 0, 0, 0>>}
-                        ],
-                        fields: %{}
-                      }
-                    ],
                     fields: %{}
                   }
                 ],
@@ -167,7 +161,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
     |> Schema.serialize()
   end
 
-  defp sample_description(%{content_type: :avc1, type_specific: avc1} = config) do
+  defp sample_description(%{content: %AVC1{} = avc1} = config) do
     [
       avc1: %{
         children: [
@@ -197,7 +191,34 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
     ]
   end
 
-  defp handler(%{content_type: :avc1}) do
+  defp sample_description(%{content: %AAC{} = aac}) do
+    [
+      mp4a: %{
+        children: %{
+          esds: %{
+            fields: %{
+              elementary_stream_descriptor: aac.esds,
+              flags: 0,
+              version: 0
+            }
+          }
+        },
+        fields: %{
+          channel_count: aac.channels,
+          compression_id: 0,
+          data_reference_index: 1,
+          encoding_revision: 0,
+          encoding_vendor: 0,
+          encoding_version: 0,
+          packet_size: 0,
+          sample_size: 16,
+          sample_rate: {0, aac.sample_rate}
+        }
+      }
+    ]
+  end
+
+  defp handler(%{content: %AVC1{}}) do
     %{
       children: [],
       fields: %{
@@ -207,5 +228,44 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
         version: 0
       }
     }
+  end
+
+  defp handler(%{content: %AAC{}}) do
+    %{
+      children: [],
+      fields: %{
+        flags: 0,
+        handler_type: "soun",
+        name: "SoundHandler",
+        version: 0
+      }
+    }
+  end
+
+  defp media_header(%{content: %AVC1{}}) do
+    [
+      vmhd: %{
+        children: [],
+        fields: %{
+          flags: 1,
+          graphics_mode: 0,
+          opcolor: 0,
+          version: 0
+        }
+      }
+    ]
+  end
+
+  defp media_header(%{content: %AAC{}}) do
+    [
+      smhd: %{
+        children: [],
+        fields: %{
+          balance: {0, 0},
+          flags: 0,
+          version: 0
+        }
+      }
+    ]
   end
 end

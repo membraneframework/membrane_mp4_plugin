@@ -118,6 +118,15 @@ defmodule Membrane.Element.MP4.Schema.Spec do
                                opcolor: :uint48
                              ]
                        ],
+                       smhd: [
+                         version: 0,
+                         fields:
+                           @full_box ++
+                             [
+                               balance: :fp8p8,
+                               reserved: <<0::16>>
+                             ]
+                       ],
                        dinf: [
                          dref: [
                            version: 0,
@@ -165,6 +174,28 @@ defmodule Membrane.Element.MP4.Schema.Spec do
                                  h_spacing: :uint32,
                                  v_spacing: :uint32
                                ]
+                             ]
+                           ],
+                           mp4a: [
+                             fields: [
+                               reserved: <<0::6*8>>,
+                               data_reference_index: :uint16,
+                               encoding_version: :uint16,
+                               encoding_revision: :uint16,
+                               encoding_vendor: :uint32,
+                               channel_count: :uint16,
+                               sample_size: :uint16,
+                               compression_id: :uint16,
+                               packet_size: :uint16,
+                               sample_rate: :fp16p16
+                             ],
+                             esds: [
+                               version: 0,
+                               fields:
+                                 @full_box ++
+                                   [
+                                     elementary_stream_descriptor: :bin
+                                   ]
                              ]
                            ]
                          ]
@@ -331,6 +362,9 @@ defmodule Membrane.Element.MP4.Schema.Spec do
       "uint" <> s ->
         s = String.to_integer(s)
         type_pattern_to_parlizer(<<value::integer-size(s)>>)
+
+      "bin" ->
+        type_pattern_to_parlizer(<<value::bitstring>>)
 
       "bin" <> s ->
         s = String.to_integer(s)
