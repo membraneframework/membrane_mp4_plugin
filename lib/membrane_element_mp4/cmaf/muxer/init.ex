@@ -197,7 +197,11 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
         children: %{
           esds: %{
             fields: %{
-              elementary_stream_descriptor: aac.esds,
+              elementary_stream_descriptor:
+                <<3, 128, 128, 128, 37, 0, 1, 0, 4, 128, 128, 128, 23, 64, 21, 0, 0, 0, 0, 4, 9,
+                  152, 0, 0, 0, 0, 5, 128, 128, 128, 5, 18, 8, 86, 229, 0, 6, 128, 128, 128, 1,
+                  2>>,
+              # aac.esds,
               flags: 0,
               version: 0
             }
