@@ -1,5 +1,6 @@
 defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
   alias Membrane.Element.MP4.Schema
+  alias Membrane.Caps.MP4.Payload.{AVC1, AAC}
 
   @mdat_data_offset 8
 
@@ -49,7 +50,13 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
       sidx: %{
         children: [],
         fields: %{
-          earliest_presentation_time: config.elapsed_time + config.pts_delay,
+          # earliest_presentation_time: config.elapsed_time + config.pts_delay,
+          earliest_presentation_time:
+            config.elapsed_time +
+              case config.content do
+                %AVC1{} -> 1022
+                %AAC{} -> 500
+              end,
           first_offset: 0,
           flags: 0,
           reference_count: 1,

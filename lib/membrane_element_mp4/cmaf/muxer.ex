@@ -108,7 +108,8 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
         pts_delay: state.pts_delay_in_samples * caps.sample_duration,
         samples_table: samples_table,
         samples_data: samples_data,
-        samples_per_subsegment: state.samples_per_subsegment
+        samples_per_subsegment: state.samples_per_subsegment,
+        content: caps.content
       })
 
     duration = Ratio.new(length(samples) * Time.seconds(caps.sample_duration), caps.timescale)
