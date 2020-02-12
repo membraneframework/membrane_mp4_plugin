@@ -8,7 +8,6 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
           sent_sample_cnt: integer,
           timescale: integer,
           sample_duration: integer,
-          pts_delay: integer,
           samples_table: [%{sample_size: integer, sample_flags: integer}],
           samples_data: binary
         }) :: binary

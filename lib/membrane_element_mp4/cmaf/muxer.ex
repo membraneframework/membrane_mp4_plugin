@@ -8,22 +8,34 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
   def_input_pad :input, demand_unit: :buffers, caps: Membrane.Caps.MP4.Payload
   def_output_pad :output, caps: {Membrane.Caps.HTTPAdaptiveStream.Track, container: :cmaf}
 
+  def_options fragment_duration: [
+                type: :time,
+                default: 2 |> Time.seconds()
+              ]
+
   @impl true
-  def handle_init(_) do
-    {:ok,
-     %{
-       samples_per_subsegment: 50,
-       pts_delay_in_samples: 2,
-       seq_num: 0,
-       sample_cnt: 0,
-       sent_sample_cnt: 0,
-       samples: []
-     }}
+  def handle_init(options) do
+    state =
+      options
+      |> Map.from_struct()
+      |> Map.merge(%{
+        seq_num: 0,
+        sample_cnt: 0,
+        sent_sample_cnt: 0,
+        samples: []
+      })
+
+    {:ok, state}
   end
 
   @impl true
-  def handle_demand(:output, size, :buffers, _ctx, state) do
-    {{:ok, demand: {:input, size * state.samples_per_subsegment}}, state}
+  def handle_demand(:output, size, :buffers, _ctx, %{samples_per_subsegment: sps} = state) do
+    {{:ok, demand: {:input, size * sps}}, state}
+  end
+
+  @impl true
+  def handle_demand(:output, _size, :buffers, _ctx, state) do
+    {:ok, state}
   end
 
   @impl true
@@ -59,6 +71,13 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
 
   @impl true
   def handle_caps(:input, %Membrane.Caps.MP4.Payload{} = caps, _ctx, state) do
+    state =
+      state
+      |> Map.put(
+        :samples_per_subsegment,
+        ceil(state.fragment_duration * caps.timescale / Time.seconds(caps.sample_duration))
+      )
+
     caps = %Membrane.Caps.HTTPAdaptiveStream.Track{
       content_type:
         case caps.content do
@@ -74,7 +93,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
         |> Init.serialize()
     }
 
-    {{:ok, caps: {:output, caps}}, state}
+    {{:ok, caps: {:output, caps}, redemand: :output}, state}
   end
 
   @impl true
@@ -103,7 +122,6 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
         sent_sample_cnt: state.sent_sample_cnt,
         timescale: caps.timescale,
         sample_duration: caps.sample_duration,
-        pts_delay: state.pts_delay_in_samples * caps.sample_duration,
         samples_table: samples_table,
         samples_data: samples_data,
         samples_per_subsegment: state.samples_per_subsegment,
