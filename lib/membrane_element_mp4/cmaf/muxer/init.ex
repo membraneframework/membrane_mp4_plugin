@@ -48,7 +48,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
               quicktime_selection_duration: 0,
               quicktime_selection_time: 0,
               rate: {0, 1},
-              timescale: 1000,
+              timescale: 1,
               version: 0,
               volume: {0, 1}
             }
@@ -81,9 +81,9 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
                 }
               },
               edts: %{
-                content:
-                  <<0, 0, 0, 40, 101, 108, 115, 116, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 80, 255,
-                    255, 255, 255, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 1, 0, 0>>
+                # <<0, 0, 0, 40, 101, 108, 115, 116, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 80, 255,
+                #   255, 255, 255, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 1, 0, 0>>
+                content: <<0, 0, 0, 16, 101, 108, 115, 116, 0, 0, 0, 0, 0, 0, 0, 0>>
               },
               mdia: %{
                 children: [

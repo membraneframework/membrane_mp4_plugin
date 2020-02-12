@@ -16,7 +16,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
        pts_delay_in_samples: 2,
        seq_num: 0,
        sample_cnt: 0,
-       total_sample_cnt: 0,
+       sent_sample_cnt: 0,
        samples: []
      }}
   end
@@ -28,34 +28,32 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
 
   @impl true
   def handle_process(:input, buffer, ctx, state) do
-    state = state |> Map.update!(:sample_cnt, &(&1 + 1))
+    state =
+      state
+      |> Map.update!(:sample_cnt, &(&1 + 1))
+      |> Map.update!(:samples, &[buffer | &1])
 
-    %{inter_frames?: inter_frames?} = ctx.pads.input.caps
+    %{caps: caps} = ctx.pads.input
+    %{inter_frames?: inter_frames?} = caps
     %{samples_per_subsegment: samples_per_subsegment, sample_cnt: sample_cnt} = state
 
-    {subsegment_completed?, new_samples, state} =
-      cond do
-        not inter_frames? and sample_cnt == samples_per_subsegment ->
-          {true, [], state |> Map.update!(:samples, &[buffer | &1])}
+    cond do
+      not inter_frames? and sample_cnt == samples_per_subsegment ->
+        {buffer, state} = generate_fragment(caps, state)
+        {{:ok, buffer: {:output, buffer}}, state}
 
-        inter_frames? and buffer.metadata.key_frame? and sample_cnt > samples_per_subsegment ->
-          {true, [buffer], state}
+      inter_frames? and buffer.metadata.key_frame? and sample_cnt > samples_per_subsegment ->
+        {sample, state} =
+          state
+          |> Map.update!(:sample_cnt, &(&1 - 1))
+          |> Map.get_and_update!(:samples, &{hd(&1), tl(&1)})
 
-        true ->
-          {false, nil, state |> Map.update!(:samples, &[buffer | &1])}
-      end
+        {buffer, state} = generate_fragment(caps, state)
+        state = %{state | samples: [sample], sample_cnt: 1}
+        {{:ok, buffer: {:output, buffer}}, state}
 
-    if subsegment_completed? do
-      buffer = generate_fragment(ctx.pads.input.caps, state)
-
-      state =
-        %{state | sample_cnt: 1, samples: new_samples}
-        |> Map.update!(:seq_num, &(&1 + 1))
-        |> Map.update!(:total_sample_cnt, &(&1 + state.sample_cnt))
-
-      {{:ok, buffer: {:output, buffer}}, state}
-    else
-      {:ok, state}
+      true ->
+        {:ok, state}
     end
   end
 
@@ -81,7 +79,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
 
   @impl true
   def handle_end_of_stream(:input, ctx, state) do
-    buffer = generate_fragment(ctx.pads.input.caps, state)
+    {buffer, state} = generate_fragment(ctx.pads.input.caps, state)
     {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
   end
 
@@ -102,7 +100,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
     payload =
       Fragment.serialize(%{
         sequence_number: state.seq_num,
-        total_sample_cnt: state.total_sample_cnt,
+        sent_sample_cnt: state.sent_sample_cnt,
         timescale: caps.timescale,
         sample_duration: caps.sample_duration,
         pts_delay: state.pts_delay_in_samples * caps.sample_duration,
@@ -112,7 +110,14 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
         content: caps.content
       })
 
-    duration = Ratio.new(length(samples) * Time.seconds(caps.sample_duration), caps.timescale)
-    %Buffer{payload: payload, metadata: %{duration: duration}}
+    duration = Ratio.new(state.sample_cnt * Time.seconds(caps.sample_duration), caps.timescale)
+    buffer = %Buffer{payload: payload, metadata: %{duration: duration}}
+
+    state =
+      %{state | samples: [], sample_cnt: 0}
+      |> Map.update!(:seq_num, &(&1 + 1))
+      |> Map.update!(:sent_sample_cnt, &(&1 + state.sample_cnt))
+
+    {buffer, state}
   end
 end
