@@ -1,6 +1,8 @@
 defmodule Membrane.Element.MP4.Payloader.AAC do
   use Membrane.Filter
 
+  # https://wiki.multimedia.cx/index.php/Understanding_AAC Packaging/Encapsulation And Setup Data section
+
   alias Membrane.Buffer
   def_input_pad :input, demand_unit: :buffers, caps: Membrane.Caps.AAC
 
