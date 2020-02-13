@@ -72,7 +72,7 @@ defmodule Membrane.Element.MP4.Schema do
   defp do_serialize(schema, schema_spec) do
     schema
     |> Enum.map(fn {box_name, box} ->
-      serialize_box(Map.put(box, :name, box_name), schema_spec[box_name])
+      serialize_box(Map.put(box, :name, box_name), Map.fetch(schema_spec, box_name))
     end)
     |> IO.iodata_to_binary()
   end
@@ -82,11 +82,15 @@ defmodule Membrane.Element.MP4.Schema do
     [header, content]
   end
 
-  defp serialize_box(box, schema_spec) do
+  defp serialize_box(box, {:ok, schema_spec}) do
     fields = box |> Map.get(:fields, %{}) |> schema_spec.fields.serialize.()
     children = do_serialize(box |> Map.get(:children, %{}), schema_spec.children)
     header = serialize_header(box.name, byte_size(fields) + byte_size(children))
     [header, fields, children]
+  end
+
+  defp serialize_box(box, :error) do
+    raise ArgumentError, "Unknown box: #{inspect(box.name)}"
   end
 
   defp serialize_header(name, content_size) do
