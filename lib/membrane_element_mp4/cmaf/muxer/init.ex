@@ -120,10 +120,24 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
                                   version: 0
                                 }
                               },
-                              stts: %{content: <<0, 0, 0, 0, 0, 0, 0, 0>>},
-                              stsc: %{content: <<0, 0, 0, 0, 0, 0, 0, 0>>},
-                              stsz: %{content: <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0>>},
-                              stco: %{content: <<0, 0, 0, 0, 0, 0, 0, 0>>}
+                              stts: %{
+                                fields: %{version: 0, flags: 0, entry_count: 0, entry_list: []}
+                              },
+                              stsc: %{
+                                fields: %{version: 0, flags: 0, entry_count: 0, entry_list: []}
+                              },
+                              stsz: %{
+                                fields: %{
+                                  version: 0,
+                                  flags: 0,
+                                  sample_size: 0,
+                                  entry_count: 0,
+                                  entry_list: []
+                                }
+                              },
+                              stco: %{
+                                fields: %{version: 0, flags: 0, entry_count: 0, entry_list: []}
+                              }
                             ],
                             fields: %{}
                           }
@@ -137,9 +151,19 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
             fields: %{}
           },
           mvex: %{
-            content:
-              <<0, 0, 0, 32, 116, 114, 101, 120, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0>>
+            children: [
+              trex: %{
+                fields: %{
+                  version: 0,
+                  flags: 0,
+                  track_id: 1,
+                  default_sample_description_index: 1,
+                  default_sample_duration: 0,
+                  default_sample_size: 0,
+                  default_sample_flags: 0
+                }
+              }
+            ]
           }
         ],
         fields: %{}
@@ -161,17 +185,15 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
           }
         ],
         fields: %{
-          compressor_name:
-            <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-              0, 0, 0, 0>>,
+          compressor_name: <<0::size(32)-unit(8)>>,
           depth: 24,
           flags: 0,
           frame_count: 1,
           height: config.height,
-          horizresolution: {0, 72},
+          horizresolution: {0, 0},
           num_of_entries: 1,
           version: 0,
-          vertresolution: {0, 72},
+          vertresolution: {0, 0},
           width: config.width
         }
       }
