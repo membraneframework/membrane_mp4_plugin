@@ -198,9 +198,79 @@ defmodule Membrane.Element.MP4.Schema.Spec do
                                    ]
                              ]
                            ]
+                         ],
+                         stts: [
+                           version: 0,
+                           fields:
+                             @full_box ++
+                               [
+                                 entry_count: :uint32,
+                                 entry_list:
+                                   {:list,
+                                    [
+                                      sample_count: :uint32,
+                                      sample_delta: :uint32
+                                    ]}
+                               ]
+                         ],
+                         stsc: [
+                           version: 0,
+                           fields:
+                             @full_box ++
+                               [
+                                 entry_count: :uint32,
+                                 entry_list:
+                                   {:list,
+                                    [
+                                      first_chunk: :uint32,
+                                      samples_per_chunk: :uint32,
+                                      sample_description_index: :uint32
+                                    ]}
+                               ]
+                         ],
+                         stsz: [
+                           version: 0,
+                           fields:
+                             @full_box ++
+                               [
+                                 sample_size: :uint32,
+                                 entry_count: :uint32,
+                                 entry_list:
+                                   {:list,
+                                    [
+                                      entry_size: :uint32
+                                    ]}
+                               ]
+                         ],
+                         stco: [
+                           version: 0,
+                           fields:
+                             @full_box ++
+                               [
+                                 entry_count: :uint32,
+                                 entry_list:
+                                   {:list,
+                                    [
+                                      chunk_offset: :uint32
+                                    ]}
+                               ]
                          ]
                        ]
                      ]
+                   ]
+                 ],
+                 mvex: [
+                   trex: [
+                     version: 0,
+                     fields:
+                       @full_box ++
+                         [
+                           track_id: :uint32,
+                           default_sample_description_index: :uint32,
+                           default_sample_duration: :uint32,
+                           default_sample_size: :uint32,
+                           default_sample_flags: :uint32
+                         ]
                    ]
                  ]
                ],
