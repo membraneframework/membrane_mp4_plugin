@@ -25,14 +25,16 @@ defmodule Membrane.Element.MP4.Payloader.H264 do
 
   @impl true
   def handle_process(:input, %Buffer{} = buffer, ctx, state) do
-    {actions, state} = maybe_send_access_unit(buffer.metadata[:access_unit], ctx, state)
+    {actions, state} = maybe_send_access_unit(buffer.metadata, ctx, state)
     state = state |> Map.update!(:access_unit, &[buffer | &1])
     {{:ok, actions ++ [redemand: :output]}, state}
   end
 
   @impl true
   def handle_end_of_stream(:input, ctx, state) do
-    {actions, state} = maybe_send_access_unit(:eos, ctx, state)
+    {actions, state} =
+      maybe_send_access_unit(%{new_access_unit: true, access_unit: nil}, ctx, state)
+
     {{:ok, actions ++ [end_of_stream: :output]}, state}
   end
 
@@ -41,15 +43,15 @@ defmodule Membrane.Element.MP4.Payloader.H264 do
     {:ok, state}
   end
 
-  defp maybe_send_access_unit(nil, _ctx, state) do
+  defp maybe_send_access_unit(%{new_access_unit?: false}, _ctx, state) do
     {[], state}
   end
 
-  defp maybe_send_access_unit(new_access_unit_info, _ctx, %{access_unit: []} = state) do
-    {[], %{state | access_unit_info: new_access_unit_info}}
+  defp maybe_send_access_unit(%{access_unit: new_au_info}, _ctx, %{access_unit: []} = state) do
+    {[], %{state | access_unit_info: new_au_info}}
   end
 
-  defp maybe_send_access_unit(new_access_unit_info, ctx, state) do
+  defp maybe_send_access_unit(%{access_unit: new_au_info}, ctx, state) do
     access_unit = state.access_unit |> Enum.reverse()
 
     caps =
@@ -65,7 +67,7 @@ defmodule Membrane.Element.MP4.Payloader.H264 do
       %Buffer{payload: payload, metadata: generate_access_unit_metadata(state.access_unit_info)}
       ~> [buffer: {:output, &1}]
 
-    {caps ++ buffer, %{state | access_unit: [], access_unit_info: new_access_unit_info}}
+    {caps ++ buffer, %{state | access_unit: [], access_unit_info: new_au_info}}
   end
 
   defp process_nalu(%Buffer{metadata: %{type: type}})
