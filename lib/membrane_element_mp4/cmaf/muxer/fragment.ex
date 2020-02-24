@@ -5,17 +5,16 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
 
   @spec serialize(%{
           sequence_number: integer,
-          total_sample_cnt: integer,
+          sent_sample_cnt: integer,
           timescale: integer,
           sample_duration: integer,
-          pts_delay: integer,
           samples_table: [%{sample_size: integer, sample_flags: integer}],
           samples_data: binary
         }) :: binary
   def serialize(config) do
     sample_count = length(config.samples_table)
     subsegment_duration = sample_count * config.sample_duration
-    elapsed_time = config.total_sample_cnt * config.sample_duration
+    elapsed_time = config.sent_sample_cnt * config.sample_duration
 
     config =
       config
@@ -49,7 +48,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
       sidx: %{
         children: [],
         fields: %{
-          earliest_presentation_time: config.elapsed_time + config.pts_delay,
+          earliest_presentation_time: config.elapsed_time,
           first_offset: 0,
           flags: 0,
           reference_count: 1,
@@ -73,7 +72,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
         children: [
           mfhd: %{
             children: [],
-            fields: %{flags: 0, sequence_number: config.sequence_number + 1, version: 0}
+            fields: %{flags: 0, sequence_number: config.sequence_number, version: 0}
           },
           traf: %{
             children: [
