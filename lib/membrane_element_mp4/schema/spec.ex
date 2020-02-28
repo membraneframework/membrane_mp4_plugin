@@ -351,6 +351,7 @@ defmodule Membrane.Element.MP4.Schema.Spec do
                            samples:
                              {:list,
                               [
+                                sample_duration: :uint32,
                                 sample_size: :uint32,
                                 sample_flags: :bin32
                                 # sample_flags: :uint32

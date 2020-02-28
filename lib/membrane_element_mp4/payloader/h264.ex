@@ -15,7 +15,7 @@ defmodule Membrane.Element.MP4.Payloader.H264 do
 
   @impl true
   def handle_init(_) do
-    {:ok, %{access_unit: [], access_unit_info: nil}}
+    {:ok, %{access_unit: [], metadata: nil}}
   end
 
   @impl true
@@ -47,11 +47,11 @@ defmodule Membrane.Element.MP4.Payloader.H264 do
     {[], state}
   end
 
-  defp maybe_send_access_unit(%{access_unit: new_au_info}, _ctx, %{access_unit: []} = state) do
-    {[], %{state | access_unit_info: new_au_info}}
+  defp maybe_send_access_unit(metadata, _ctx, %{access_unit: []} = state) do
+    {[], %{state | metadata: metadata}}
   end
 
-  defp maybe_send_access_unit(%{access_unit: new_au_info}, ctx, state) do
+  defp maybe_send_access_unit(new_metadata, ctx, state) do
     access_unit = state.access_unit |> Enum.reverse()
 
     caps =
@@ -64,10 +64,10 @@ defmodule Membrane.Element.MP4.Payloader.H264 do
     payload = access_unit |> Enum.map(&process_nalu/1) |> Enum.join()
 
     buffer =
-      %Buffer{payload: payload, metadata: generate_access_unit_metadata(state.access_unit_info)}
+      %Buffer{payload: payload, metadata: generate_access_unit_metadata(state.metadata)}
       ~> [buffer: {:output, &1}]
 
-    {caps ++ buffer, %{state | access_unit: [], access_unit_info: new_au_info}}
+    {caps ++ buffer, %{state | access_unit: [], metadata: new_metadata}}
   end
 
   defp process_nalu(%Buffer{metadata: %{type: type}})
@@ -88,8 +88,8 @@ defmodule Membrane.Element.MP4.Payloader.H264 do
     {timescale, sample_duration} = input_caps.framerate
 
     %Membrane.Caps.MP4.Payload{
-      timescale: timescale,
-      sample_duration: sample_duration,
+      timescale: timescale * 1024,
+      sample_duration: sample_duration * 1024,
       width: input_caps.width,
       height: input_caps.height,
       content: %AVC1{avcc: avcc},
@@ -121,8 +121,8 @@ defmodule Membrane.Element.MP4.Payloader.H264 do
     |> Enum.join()
   end
 
-  defp generate_access_unit_metadata(access_unit_info) do
-    %{key_frame?: key_frame?} = access_unit_info
+  defp generate_access_unit_metadata(metadata) do
+    {%{key_frame?: key_frame?} = access_unit, metadata} = Map.pop(metadata, :access_unit)
 
     is_leading = 0
     depends_on = if key_frame?, do: 2, else: 1
@@ -136,6 +136,6 @@ defmodule Membrane.Element.MP4.Payloader.H264 do
       <<0::4, is_leading::2, depends_on::2, is_depended_on::2, has_redundancy::2,
         padding_value::3, non_sync::1, degradation_priority::16>>
 
-    Map.merge(access_unit_info, %{mp4_sample_flags: flags})
+    metadata |> Map.merge(access_unit) |> Map.merge(%{mp4_sample_flags: flags})
   end
 end

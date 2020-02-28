@@ -3,7 +3,6 @@ defmodule Membrane.Element.MP4.Payloader.AAC do
 
   # https://wiki.multimedia.cx/index.php/Understanding_AAC Packaging/Encapsulation And Setup Data section
 
-  alias Membrane.Buffer
   def_input_pad :input, demand_unit: :buffers, caps: Membrane.Caps.AAC
 
   def_output_pad :output, caps: Membrane.Caps.MP4.Payload
@@ -33,9 +32,9 @@ defmodule Membrane.Element.MP4.Payloader.AAC do
   end
 
   @impl true
-  def handle_process(:input, %Buffer{payload: payload}, _ctx, state) do
+  def handle_process(:input, buffer, _ctx, state) do
     # TODO demistify sample flags constant below
-    buffer = %Buffer{payload: payload, metadata: %{mp4_sample_flags: <<0x2000000::32>>}}
+    buffer = Bunch.Struct.put_in(buffer, [:metadata, :mp4_sample_flags], <<0x2000000::32>>)
     {{:ok, buffer: {:output, buffer}}, state}
   end
 

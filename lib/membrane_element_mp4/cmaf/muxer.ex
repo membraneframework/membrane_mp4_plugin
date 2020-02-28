@@ -21,7 +21,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
       |> Map.merge(%{
         seq_num: 0,
         sample_cnt: 0,
-        sent_sample_cnt: 0,
+        elapsed_time: 0,
         samples: []
       })
 
@@ -39,33 +39,22 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
   end
 
   @impl true
-  def handle_process(:input, buffer, ctx, state) do
-    state =
-      state
-      |> Map.update!(:sample_cnt, &(&1 + 1))
-      |> Map.update!(:samples, &[buffer | &1])
-
+  def handle_process(:input, sample, ctx, state) do
     %{caps: caps} = ctx.pads.input
     %{inter_frames?: inter_frames?} = caps
-    %{samples_per_subsegment: samples_per_subsegment, sample_cnt: sample_cnt} = state
 
-    cond do
-      not inter_frames? and sample_cnt == samples_per_subsegment ->
-        {buffer, state} = generate_fragment(caps, state)
-        {{:ok, buffer: {:output, buffer}}, state}
+    if (not inter_frames? or sample.metadata.key_frame?) and
+         state.sample_cnt > state.samples_per_subsegment do
+      {buffer, state} = generate_fragment(caps, sample.metadata, state)
+      state = %{state | samples: [sample], sample_cnt: 1}
+      {{:ok, buffer: {:output, buffer}}, state}
+    else
+      state =
+        state
+        |> Map.update!(:sample_cnt, &(&1 + 1))
+        |> Map.update!(:samples, &[sample | &1])
 
-      inter_frames? and buffer.metadata.key_frame? and sample_cnt > samples_per_subsegment ->
-        {sample, state} =
-          state
-          |> Map.update!(:sample_cnt, &(&1 - 1))
-          |> Map.get_and_update!(:samples, &{hd(&1), tl(&1)})
-
-        {buffer, state} = generate_fragment(caps, state)
-        state = %{state | samples: [sample], sample_cnt: 1}
-        {{:ok, buffer: {:output, buffer}}, state}
-
-      true ->
-        {:ok, state}
+      {:ok, state}
     end
   end
 
@@ -98,44 +87,58 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
 
   @impl true
   def handle_end_of_stream(:input, ctx, state) do
-    {buffer, state} = generate_fragment(ctx.pads.input.caps, state)
+    last_timestamp = hd(state.samples).metadata.timestamp
+    {buffer, state} = generate_fragment(ctx.pads.input.caps, %{timestamp: last_timestamp}, state)
     {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
   end
 
-  defp generate_fragment(caps, state) do
-    samples = state.samples |> Enum.reverse()
+  defp generate_fragment(caps, next_metadata, state) do
+    use Ratio
+    %{timescale: timescale} = caps
+    samples = state.samples |> Enum.reverse([%{metadata: next_metadata, payload: <<>>}])
 
     samples_table =
       samples
-      |> Enum.map(
-        &%{
-          sample_size: byte_size(&1.payload),
-          sample_flags: &1.metadata.mp4_sample_flags
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.map(fn [sample, next_sample] ->
+        %{
+          sample_size: byte_size(sample.payload),
+          sample_flags: sample.metadata.mp4_sample_flags,
+          sample_duration:
+            timescalify(next_sample.metadata.timestamp - sample.metadata.timestamp, timescale)
         }
-      )
+      end)
 
     samples_data = samples |> Enum.map(& &1.payload) |> Enum.join()
+
+    first_metadata = hd(samples).metadata
+    duration = next_metadata.timestamp - first_metadata.timestamp
+
+    metadata = Map.put(first_metadata, :duration, duration)
 
     payload =
       Fragment.serialize(%{
         sequence_number: state.seq_num,
-        sent_sample_cnt: state.sent_sample_cnt,
-        timescale: caps.timescale,
-        sample_duration: caps.sample_duration,
+        elapsed_time: timescalify(state.elapsed_time, timescale),
+        duration: timescalify(duration, timescale),
+        timescale: timescale,
         samples_table: samples_table,
         samples_data: samples_data,
-        samples_per_subsegment: state.samples_per_subsegment,
         content: caps.content
       })
 
-    duration = Ratio.new(state.sample_cnt * Time.seconds(caps.sample_duration), caps.timescale)
-    buffer = %Buffer{payload: payload, metadata: %{duration: duration}}
+    buffer = %Buffer{payload: payload, metadata: metadata}
 
     state =
       %{state | samples: [], sample_cnt: 0}
       |> Map.update!(:seq_num, &(&1 + 1))
-      |> Map.update!(:sent_sample_cnt, &(&1 + state.sample_cnt))
+      |> Map.update!(:elapsed_time, &(&1 + duration))
 
     {buffer, state}
+  end
+
+  defp timescalify(time, timescale) do
+    use Ratio
+    Ratio.trunc(time * timescale / Time.second())
   end
 end

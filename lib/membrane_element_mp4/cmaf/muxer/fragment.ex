@@ -3,25 +3,23 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
 
   @mdat_data_offset 8
 
+  @trun_flags %{data_offset: 1, sample_duration: 0x100, sample_size: 0x200, sample_flags: 0x400}
+
   @spec serialize(%{
           sequence_number: integer,
-          sent_sample_cnt: integer,
+          elapsed_time: integer,
           timescale: integer,
-          sample_duration: integer,
+          duration: integer,
           samples_table: [%{sample_size: integer, sample_flags: integer}],
           samples_data: binary
         }) :: binary
   def serialize(config) do
     sample_count = length(config.samples_table)
-    subsegment_duration = sample_count * config.sample_duration
-    elapsed_time = config.sent_sample_cnt * config.sample_duration
 
     config =
       config
       |> Map.merge(%{
         sample_count: sample_count,
-        subsegment_duration: subsegment_duration,
-        elapsed_time: elapsed_time,
         data_offset: 0,
         referenced_size: nil
       })
@@ -58,7 +56,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
           sap_delta_time: 0,
           sap_type: 0,
           starts_with_sap: <<1::size(1)>>,
-          subsegment_duration: config.subsegment_duration,
+          subsegment_duration: config.duration,
           timescale: config.timescale,
           version: 1
         }
@@ -79,7 +77,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
               tfhd: %{
                 children: [],
                 fields: %{
-                  default_sample_duration: config.sample_duration,
+                  default_sample_duration: 0,
                   default_sample_flags: 0,
                   default_sample_size: 0,
                   flags: 0b100000000000111000,
@@ -99,8 +97,9 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
                 children: [],
                 fields: %{
                   data_offset: config.data_offset,
-                  # flags: 0b111000000001,
-                  flags: 0b11000000001,
+                  flags:
+                    @trun_flags.data_offset + @trun_flags.sample_duration +
+                      @trun_flags.sample_size + @trun_flags.sample_flags,
                   sample_count: config.sample_count,
                   samples: config.samples_table,
                   version: 0
