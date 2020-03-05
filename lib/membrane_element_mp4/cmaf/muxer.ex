@@ -21,7 +21,6 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
       |> Map.merge(%{
         seq_num: 0,
         sample_cnt: 0,
-        elapsed_time: 0,
         samples: []
       })
 
@@ -119,7 +118,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
     payload =
       Fragment.serialize(%{
         sequence_number: state.seq_num,
-        elapsed_time: timescalify(state.elapsed_time, timescale),
+        elapsed_time: timescalify(first_metadata.timestamp, timescale),
         duration: timescalify(duration, timescale),
         timescale: timescale,
         samples_table: samples_table,
@@ -132,7 +131,6 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
     state =
       %{state | samples: [], sample_cnt: 0}
       |> Map.update!(:seq_num, &(&1 + 1))
-      |> Map.update!(:elapsed_time, &(&1 + duration))
 
     {buffer, state}
   end
