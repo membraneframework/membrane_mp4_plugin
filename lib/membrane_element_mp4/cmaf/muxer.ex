@@ -46,14 +46,14 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
          state.sample_cnt > state.samples_per_subsegment do
       {buffer, state} = generate_fragment(caps, sample.metadata, state)
       state = %{state | samples: [sample], sample_cnt: 1}
-      {{:ok, buffer: {:output, buffer}}, state}
+      {{:ok, buffer: {:output, buffer}, redemand: :output}, state}
     else
       state =
         state
         |> Map.update!(:sample_cnt, &(&1 + 1))
         |> Map.update!(:samples, &[sample | &1])
 
-      {:ok, state}
+      {{:ok, redemand: :output}, state}
     end
   end
 
