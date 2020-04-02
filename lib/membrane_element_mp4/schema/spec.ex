@@ -435,7 +435,7 @@ defmodule Membrane.Element.MP4.Schema.Spec do
         type_pattern_to_parlizer(<<value::integer-size(s)>>)
 
       "bin" ->
-        type_pattern_to_parlizer(<<value::bitstring>>)
+        %{parse: &{:ok, &1, <<>>}, serialize: & &1}
 
       "bin" <> s ->
         s = String.to_integer(s)
