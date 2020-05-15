@@ -1,9 +1,9 @@
-defmodule Membrane.Element.MP4.Payloader.H264 do
+defmodule Membrane.MP4.Payloader.H264 do
   use Bunch
   use Membrane.Filter
 
   alias Membrane.Buffer
-  alias Membrane.Caps.MP4.Payload.AVC1
+  alias Membrane.MP4.Payload.AVC1
 
   @nalu_length_size 4
 
@@ -11,7 +11,7 @@ defmodule Membrane.Element.MP4.Payloader.H264 do
     demand_unit: :buffers,
     caps: {Membrane.Caps.Video.H264, stream_format: :byte_stream, alignment: :nal}
 
-  def_output_pad :output, caps: Membrane.Caps.MP4.Payload
+  def_output_pad :output, caps: Membrane.MP4.Payload
 
   @impl true
   def handle_init(_) do
@@ -87,7 +87,7 @@ defmodule Membrane.Element.MP4.Payloader.H264 do
     avcc = generate_avcc(access_unit)
     {timescale, sample_duration} = input_caps.framerate
 
-    %Membrane.Caps.MP4.Payload{
+    %Membrane.MP4.Payload{
       timescale: timescale * 1024,
       sample_duration: sample_duration * 1024,
       width: input_caps.width,

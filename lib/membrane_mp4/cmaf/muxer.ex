@@ -1,12 +1,12 @@
-defmodule Membrane.Element.MP4.CMAF.Muxer do
+defmodule Membrane.MP4.CMAF.Muxer do
   use Membrane.Filter
 
-  alias __MODULE__.{Init, Fragment}
+  alias __MODULE__.{Header, Segment}
   alias Membrane.{Buffer, Time}
-  alias Membrane.Caps.MP4.Payload.{AVC1, AAC}
+  alias Membrane.MP4.Payload.{AVC1, AAC}
 
-  def_input_pad :input, demand_unit: :buffers, caps: Membrane.Caps.MP4.Payload
-  def_output_pad :output, caps: {Membrane.Caps.HTTPAdaptiveStream.Track, container: :cmaf}
+  def_input_pad :input, demand_unit: :buffers, caps: Membrane.MP4.Payload
+  def_output_pad :output, caps: Membrane.CMAF.Track
 
   def_options fragment_duration: [
                 type: :time,
@@ -58,7 +58,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
   end
 
   @impl true
-  def handle_caps(:input, %Membrane.Caps.MP4.Payload{} = caps, _ctx, state) do
+  def handle_caps(:input, %Membrane.MP4.Payload{} = caps, _ctx, state) do
     state =
       state
       |> Map.put(
@@ -66,19 +66,16 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
         ceil(state.fragment_duration * caps.timescale / Time.seconds(caps.sample_duration))
       )
 
-    caps = %Membrane.Caps.HTTPAdaptiveStream.Track{
+    caps = %Membrane.CMAF.Track{
       content_type:
         case caps.content do
           %AVC1{} -> :video
           %AAC{} -> :audio
         end,
-      container: :cmaf,
-      init_extension: ".mp4",
-      fragment_extension: ".m4s",
-      init:
+      header:
         caps
         |> Map.take([:timescale, :width, :height, :content])
-        |> Init.serialize()
+        |> Header.serialize()
     }
 
     {{:ok, caps: {:output, caps}, redemand: :output}, state}
@@ -116,7 +113,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer do
     metadata = Map.put(first_metadata, :duration, duration)
 
     payload =
-      Fragment.serialize(%{
+      Segment.serialize(%{
         sequence_number: state.seq_num,
         elapsed_time: timescalify(first_metadata.timestamp, timescale),
         duration: timescalify(duration, timescale),

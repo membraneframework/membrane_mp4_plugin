@@ -1,5 +1,5 @@
-defmodule Membrane.Element.MP4.CMAF.Muxer.Fragment do
-  alias Membrane.Element.MP4.Schema
+defmodule Membrane.MP4.CMAF.Muxer.Segment do
+  alias Membrane.MP4.Schema
 
   @mdat_data_offset 8
 

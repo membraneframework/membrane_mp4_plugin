@@ -1,4 +1,4 @@
-defmodule Membrane.Element.MP4.Schema.Spec do
+defmodule Membrane.MP4.Schema.Spec do
   use Bunch
 
   # TODO support different box versions (via conditional fields?)

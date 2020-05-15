@@ -1,4 +1,4 @@
-defmodule Membrane.Element.MP4.Schema do
+defmodule Membrane.MP4.Schema do
   use Bunch
   alias __MODULE__.Spec
 

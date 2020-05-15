@@ -1,11 +1,11 @@
-defmodule Membrane.Element.MP4.Payloader.AAC do
+defmodule Membrane.MP4.Payloader.AAC do
   use Membrane.Filter
 
   # https://wiki.multimedia.cx/index.php/Understanding_AAC Packaging/Encapsulation And Setup Data section
 
-  def_input_pad :input, demand_unit: :buffers, caps: Membrane.Caps.AAC
+  def_input_pad :input, demand_unit: :buffers, caps: Membrane.Caps.Audio.AAC
 
-  def_output_pad :output, caps: Membrane.Caps.MP4.Payload
+  def_output_pad :output, caps: Membrane.MP4.Payload
 
   def_options avg_bit_rate: [
                 type: :integer,
@@ -18,8 +18,8 @@ defmodule Membrane.Element.MP4.Payloader.AAC do
 
   @impl true
   def handle_caps(:input, caps, _ctx, state) do
-    caps = %Membrane.Caps.MP4.Payload{
-      content: %Membrane.Caps.MP4.Payload.AAC{
+    caps = %Membrane.MP4.Payload{
+      content: %Membrane.MP4.Payload.AAC{
         esds: make_esds(caps, state),
         sample_rate: caps.sample_rate,
         channels: caps.channels
@@ -44,18 +44,18 @@ defmodule Membrane.Element.MP4.Payloader.AAC do
   end
 
   defp make_esds(caps, state) do
-    {:ok, profile_id} = Membrane.Caps.AAC.profile_to_profile_id(caps.profile)
-    {:ok, frequency_id} = Membrane.Caps.AAC.sample_rate_to_sampling_frequency_id(caps.sample_rate)
-    {:ok, channel_setup_id} = Membrane.Caps.AAC.channels_to_channel_setup_id(caps.channels)
+    {:ok, aot_id} = Membrane.AAC.profile_to_aot_id(caps.profile)
+    {:ok, frequency_id} = Membrane.AAC.sample_rate_to_sampling_frequency_id(caps.sample_rate)
+    {:ok, channel_config_id} = Membrane.AAC.channels_to_channel_config_id(caps.channels)
 
     {:ok, frame_length_id} =
-      Membrane.Caps.AAC.samples_per_frame_to_frame_length_id(caps.samples_per_frame)
+      Membrane.AAC.samples_per_frame_to_frame_length_id(caps.samples_per_frame)
 
     depends_on_core_coder = 0
     extension_flag = 0
 
     section5 =
-      <<profile_id::5, frequency_id::4, channel_setup_id::4, frame_length_id::1,
+      <<aot_id::5, frequency_id::4, channel_config_id::4, frame_length_id::1,
         depends_on_core_coder::1, extension_flag::1>>
       |> make_esds_section(5)
 
