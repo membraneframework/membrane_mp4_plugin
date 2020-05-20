@@ -47,6 +47,10 @@ defmodule Membrane.MP4.IntegrationTest do
     assert_pipeline_playback_changed(pipeline, _, :playing)
 
     assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{header: header, content_type: :video})
+
+    assert Membrane.MP4.Container.parse(header) ==
+             Membrane.MP4.Container.parse(File.read!("test/fixtures/out_video_header.mp4"))
+
     assert header == File.read!("test/fixtures/out_video_header.mp4")
     assert_sink_buffer(pipeline, :sink, buffer)
     assert buffer.payload == File.read!("test/fixtures/out_video_segment1.m4s")

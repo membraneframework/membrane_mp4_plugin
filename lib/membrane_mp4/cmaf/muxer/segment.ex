@@ -1,5 +1,5 @@
 defmodule Membrane.MP4.CMAF.Muxer.Segment do
-  alias Membrane.MP4.Schema
+  alias Membrane.MP4.Container
 
   @mdat_data_offset 8
 
@@ -24,12 +24,12 @@ defmodule Membrane.MP4.CMAF.Muxer.Segment do
         referenced_size: nil
       })
 
-    mdat = Schema.serialize(mdat: %{content: config.samples_data})
-    moof = Schema.serialize(moof(config))
+    mdat = Container.serialize!(mdat: %{content: config.samples_data})
+    moof = Container.serialize!(moof(config))
     config = %{config | data_offset: byte_size(moof) + @mdat_data_offset}
-    moof = Schema.serialize(moof(config))
+    moof = Container.serialize!(moof(config))
     config = %{config | referenced_size: byte_size(moof) + byte_size(mdat)}
-    header = Schema.serialize(header(config))
+    header = Container.serialize!(header(config))
     header <> moof <> mdat
   end
 
