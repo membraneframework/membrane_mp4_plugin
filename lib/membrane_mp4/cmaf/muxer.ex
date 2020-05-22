@@ -20,7 +20,7 @@ defmodule Membrane.MP4.CMAF.Muxer do
       |> Map.from_struct()
       |> Map.merge(%{
         seq_num: 0,
-        sample_cnt: 0,
+        elapsed_time: 0,
         samples: []
       })
 
@@ -28,44 +28,29 @@ defmodule Membrane.MP4.CMAF.Muxer do
   end
 
   @impl true
-  def handle_demand(:output, size, :buffers, _ctx, %{samples_per_subsegment: sps} = state) do
-    {{:ok, demand: {:input, size * sps}}, state}
-  end
-
-  @impl true
-  def handle_demand(:output, _size, :buffers, _ctx, state) do
-    {:ok, state}
+  def handle_demand(:output, _size, _unit, _ctx, state) do
+    {{:ok, demand: {:input, 1}}, state}
   end
 
   @impl true
   def handle_process(:input, sample, ctx, state) do
+    use Ratio, comparison: true
     %{caps: caps} = ctx.pads.input
     %{inter_frames?: inter_frames?} = caps
 
     if (not inter_frames? or sample.metadata.key_frame?) and
-         state.sample_cnt > state.samples_per_subsegment do
+         sample.metadata.timestamp - state.elapsed_time >= state.fragment_duration do
       {buffer, state} = generate_fragment(caps, sample.metadata, state)
-      state = %{state | samples: [sample], sample_cnt: 1}
+      state = %{state | samples: [sample]}
       {{:ok, buffer: {:output, buffer}, redemand: :output}, state}
     else
-      state =
-        state
-        |> Map.update!(:sample_cnt, &(&1 + 1))
-        |> Map.update!(:samples, &[sample | &1])
-
+      state = Map.update!(state, :samples, &[sample | &1])
       {{:ok, redemand: :output}, state}
     end
   end
 
   @impl true
   def handle_caps(:input, %Membrane.MP4.Payload{} = caps, _ctx, state) do
-    state =
-      state
-      |> Map.put(
-        :samples_per_subsegment,
-        ceil(state.fragment_duration * caps.timescale / Time.seconds(caps.sample_duration))
-      )
-
     caps = %Membrane.CMAF.Track{
       content_type:
         case caps.content do
@@ -89,7 +74,7 @@ defmodule Membrane.MP4.CMAF.Muxer do
   end
 
   defp generate_fragment(caps, next_metadata, state) do
-    use Ratio
+    use Ratio, comparison: true
     %{timescale: timescale} = caps
     samples = state.samples |> Enum.reverse([%{metadata: next_metadata, payload: <<>>}])
 
@@ -109,13 +94,12 @@ defmodule Membrane.MP4.CMAF.Muxer do
 
     first_metadata = hd(samples).metadata
     duration = next_metadata.timestamp - first_metadata.timestamp
-
     metadata = Map.put(first_metadata, :duration, duration)
 
     payload =
       Segment.serialize(%{
         sequence_number: state.seq_num,
-        elapsed_time: timescalify(first_metadata.timestamp, timescale),
+        elapsed_time: timescalify(state.elapsed_time, timescale),
         duration: timescalify(duration, timescale),
         timescale: timescale,
         samples_table: samples_table,
@@ -126,7 +110,7 @@ defmodule Membrane.MP4.CMAF.Muxer do
     buffer = %Buffer{payload: payload, metadata: metadata}
 
     state =
-      %{state | samples: [], sample_cnt: 0}
+      %{state | samples: [], elapsed_time: next_metadata.timestamp}
       |> Map.update!(:seq_num, &(&1 + 1))
 
     {buffer, state}

@@ -1,6 +1,7 @@
 defmodule Membrane.MP4.IntegrationTest do
   use ExUnit.Case, async: true
   import Membrane.Testing.Assertions
+  alias Membrane.MP4.Container
   alias Membrane.Testing
 
   defmodule Timestamper do
@@ -47,15 +48,17 @@ defmodule Membrane.MP4.IntegrationTest do
     assert_pipeline_playback_changed(pipeline, _, :playing)
 
     assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{header: header, content_type: :video})
-
-    assert Membrane.MP4.Container.parse(header) ==
-             Membrane.MP4.Container.parse(File.read!("test/fixtures/out_video_header.mp4"))
-
-    assert header == File.read!("test/fixtures/out_video_header.mp4")
+    ref_header = File.read!("test/fixtures/out_video_header.mp4")
+    assert Container.parse!(header) == Container.parse!(ref_header)
+    assert header == ref_header
     assert_sink_buffer(pipeline, :sink, buffer)
-    assert buffer.payload == File.read!("test/fixtures/out_video_segment1.m4s")
+    ref_buffer = File.read!("test/fixtures/out_video_segment1.m4s")
+    assert Container.parse!(buffer.payload) == Container.parse!(ref_buffer)
+    assert buffer.payload == ref_buffer
     assert_sink_buffer(pipeline, :sink, buffer)
-    assert buffer.payload == File.read!("test/fixtures/out_video_segment2.m4s")
+    ref_buffer = File.read!("test/fixtures/out_video_segment2.m4s")
+    assert Container.parse!(buffer.payload) == Container.parse!(ref_buffer)
+    assert buffer.payload == ref_buffer
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _)
   end
