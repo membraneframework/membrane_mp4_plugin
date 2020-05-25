@@ -1,4 +1,7 @@
 defmodule Membrane.MP4.Container do
+  @moduledoc """
+  Module for parsing and serializing MP4 files.
+  """
   use Bunch
 
   @schema __MODULE__.Schema.schema()
@@ -11,8 +14,19 @@ defmodule Membrane.MP4.Container do
   end
 
   def parse!(data, schema \\ @schema) do
-    {:ok, mp4} = parse_box(data, schema, [])
-    mp4
+    case parse_box(data, schema, []) do
+      {:ok, mp4} ->
+        mp4
+
+      {:error, context} ->
+        raise """
+        Error parsing MP4
+        box: #{Keyword.get_values(context, :box) |> Enum.join(" / ")}
+        field: #{Keyword.get_values(context, :field) |> Enum.join(" / ")}
+        data: #{Keyword.get(context, :data) |> inspect()}
+        reason: #{Keyword.get(context, :reason) |> inspect()}
+        """
+    end
   end
 
   def serialize(mp4, schema \\ @schema) do
@@ -53,31 +67,37 @@ defmodule Membrane.MP4.Container do
   end
 
   defp parse_box(data, schema, acc) do
-    {name, content, data} = parse_box_header(data)
-
-    if schema[name] && !schema[name][:black_box?] do
-      box_schema = schema[name]
-
-      with {:ok, fields, rest} <- parse_field(content, box_schema.fields),
-           {:ok, children} <- parse_box(rest, box_schema.children, []) do
-        box = %{fields: fields, children: children}
-        parse_box(data, schema, [{name, box} | acc])
-      else
-        {:error, context} -> {:error, [box: name] ++ context}
-      end
-    else
-      box = %{content: content}
+    withl header: {:ok, {name, content, data}} <- parse_box_header(data),
+          do: box_schema = schema[name],
+          known?: true <- box_schema && !box_schema[:black_box?],
+          try: {:ok, {fields, rest}} <- parse_fields(content, box_schema.fields),
+          try: {:ok, children} <- parse_box(rest, box_schema.children, []) do
+      box = %{fields: fields, children: children}
       parse_box(data, schema, [{name, box} | acc])
+    else
+      header: error ->
+        error
+
+      known?: false ->
+        box = %{content: content}
+        parse_box(data, schema, [{name, box} | acc])
+
+      try: {:error, context} ->
+        {:error, [box: name] ++ context}
     end
   end
 
   defp parse_box_header(data) do
-    <<size::integer-size(@box_size_size)-unit(8), name::binary-size(@box_name_size),
-      rest::binary>> = data
-
-    content_size = size - @box_header_size
-    <<content::binary-size(content_size), rest::binary>> = rest
-    {parse_box_name(name), content, rest}
+    withl header:
+            <<size::integer-size(@box_size_size)-unit(8), name::binary-size(@box_name_size),
+              rest::binary>> <- data,
+          do: content_size = size - @box_header_size,
+          size: <<content::binary-size(content_size), rest::binary>> <- rest do
+      {:ok, {parse_box_name(name), content, rest}}
+    else
+      header: _ -> {:error, reason: :box_header, data: data}
+      size: _ -> {:error, reason: {:box_size, header: size, actual: byte_size(rest)}, data: data}
+    end
   end
 
   defp parse_box_name(name) do
@@ -178,86 +198,95 @@ defmodule Membrane.MP4.Container do
 
   defp serialize_field(_term, _type), do: {:error, []}
 
-  defp parse_field(data, []) do
-    {:ok, %{}, data}
+  defp parse_fields(data, []) do
+    {:ok, {%{}, data}}
   end
 
-  defp parse_field(data, [{:reserved, reserved} | subfields]) do
+  defp parse_fields(data, [{name, type} | fields]) do
+    with {:ok, {term, rest}} <- parse_field(data, {name, type}),
+         {:ok, {terms, rest}} <- parse_fields(rest, fields) do
+      {:ok, {Map.put(terms, name, term), rest}}
+    end
+  end
+
+  defp parse_field(data, {:reserved, reserved}) do
     size = bit_size(reserved)
 
     case data do
-      <<^reserved::bitstring-size(size), rest::bitstring>> ->
-        parse_field(rest, subfields)
-
-      <<got::bitstring-size(size), _::bitstring>> ->
-        {:error, reserved: [expected: reserved, got: got]}
-
-      data ->
-        {:error, reserved: [expected: reserved, got: data]}
+      <<^reserved::bitstring-size(size), rest::bitstring>> -> {:ok, {[], rest}}
+      data -> parse_field_error(data, :reserved, expected: reserved)
     end
   end
 
-  defp parse_field(data, [{name, type} | subfields]) do
-    with {:ok, term, rest} <- parse_field(data, type),
-         {:ok, terms, rest} <- parse_field(rest, subfields) do
-      {:ok, Map.put(terms, name, term), rest}
-    else
-      {:error, context} -> {:error, [field: name] ++ context}
+  defp parse_field(data, {name, subfields}) when is_list(subfields) do
+    case parse_fields(data, subfields) do
+      {:ok, result} -> {:ok, result}
+      {:error, context} -> parse_field_error(data, name, context)
     end
   end
 
-  defp parse_field(data, {:int, size}) do
+  defp parse_field(data, {name, {:int, size}}) do
     case data do
-      <<int::signed-integer-size(size), rest::bitstring>> -> {:ok, int, rest}
-      _ -> {:error, []}
+      <<int::signed-integer-size(size), rest::bitstring>> -> {:ok, {int, rest}}
+      _ -> parse_field_error(data, name)
     end
   end
 
-  defp parse_field(data, {:uint, size}) do
+  defp parse_field(data, {name, {:uint, size}}) do
     case data do
-      <<uint::integer-size(size), rest::bitstring>> -> {:ok, uint, rest}
-      _ -> {:error, []}
+      <<uint::integer-size(size), rest::bitstring>> -> {:ok, {uint, rest}}
+      _ -> parse_field_error(data, name)
     end
   end
 
-  defp parse_field(data, {:fp, int_size, frac_size}) do
+  defp parse_field(data, {name, {:fp, int_size, frac_size}}) do
     case data do
       <<int::integer-size(int_size), frac::integer-size(frac_size), rest::bitstring>> ->
-        {:ok, {int, frac}, rest}
+        {:ok, {{int, frac}, rest}}
 
       _ ->
-        {:error, []}
+        parse_field_error(data, name)
     end
   end
 
-  defp parse_field(data, :bin) do
-    {:ok, data, <<>>}
+  defp parse_field(data, {_name, :bin}) do
+    {:ok, {data, <<>>}}
   end
 
-  defp parse_field(data, {type, size}) when type in [:bin, :str] do
+  defp parse_field(data, {name, {type, size}}) when type in [:bin, :str] do
     case data do
-      <<bin::bitstring-size(size), rest::bitstring>> -> {:ok, bin, rest}
-      _ -> {:error, []}
+      <<bin::bitstring-size(size), rest::bitstring>> -> {:ok, {bin, rest}}
+      _ -> parse_field_error(data, name)
     end
   end
 
-  defp parse_field(data, :str) do
+  defp parse_field(data, {name, :str}) do
     case String.split(data, "\0", parts: 2) do
-      [str, rest] -> {:ok, str, rest}
-      _ -> {:error, []}
+      [str, rest] -> {:ok, {str, rest}}
+      _ -> parse_field_error(data, name)
     end
   end
 
-  defp parse_field(<<>>, {:list, _type}) do
-    {:ok, [], <<>>}
+  defp parse_field(<<>>, {_name, {:list, _type}}) do
+    {:ok, {[], <<>>}}
   end
 
-  defp parse_field(data, {:list, type}) do
-    with {:ok, term, rest} <- parse_field(data, type),
-         {:ok, terms, rest} <- parse_field(rest, {:list, type}) do
-      {:ok, [term | terms], rest}
+  defp parse_field(data, {name, {:list, type}} = field) do
+    with {:ok, {term, rest}} <- parse_field(data, {name, type}),
+         {:ok, {terms, rest}} <- parse_field(rest, field) do
+      {:ok, {[term | terms], rest}}
     end
   end
 
-  defp parse_field(_data, _type), do: {:error, []}
+  defp parse_field(data, {name, _type}), do: parse_field_error(data, name)
+
+  defp parse_field_error(data, name, context \\ [])
+
+  defp parse_field_error(data, name, []) do
+    {:error, field: name, data: data}
+  end
+
+  defp parse_field_error(_data, name, context) do
+    {:error, [field: name] ++ context}
+  end
 end
