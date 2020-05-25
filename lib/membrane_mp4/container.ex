@@ -24,7 +24,7 @@ defmodule Membrane.MP4.Container do
         box: #{Keyword.get_values(context, :box) |> Enum.join(" / ")}
         field: #{Keyword.get_values(context, :field) |> Enum.join(" / ")}
         data: #{Keyword.get(context, :data) |> inspect()}
-        reason: #{Keyword.get(context, :reason) |> inspect()}
+        reason: #{Keyword.get(context, :reason) |> inspect(pretty: true)}
         """
     end
   end
@@ -34,8 +34,21 @@ defmodule Membrane.MP4.Container do
   end
 
   def serialize!(mp4, schema \\ @schema) do
-    {:ok, data} = do_serialize(mp4, schema)
-    data
+    case do_serialize(mp4, schema) do
+      {:ok, data} ->
+        data
+
+      {:error, context} ->
+        box = Keyword.get_values(context, :box)
+
+        raise """
+        Error serializing MP4
+        box: #{Enum.join(box, " / ")}
+        field: #{Keyword.get_values(context, :field) |> Enum.join(" / ")}
+        box contents:
+        #{get_box(mp4, box) |> inspect(pretty: true)}
+        """
+    end
   end
 
   def box_path(path) do
