@@ -9,9 +9,6 @@ defmodule Membrane.MP4.Container.Schema do
   - https://github.com/DicomJ/mpeg-isobase/tree/eb09f82ff6e160715dcb34b2bf473330c7695d3b
   """
 
-  # TODO support different box versions (via conditional fields?)
-  # TODO support lists with custom length
-
   @full_box [
     version: :uint8,
     flags: :uint24
@@ -294,6 +291,7 @@ defmodule Membrane.MP4.Container.Schema do
                       first_offset: :uint64,
                       reserved: <<0::16-integer>>,
                       reference_count: :uint16,
+                      # FIXME: make a list once list length is supported
                       # reference_list: [
                       #   [
                       #     reference_type: :bin1,
@@ -356,7 +354,7 @@ defmodule Membrane.MP4.Container.Schema do
                                sample_duration: :uint32,
                                sample_size: :uint32,
                                sample_flags: :bin32
-                               # sample_flags: :uint32
+                               # FIXME: handle sample offset, include basing on flags once conditional fields are supported
                                # sample_offset: :uint32
                              ]}
                         ]
