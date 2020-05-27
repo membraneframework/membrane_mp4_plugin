@@ -1,23 +1,23 @@
 defmodule Membrane.MP4.Container.Schema.Parser do
   @moduledoc false
+  alias Membrane.MP4.Container.Schema
 
+  @spec parse(Schema.schema_def_t()) :: Schema.t()
   def parse(schema) do
-    Map.new(schema, &parse_child/1)
+    Map.new(schema, &parse_box/1)
   end
 
-  defp parse_child({name, schema}) do
-    {schema, children} =
-      schema |> Enum.split_with(fn {k, _v} -> k in [:version, :fields, :black_box?] end)
-
-    schema = Map.new(schema)
-
+  defp parse_box({name, schema}) do
     schema =
       if schema[:black_box?] do
-        schema
+        Map.new(schema)
       else
+        {schema, children} = schema |> Keyword.split([:version, :fields, :black_box?])
+
         schema
+        |> Map.new()
+        |> Map.merge(%{black_box?: false, children: parse(children)})
         |> Map.update(:fields, [], &parse_fields/1)
-        |> Map.put(:children, parse(children))
       end
 
     {name, schema}
@@ -55,7 +55,7 @@ defmodule Membrane.MP4.Container.Schema.Parser do
           {:str, String.to_integer(s)}
 
         "fp" <> rest ->
-          {s1, "p" <> s2} = Integer.parse(rest)
+          {s1, "d" <> s2} = Integer.parse(rest)
           {:fp, s1, String.to_integer(s2)}
       end
 

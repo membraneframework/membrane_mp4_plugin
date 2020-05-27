@@ -1,4 +1,5 @@
 defmodule Membrane.MP4.CMAF.Muxer.Header do
+  @moduledoc false
   alias Membrane.MP4.Container
   alias Membrane.MP4.Payload.{AVC1, AAC}
 
@@ -6,10 +7,8 @@ defmodule Membrane.MP4.CMAF.Muxer.Header do
           timescale: integer,
           width: :integer,
           height: :integer,
-          content_type: atom,
-          type_specific: any
-        }) ::
-          binary
+          content: struct
+        }) :: binary
   def serialize(config) do
     sample_description = sample_description(config)
 

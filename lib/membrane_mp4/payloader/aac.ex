@@ -1,7 +1,11 @@
 defmodule Membrane.MP4.Payloader.AAC do
-  use Membrane.Filter
+  @moduledoc """
+  Payloads AAC stream so it can be embedded in MP4.
 
-  # https://wiki.multimedia.cx/index.php/Understanding_AAC Packaging/Encapsulation And Setup Data section
+  Resources:
+  - Packaging/Encapsulation And Setup Data section of https://wiki.multimedia.cx/index.php/Understanding_AAC
+  """
+  use Membrane.Filter
 
   def_input_pad :input, demand_unit: :buffers, caps: Membrane.Caps.Audio.AAC
 
@@ -9,11 +13,13 @@ defmodule Membrane.MP4.Payloader.AAC do
 
   def_options avg_bit_rate: [
                 type: :integer,
-                default: 0
+                default: 0,
+                description: "Average stream bitrate. Should be set to 0 if unknown."
               ],
               max_bit_rate: [
                 type: :integer,
-                default: 0
+                default: 0,
+                description: "Maximal stream bitrate. Should be set to 0 if unknown."
               ]
 
   @impl true
@@ -44,12 +50,10 @@ defmodule Membrane.MP4.Payloader.AAC do
   end
 
   defp make_esds(caps, state) do
-    {:ok, aot_id} = Membrane.AAC.profile_to_aot_id(caps.profile)
-    {:ok, frequency_id} = Membrane.AAC.sample_rate_to_sampling_frequency_id(caps.sample_rate)
-    {:ok, channel_config_id} = Membrane.AAC.channels_to_channel_config_id(caps.channels)
-
-    {:ok, frame_length_id} =
-      Membrane.AAC.samples_per_frame_to_frame_length_id(caps.samples_per_frame)
+    aot_id = Membrane.AAC.profile_to_aot_id(caps.profile)
+    frequency_id = Membrane.AAC.sample_rate_to_sampling_frequency_id(caps.sample_rate)
+    channel_config_id = Membrane.AAC.channels_to_channel_config_id(caps.channels)
+    frame_length_id = Membrane.AAC.samples_per_frame_to_frame_length_id(caps.samples_per_frame)
 
     depends_on_core_coder = 0
     extension_flag = 0

@@ -1,19 +1,60 @@
 defmodule Membrane.MP4.Container do
   @moduledoc """
   Module for parsing and serializing MP4 files.
+
+  Bases on MP4 structure specification from `#{inspect(__MODULE__)}.Schema`.
   """
   use Bunch
+  alias __MODULE__.Schema
 
-  @schema __MODULE__.Schema.schema()
+  @schema Schema.schema()
   @box_name_size 4
   @box_size_size 4
   @box_header_size @box_name_size + @box_size_size
 
-  def parse(data, schema \\ @schema) do
+  @type box_name_t :: atom
+  @type field_name_t :: atom
+  @type fields_t :: %{field_name_t => term | [term] | fields_t()}
+  @type t :: [{box_name_t, %{content: binary} | %{fields: fields_t, children: t}}]
+
+  @type parse_error_context_t :: [
+          {:box, box_name_t}
+          | {:field, field_name_t}
+          | {:data, bitstring}
+          | {:reason, :box_header | {:box_size, header: pos_integer, actual: pos_integer}}
+        ]
+
+  @type serialize_error_context_t :: [{:box, box_name_t} | {:field, field_name_t}]
+
+  @doc """
+  Parses binary data to MP4 according to `#{inspect(Schema)}.schema/0`.
+  """
+  @spec parse(binary) :: {:ok, t} | {:error, parse_error_context_t}
+  def parse(data) do
+    parse(data, @schema)
+  end
+
+  @doc """
+  Parses binary data to MP4 according to a custom schema.
+  """
+  @spec parse(binary, Schema.t()) :: {:ok, t} | {:error, parse_error_context_t}
+  def parse(data, schema) do
     parse_box(data, schema, [])
   end
 
-  def parse!(data, schema \\ @schema) do
+  @doc """
+  Same as `parse/1`, raises on error.
+  """
+  @spec parse!(binary) :: t
+  def parse!(data) do
+    parse!(data, @schema)
+  end
+
+  @doc """
+  Same as `parse/2`, raises on error.
+  """
+  @spec parse!(binary, Schema.t()) :: t
+  def parse!(data, schema) do
     case parse_box(data, schema, []) do
       {:ok, mp4} ->
         mp4
@@ -29,11 +70,35 @@ defmodule Membrane.MP4.Container do
     end
   end
 
-  def serialize(mp4, schema \\ @schema) do
+  @doc """
+  Serializes MP4 to a binary according to `#{inspect(Schema)}.schema/0`.
+  """
+  @spec serialize(t) :: {:ok, binary} | {:error, serialize_error_context_t}
+  def serialize(mp4) do
+    serialize(mp4, @schema)
+  end
+
+  @doc """
+  Serializes MP4 to a binary according to a custom schema.
+  """
+  @spec serialize(t, Schema.t()) :: {:ok, binary} | {:error, serialize_error_context_t}
+  def serialize(mp4, schema) do
     do_serialize(mp4, schema)
   end
 
-  def serialize!(mp4, schema \\ @schema) do
+  @doc """
+  Same as `serialize/1`, raises on error
+  """
+  @spec serialize!(t) :: binary
+  def serialize!(mp4) do
+    serialize!(mp4, @schema)
+  end
+
+  @doc """
+  Same as `serialize/2`, raises on error
+  """
+  @spec serialize!(t, Schema.t()) :: binary
+  def serialize!(mp4, schema) do
     case do_serialize(mp4, schema) do
       {:ok, data} ->
         data
@@ -51,28 +116,31 @@ defmodule Membrane.MP4.Container do
     end
   end
 
+  @doc """
+  Maps a path in the MP4 box tree into sequence of keys under which that
+  box resides in MP4.
+  """
+  @spec box_path(box_name_t | [box_name_t]) :: [atom]
   def box_path(path) do
     path |> Bunch.listify() |> Enum.flat_map(&[:children, &1]) |> Enum.drop(1)
   end
 
+  @doc """
+  Gets a box from a given path in a parsed MP4.
+  """
+  @spec get_box(t, box_name_t | [box_name_t]) :: t
   def get_box(mp4, path) do
     Bunch.Access.get_in(mp4, box_path(path))
   end
 
-  def update_box(mp4, path, in_box_path \\ [], f) do
-    Bunch.Access.update_in(mp4, box_path(path) ++ Bunch.listify(in_box_path), f)
-  end
+  @doc """
+  Updates a box at a given path in a parsed MP4.
 
-  def update_boxes(mp4, changeset) do
-    changeset
-    |> Bunch.listify()
-    |> Enum.reduce(mp4, fn
-      {path, f}, mp4 ->
-        update_box(mp4, path, f)
-
-      {path, in_box_path, f}, mp4 ->
-        update_box(mp4, path, in_box_path, f)
-    end)
+  If `parameter_path` is set, a parameter within a box is updated.
+  """
+  @spec update_box(t, box_name_t | [box_name_t], [atom], (term -> term)) :: t
+  def update_box(mp4, path, parameter_path \\ [], f) do
+    Bunch.Access.update_in(mp4, box_path(path) ++ Bunch.listify(parameter_path), f)
   end
 
   defp parse_box(<<>>, _schema, acc) do
@@ -82,7 +150,7 @@ defmodule Membrane.MP4.Container do
   defp parse_box(data, schema, acc) do
     withl header: {:ok, {name, content, data}} <- parse_box_header(data),
           do: box_schema = schema[name],
-          known?: true <- box_schema && !box_schema[:black_box?],
+          known?: true <- box_schema && not box_schema.black_box?,
           try: {:ok, {fields, rest}} <- parse_fields(content, box_schema.fields),
           try: {:ok, children} <- parse_box(rest, box_schema.children, []) do
       box = %{fields: fields, children: children}

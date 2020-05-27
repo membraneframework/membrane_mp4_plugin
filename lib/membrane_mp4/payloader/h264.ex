@@ -1,4 +1,7 @@
 defmodule Membrane.MP4.Payloader.H264 do
+  @moduledoc """
+  Payloads H264 stream so it can be embedded in MP4.
+  """
   use Bunch
   use Membrane.Filter
 

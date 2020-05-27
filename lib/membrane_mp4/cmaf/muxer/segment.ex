@@ -1,4 +1,5 @@
 defmodule Membrane.MP4.CMAF.Muxer.Segment do
+  @moduledoc false
   alias Membrane.MP4.Container
 
   @mdat_data_offset 8

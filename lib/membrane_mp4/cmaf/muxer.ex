@@ -1,4 +1,10 @@
 defmodule Membrane.MP4.CMAF.Muxer do
+  @moduledoc """
+  Puts payloaded stream into [Common Media Application Format](https://www.wowza.com/blog/what-is-cmaf),
+  an MP4-based container commonly used in adaptive streaming over HTTP.
+
+  Currently one input stream is supported.
+  """
   use Membrane.Filter
 
   alias __MODULE__.{Header, Segment}
@@ -103,8 +109,7 @@ defmodule Membrane.MP4.CMAF.Muxer do
         duration: timescalify(duration, timescale),
         timescale: timescale,
         samples_table: samples_table,
-        samples_data: samples_data,
-        content: caps.content
+        samples_data: samples_data
       })
 
     buffer = %Buffer{payload: payload, metadata: metadata}

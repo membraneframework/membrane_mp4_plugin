@@ -62,7 +62,7 @@ defmodule Membrane.MP4.Plugin.MixProject do
       {:membrane_element_ffmpeg_h264,
        github: "membraneframework/membrane-element-ffmpeg-h264", branch: "nalu", only: :test},
       {:ex_doc, "~> 0.21", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.0.0-rc.7", only: [:dev, :test], runtime: false}
+      {:dialyxir, "~> 1.0.0", only: [:dev, :test], runtime: false}
     ]
   end
 end
