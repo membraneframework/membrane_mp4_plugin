@@ -95,8 +95,7 @@ defmodule Membrane.MP4.Payloader.H264 do
       sample_duration: sample_duration * 1024,
       width: input_caps.width,
       height: input_caps.height,
-      content: %AVC1{avcc: avcc},
-      inter_frames?: true
+      content: %AVC1{avcc: avcc}
     }
   end
 

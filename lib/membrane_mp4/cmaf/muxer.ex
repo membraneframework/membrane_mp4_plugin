@@ -4,6 +4,9 @@ defmodule Membrane.MP4.CMAF.Muxer do
   an MP4-based container commonly used in adaptive streaming over HTTP.
 
   Currently one input stream is supported.
+
+  If a stream contains non-key frames (like H264 P or B frames), they should be marked
+  with a `key_frame?: false` metadata entry.
   """
   use Membrane.Filter
 
@@ -42,9 +45,8 @@ defmodule Membrane.MP4.CMAF.Muxer do
   def handle_process(:input, sample, ctx, state) do
     use Ratio, comparison: true
     %{caps: caps} = ctx.pads.input
-    %{inter_frames?: inter_frames?} = caps
 
-    if (not inter_frames? or sample.metadata.key_frame?) and
+    if Map.get(sample.metadata, :key_frame?, true) and
          sample.metadata.timestamp - state.elapsed_time >= state.fragment_duration do
       {buffer, state} = generate_fragment(caps, sample.metadata, state)
       state = %{state | samples: [sample]}
