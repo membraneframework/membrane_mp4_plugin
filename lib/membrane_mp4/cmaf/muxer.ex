@@ -17,7 +17,7 @@ defmodule Membrane.MP4.CMAF.Muxer do
   def_input_pad :input, demand_unit: :buffers, caps: Membrane.MP4.Payload
   def_output_pad :output, caps: Membrane.CMAF.Track
 
-  def_options fragment_duration: [
+  def_options segment_duration: [
                 type: :time,
                 default: 2 |> Time.seconds()
               ]
@@ -47,8 +47,8 @@ defmodule Membrane.MP4.CMAF.Muxer do
     %{caps: caps} = ctx.pads.input
 
     if Map.get(sample.metadata, :key_frame?, true) and
-         sample.metadata.timestamp - state.elapsed_time >= state.fragment_duration do
-      {buffer, state} = generate_fragment(caps, sample.metadata, state)
+         sample.metadata.timestamp - state.elapsed_time >= state.segment_duration do
+      {buffer, state} = generate_segment(caps, sample.metadata, state)
       state = %{state | samples: [sample]}
       {{:ok, buffer: {:output, buffer}, redemand: :output}, state}
     else
@@ -77,11 +77,11 @@ defmodule Membrane.MP4.CMAF.Muxer do
   @impl true
   def handle_end_of_stream(:input, ctx, state) do
     last_timestamp = hd(state.samples).metadata.timestamp
-    {buffer, state} = generate_fragment(ctx.pads.input.caps, %{timestamp: last_timestamp}, state)
+    {buffer, state} = generate_segment(ctx.pads.input.caps, %{timestamp: last_timestamp}, state)
     {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
   end
 
-  defp generate_fragment(caps, next_metadata, state) do
+  defp generate_segment(caps, next_metadata, state) do
     use Ratio, comparison: true
     %{timescale: timescale} = caps
     samples = state.samples |> Enum.reverse([%{metadata: next_metadata, payload: <<>>}])
