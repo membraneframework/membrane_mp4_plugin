@@ -7,7 +7,7 @@ defmodule Membrane.MP4.Payloader.AAC do
   """
   use Membrane.Filter
 
-  def_input_pad :input, demand_unit: :buffers, caps: Membrane.Caps.Audio.AAC
+  def_input_pad :input, demand_unit: :buffers, caps: {Membrane.AAC, encapsulation: :none}
 
   def_output_pad :output, caps: Membrane.MP4.Payload
 
