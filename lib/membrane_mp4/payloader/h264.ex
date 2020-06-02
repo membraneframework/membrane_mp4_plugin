@@ -62,22 +62,8 @@ defmodule Membrane.MP4.Payloader.H264 do
   end
 
   defp process_metadata(metadata) do
-    %{h264: %{key_frame?: key_frame?}} = metadata
-
-    is_leading = 0
-    depends_on = if key_frame?, do: 2, else: 1
-    is_depended_on = 0
-    has_redundancy = 0
-    padding_value = 0
-    non_sync = if key_frame?, do: 0, else: 1
-    degradation_priority = 0
-
-    flags =
-      <<0::4, is_leading::2, depends_on::2, is_depended_on::2, has_redundancy::2,
-        padding_value::3, non_sync::1, degradation_priority::16>>
-
     metadata
-    |> Map.merge(%{mp4_sample_flags: flags, key_frame?: key_frame?})
+    |> Map.put(:mp4_payload, %{key_frame?: metadata.h264.key_frame?})
     |> pop_in([:h264, :nalus])
   end
 

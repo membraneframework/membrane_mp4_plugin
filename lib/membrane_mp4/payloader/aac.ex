@@ -39,8 +39,6 @@ defmodule Membrane.MP4.Payloader.AAC do
 
   @impl true
   def handle_process(:input, buffer, _ctx, state) do
-    # TODO demistify sample flags constant below
-    buffer = Bunch.Struct.put_in(buffer, [:metadata, :mp4_sample_flags], <<0x2000000::32>>)
     {{:ok, buffer: {:output, buffer}}, state}
   end
 

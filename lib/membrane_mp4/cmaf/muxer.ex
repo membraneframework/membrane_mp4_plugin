@@ -6,7 +6,7 @@ defmodule Membrane.MP4.CMAF.Muxer do
   Currently one input stream is supported.
 
   If a stream contains non-key frames (like H264 P or B frames), they should be marked
-  with a `key_frame?: false` metadata entry.
+  with a `mp4_payload: %{key_frame?: false}` metadata entry.
   """
   use Membrane.Filter
 
@@ -45,9 +45,9 @@ defmodule Membrane.MP4.CMAF.Muxer do
   def handle_process(:input, sample, ctx, state) do
     use Ratio, comparison: true
     %{caps: caps} = ctx.pads.input
+    key_frame? = sample.metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
 
-    if Map.get(sample.metadata, :key_frame?, true) and
-         sample.metadata.timestamp - state.elapsed_time >= state.segment_duration do
+    if key_frame? and sample.metadata.timestamp - state.elapsed_time >= state.segment_duration do
       {buffer, state} = generate_segment(caps, sample.metadata, state)
       state = %{state | samples: [sample]}
       {{:ok, buffer: {:output, buffer}, redemand: :output}, state}
@@ -92,7 +92,7 @@ defmodule Membrane.MP4.CMAF.Muxer do
       |> Enum.map(fn [sample, next_sample] ->
         %{
           sample_size: byte_size(sample.payload),
-          sample_flags: sample.metadata.mp4_sample_flags,
+          sample_flags: generate_sample_flags(sample.metadata),
           sample_duration:
             timescalify(next_sample.metadata.timestamp - sample.metadata.timestamp, timescale)
         }
@@ -121,6 +121,21 @@ defmodule Membrane.MP4.CMAF.Muxer do
       |> Map.update!(:seq_num, &(&1 + 1))
 
     {buffer, state}
+  end
+
+  defp generate_sample_flags(metadata) do
+    key_frame? = metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
+
+    is_leading = 0
+    depends_on = if key_frame?, do: 2, else: 1
+    is_depended_on = 0
+    has_redundancy = 0
+    padding_value = 0
+    non_sync = if key_frame?, do: 0, else: 1
+    degradation_priority = 0
+
+    <<0::4, is_leading::2, depends_on::2, is_depended_on::2, has_redundancy::2, padding_value::3,
+      non_sync::1, degradation_priority::16>>
   end
 
   defp timescalify(time, timescale) do
