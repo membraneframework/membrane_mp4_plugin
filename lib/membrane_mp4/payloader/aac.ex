@@ -30,7 +30,6 @@ defmodule Membrane.MP4.Payloader.AAC do
         sample_rate: caps.sample_rate,
         channels: caps.channels
       },
-      sample_duration: caps.samples_per_frame * caps.frames_per_buffer,
       timescale: caps.sample_rate
     }
 

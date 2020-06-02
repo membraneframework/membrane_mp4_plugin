@@ -68,11 +68,10 @@ defmodule Membrane.MP4.Payloader.H264 do
   end
 
   defp generate_caps(input_caps, nalus) do
-    {timescale, sample_duration} = input_caps.framerate
+    {timescale, _frame_duration} = input_caps.framerate
 
     %Membrane.MP4.Payload{
       timescale: timescale * 1024,
-      sample_duration: sample_duration * 1024,
       width: input_caps.width,
       height: input_caps.height,
       content: %AVC1{avcc: generate_avcc(nalus)}
