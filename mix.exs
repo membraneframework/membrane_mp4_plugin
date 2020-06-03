@@ -51,9 +51,9 @@ defmodule Membrane.MP4.Plugin.MixProject do
   defp deps do
     [
       {:membrane_core, "~> 0.5.2"},
-      {:membrane_mp4_format, github: "membraneframework/membrane_mp4_format", branch: "develop"},
+      {:membrane_mp4_format, "~> 0.1.0"},
       {:membrane_cmaf_format, "~> 0.1.0"},
-      {:membrane_aac_format, github: "membraneframework/membrane_aac_format", branch: "develop"},
+      {:membrane_aac_format, "~> 0.1.0"},
       {:membrane_http_adaptive_stream_plugin, "~> 0.1.0"},
       {:membrane_caps_video_h264, "~> 0.1.0"},
       {:membrane_element_file, "~> 0.3.0", only: :test},
