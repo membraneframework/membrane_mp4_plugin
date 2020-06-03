@@ -1,7 +1,7 @@
 defmodule Membrane.MP4.CMAF.Muxer.Header do
   @moduledoc false
   alias Membrane.MP4.Container
-  alias Membrane.MP4.Payload.{AVC1, AAC}
+  alias Membrane.MP4.Payload.{AAC, AVC1}
 
   @spec serialize(%{
           timescale: integer,
