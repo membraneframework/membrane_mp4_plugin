@@ -23,7 +23,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
       header: error ->
         error
 
-      known?: false ->
+      known?: _ ->
         box = %{content: content}
         parse_boxes(data, schema, [{name, box} | acc])
 
