@@ -1,15 +1,14 @@
-defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
-  alias Membrane.Element.MP4.Schema
-  alias Membrane.Caps.MP4.Payload.{AVC1, AAC}
+defmodule Membrane.MP4.CMAF.Muxer.Header do
+  @moduledoc false
+  alias Membrane.MP4.Container
+  alias Membrane.MP4.Payload.{AAC, AVC1}
 
   @spec serialize(%{
           timescale: integer,
           width: :integer,
           height: :integer,
-          content_type: atom,
-          type_specific: any
-        }) ::
-          binary
+          content: struct
+        }) :: binary
   def serialize(config) do
     sample_description = sample_description(config)
 
@@ -30,13 +29,13 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
               creation_time: 0,
               duration: 0,
               flags: 0,
-              matrix_value_A: {0, 1},
+              matrix_value_A: {1, 0},
               matrix_value_B: {0, 0},
               matrix_value_C: {0, 0},
-              matrix_value_D: {0, 1},
+              matrix_value_D: {1, 0},
               matrix_value_U: {0, 0},
               matrix_value_V: {0, 0},
-              matrix_value_W: {0, 1},
+              matrix_value_W: {1, 0},
               matrix_value_X: {0, 0},
               matrix_value_Y: {0, 0},
               modification_time: 0,
@@ -47,10 +46,10 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
               quicktime_preview_time: 0,
               quicktime_selection_duration: 0,
               quicktime_selection_time: 0,
-              rate: {0, 1},
+              rate: {1, 0},
               timescale: 1,
               version: 0,
-              volume: {0, 1}
+              volume: {1, 0}
             }
           },
           trak: %{
@@ -70,13 +69,13 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
                   matrix_value_D: {1, 0},
                   matrix_value_U: {0, 0},
                   matrix_value_V: {0, 0},
-                  matrix_value_W: {16384, 0},
+                  matrix_value_W: {1, 0},
                   matrix_value_X: {0, 0},
                   matrix_value_Y: {0, 0},
                   modification_time: 0,
                   track_id: 1,
                   version: 0,
-                  volume: {0, 1},
+                  volume: {1, 0},
                   width: {config.width, 0}
                 }
               },
@@ -169,7 +168,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
         fields: %{}
       }
     ]
-    |> Schema.serialize()
+    |> Container.serialize!()
   end
 
   defp sample_description(%{content: %AVC1{} = avc1} = config) do
@@ -221,7 +220,7 @@ defmodule Membrane.Element.MP4.CMAF.Muxer.Init do
           encoding_version: 0,
           packet_size: 0,
           sample_size: 16,
-          sample_rate: {0, aac.sample_rate}
+          sample_rate: {aac.sample_rate, 0}
         }
       }
     ]
