@@ -1,10 +1,6 @@
 defmodule Membrane.MP4.Payloader.H264 do
   @moduledoc """
   Payloads H264 stream so it can be embedded in MP4.
-
-  This element requires `h264.nalus` metadata entry to be present in each buffer.
-  This can be achieved by setting `attach_nalus?` option to `true` in the h264
-  parser.
   """
   use Bunch
   use Membrane.Filter
@@ -16,7 +12,9 @@ defmodule Membrane.MP4.Payloader.H264 do
 
   def_input_pad :input,
     demand_unit: :buffers,
-    caps: {Membrane.Caps.Video.H264, stream_format: :byte_stream, alignment: :au}
+    caps:
+      {Membrane.Caps.Video.H264,
+       stream_format: :byte_stream, alignment: :au, nalu_in_metadata?: true}
 
   def_output_pad :output, caps: Membrane.MP4.Payload
 
