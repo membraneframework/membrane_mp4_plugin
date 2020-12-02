@@ -6,7 +6,7 @@ defmodule Membrane.MP4.IntegrationTest do
 
   test "video" do
     children = [
-      file: %Membrane.Element.File.Source{location: "test/fixtures/in_video.h264"},
+      file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
       parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
       payloader: Membrane.MP4.Payloader.H264,
       cmaf: Membrane.MP4.CMAF.Muxer,
@@ -34,7 +34,7 @@ defmodule Membrane.MP4.IntegrationTest do
 
   test "audio" do
     children = [
-      file: %Membrane.Element.File.Source{location: "test/fixtures/in_audio.aac"},
+      file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
       parser: %Membrane.AAC.Parser{out_encapsulation: :none},
       payloader: Membrane.MP4.Payloader.AAC,
       cmaf: %Membrane.MP4.CMAF.Muxer{segment_duration: Membrane.Time.seconds(4)},
