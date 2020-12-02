@@ -6,7 +6,7 @@
 
 This plugin provides utilities for MP4 container parsing and serialization and elements for muxing the stream to [CMAF](https://www.wowza.com/blog/what-is-cmaf).
 
-## Manual tests
+## Updating tests
 
 In case `out_*` reference files in `test/fixtures` change, `out_playlist.m3u8` and its dependent playlists should be updated and checked if they are still playable. The current files have been checked with ffplay (FFmpeg) and Safari.
 
