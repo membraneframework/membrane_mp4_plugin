@@ -7,7 +7,7 @@ defmodule Membrane.MP4.IntegrationTest do
   test "video" do
     children = [
       file: %Membrane.Element.File.Source{location: "test/fixtures/in_video.h264"},
-      parser: %Membrane.Element.FFmpeg.H264.Parser{framerate: {30, 1}, attach_nalus?: true},
+      parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
       payloader: Membrane.MP4.Payloader.H264,
       cmaf: Membrane.MP4.CMAF.Muxer,
       sink: Membrane.Testing.Sink
