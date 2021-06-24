@@ -30,7 +30,8 @@ defmodule Membrane.MP4.CMAF.Muxer do
       |> Map.merge(%{
         seq_num: 0,
         elapsed_time: 0,
-        samples: []
+        samples: [],
+        terminate_segment?: false
       })
 
     {:ok, state}
@@ -47,10 +48,10 @@ defmodule Membrane.MP4.CMAF.Muxer do
     %{caps: caps} = ctx.pads.input
     key_frame? = sample.metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
 
-    if key_frame? and sample.metadata.timestamp - state.elapsed_time >= state.segment_duration do
+    if key_frame? and (sample.metadata.timestamp - state.elapsed_time >= state.segment_duration or state.terminate_segment?) do
       {buffer, state} = generate_segment(caps, sample.metadata, state)
       state = %{state | samples: [sample]}
-      {{:ok, buffer: {:output, buffer}, redemand: :output}, state}
+      {{:ok, buffer: {:output, buffer}, redemand: :output}, %{state | terminate_segment?: false}}
     else
       state = Map.update!(state, :samples, &[sample | &1])
       {{:ok, redemand: :output}, state}
@@ -71,7 +72,7 @@ defmodule Membrane.MP4.CMAF.Muxer do
         |> Header.serialize()
     }
 
-    {{:ok, caps: {:output, caps}, redemand: :output}, state}
+    {{:ok, caps: {:output, caps}, redemand: :output}, %{state | terminate_segment?: true}}
   end
 
   @impl true
