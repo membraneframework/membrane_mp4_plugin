@@ -36,7 +36,10 @@ defmodule Membrane.MP4.Payloader.H264 do
     {nalus, metadata} = process_metadata(metadata)
     nalus = Enum.map(nalus, &Map.put(&1, :payload, :binary.part(payload, &1.unprefixed_poslen)))
 
-    new_caps = if Enum.group_by(nalus, & &1.metadata.h264.type, & &1.payload) |> Map.has_key?(:pps), do: generate_caps(ctx.pads.input.caps, nalus), else: ctx.pads.output.caps
+    new_caps =
+      if Enum.group_by(nalus, & &1.metadata.h264.type, & &1.payload) |> Map.has_key?(:pps),
+        do: generate_caps(ctx.pads.input.caps, nalus),
+        else: ctx.pads.output.caps
 
     caps =
       if ctx.pads.output.caps != new_caps do

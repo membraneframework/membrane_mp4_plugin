@@ -14,6 +14,8 @@ defmodule Membrane.MP4.CMAF.Muxer do
   alias Membrane.{Buffer, Time}
   alias Membrane.MP4.Payload.{AAC, AVC1}
 
+  require Membrane.Logger
+
   def_input_pad :input, demand_unit: :buffers, caps: Membrane.MP4.Payload
   def_output_pad :output, caps: Membrane.CMAF.Track
 
@@ -31,7 +33,7 @@ defmodule Membrane.MP4.CMAF.Muxer do
         seq_num: 0,
         elapsed_time: 0,
         samples: [],
-        terminate_segment?: false
+        caps_to_send: nil
       })
 
     {:ok, state}
@@ -48,18 +50,39 @@ defmodule Membrane.MP4.CMAF.Muxer do
     %{caps: caps} = ctx.pads.input
     key_frame? = sample.metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
 
-    if key_frame? and (sample.metadata.timestamp - state.elapsed_time >= state.segment_duration or state.terminate_segment?) do
-      {buffer, state} = generate_segment(caps, sample.metadata, state)
-      state = %{state | samples: [sample]}
-      {{:ok, buffer: {:output, buffer}, redemand: :output}, %{state | terminate_segment?: false}}
-    else
-      state = Map.update!(state, :samples, &[sample | &1])
-      {{:ok, redemand: :output}, state}
+    cond do
+      key_frame? and state.caps_to_send != nil ->
+        Membrane.Logger.debug("Sending caps #{inspect(state.caps_to_send)}")
+
+        case state.samples do
+          [] ->
+            state = Map.update!(state, :samples, &[sample | &1])
+
+            {{:ok, caps: {:output, state.caps_to_send}, redemand: :output},
+             %{state | caps_to_send: nil}}
+
+          _samples ->
+            {buffer, state} = generate_segment(caps, sample.metadata, state)
+            state = %{state | samples: [sample]}
+
+            {{:ok,
+              buffer: {:output, buffer}, caps: {:output, state.caps_to_send}, redemand: :output},
+             %{state | caps_to_send: nil}}
+        end
+
+      key_frame? and sample.metadata.timestamp - state.elapsed_time >= state.segment_duration ->
+        {buffer, state} = generate_segment(caps, sample.metadata, state)
+        state = %{state | samples: [sample]}
+        {{:ok, buffer: {:output, buffer}, redemand: :output}, state}
+
+      true ->
+        state = Map.update!(state, :samples, &[sample | &1])
+        {{:ok, redemand: :output}, state}
     end
   end
 
   @impl true
-  def handle_caps(:input, %Membrane.MP4.Payload{} = caps, _ctx, state) do
+  def handle_caps(:input, %Membrane.MP4.Payload{} = caps, ctx, state) do
     caps = %Membrane.CMAF.Track{
       content_type:
         case caps.content do
@@ -72,7 +95,18 @@ defmodule Membrane.MP4.CMAF.Muxer do
         |> Header.serialize()
     }
 
-    {{:ok, caps: {:output, caps}, redemand: :output}, %{state | terminate_segment?: true}}
+    state =
+      if caps != ctx.pads.output.caps do
+        Membrane.Logger.debug(
+          "Preparing to send caps #{inspect(caps)}\nOld caps: #{inspect(ctx.pads.output.caps)}"
+        )
+
+        %{state | caps_to_send: caps}
+      else
+        state
+      end
+
+    {{:ok, redemand: :output}, state}
   end
 
   @impl true
