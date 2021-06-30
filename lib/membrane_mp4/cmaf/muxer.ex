@@ -14,8 +14,6 @@ defmodule Membrane.MP4.CMAF.Muxer do
   alias Membrane.{Buffer, Time}
   alias Membrane.MP4.Payload.{AAC, AVC1}
 
-  require Membrane.Logger
-
   def_input_pad :input, demand_unit: :buffers, caps: Membrane.MP4.Payload
   def_output_pad :output, caps: Membrane.CMAF.Track
 
@@ -33,7 +31,7 @@ defmodule Membrane.MP4.CMAF.Muxer do
         seq_num: 0,
         elapsed_time: 0,
         samples: [],
-        caps_to_send: nil
+        pending_caps: nil
       })
 
     {:ok, state}
@@ -51,23 +49,25 @@ defmodule Membrane.MP4.CMAF.Muxer do
     key_frame? = sample.metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
 
     cond do
-      key_frame? and state.caps_to_send != nil ->
-        Membrane.Logger.debug("Sending caps #{inspect(state.caps_to_send)}")
-
+      # handle new caps case on new key frame
+      key_frame? and state.pending_caps != nil ->
         case state.samples do
           [] ->
             state = Map.update!(state, :samples, &[sample | &1])
 
-            {{:ok, caps: {:output, state.caps_to_send}, redemand: :output},
-             %{state | caps_to_send: nil}}
+            {{:ok, caps: {:output, state.pending_caps}, redemand: :output},
+             %{state | pending_caps: nil}}
 
           _samples ->
+            # if there are pending caps and cached samples then generate new segment even if
+            # it does not meet segment duration, caps action will trigger discontinuity event
+            # right after the the buffer with old caps is sent
             {buffer, state} = generate_segment(caps, sample.metadata, state)
-            state = %{state | samples: [sample]}
+            state = %{state | samples: [sample], pending_caps: nil}
 
             {{:ok,
-              buffer: {:output, buffer}, caps: {:output, state.caps_to_send}, redemand: :output},
-             %{state | caps_to_send: nil}}
+              buffer: {:output, buffer}, caps: {:output, state.pending_caps}, redemand: :output},
+             state}
         end
 
       key_frame? and sample.metadata.timestamp - state.elapsed_time >= state.segment_duration ->
@@ -95,13 +95,12 @@ defmodule Membrane.MP4.CMAF.Muxer do
         |> Header.serialize()
     }
 
+    # forwarding new caps action should be postponed so that
+    # discontinuity event arrives after the last buffer representing old
+    # caps is sent, cache the caps and handle propagating new caps only when handling new samples
     state =
       if caps != ctx.pads.output.caps do
-        Membrane.Logger.debug(
-          "Preparing to send caps #{inspect(caps)}\nOld caps: #{inspect(ctx.pads.output.caps)}"
-        )
-
-        %{state | caps_to_send: caps}
+        %{state | pending_caps: caps}
       else
         state
       end
