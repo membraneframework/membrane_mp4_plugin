@@ -8,8 +8,6 @@ defmodule Membrane.MP4.Payloader.H264 do
   alias Membrane.Buffer
   alias Membrane.MP4.Payload.AVC1
 
-  require Membrane.Logger
-
   @nalu_length_size 4
 
   def_input_pad :input,
@@ -37,13 +35,12 @@ defmodule Membrane.MP4.Payloader.H264 do
     nalus = Enum.map(nalus, &Map.put(&1, :payload, :binary.part(payload, &1.unprefixed_poslen)))
 
     new_caps =
-      if Enum.group_by(nalus, & &1.metadata.h264.type, & &1.payload) |> Map.has_key?(:pps),
+      if Enum.any?(nalus, &(&1.metadata.h264.type == :pps)),
         do: generate_caps(ctx.pads.input.caps, nalus),
         else: ctx.pads.output.caps
 
     caps =
       if ctx.pads.output.caps != new_caps do
-        Membrane.Logger.debug("Generating new caps")
         [caps: {:output, generate_caps(ctx.pads.input.caps, nalus)}]
       else
         []
