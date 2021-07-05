@@ -41,7 +41,7 @@ defmodule Membrane.MP4.Payloader.H264 do
 
     caps =
       if ctx.pads.output.caps != new_caps do
-        [caps: {:output, generate_caps(ctx.pads.input.caps, nalus)}]
+        [caps: {:output, new_caps}]
       else
         []
       end
