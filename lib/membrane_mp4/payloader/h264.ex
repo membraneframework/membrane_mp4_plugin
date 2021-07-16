@@ -20,7 +20,7 @@ defmodule Membrane.MP4.Payloader.H264 do
 
   @impl true
   def handle_init(_) do
-    {:ok, %{}}
+    {:ok, %{sps: nil, pps: nil}}
   end
 
   @impl true
@@ -34,16 +34,17 @@ defmodule Membrane.MP4.Payloader.H264 do
     {nalus, metadata} = process_metadata(metadata)
     nalus = Enum.map(nalus, &Map.put(&1, :payload, :binary.part(payload, &1.unprefixed_poslen)))
 
-    new_caps =
-      if Enum.any?(nalus, &(&1.metadata.h264.type == :pps)),
-        do: generate_caps(ctx.pads.input.caps, nalus),
-        else: ctx.pads.output.caps
+    grouped_nalus = Enum.group_by(nalus, & &1.metadata.h264.type)
 
-    caps =
-      if ctx.pads.output.caps != new_caps do
-        [caps: {:output, new_caps}]
+    pps = Map.get(grouped_nalus, :pps, state.pps)
+    sps = Map.get(grouped_nalus, :sps, state.sps)
+
+    {caps, state} =
+      if pps != state.pps or sps != state.sps do
+        {[caps: {:output, generate_caps(ctx.pads.input.caps, nalus)}],
+         %{state | pps: pps, sps: sps}}
       else
-        []
+        {[], state}
       end
 
     payload = nalus |> Enum.map(&process_nalu/1) |> Enum.join()
