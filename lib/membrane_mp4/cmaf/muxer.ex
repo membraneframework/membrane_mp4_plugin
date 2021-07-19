@@ -104,13 +104,13 @@ defmodule Membrane.MP4.CMAF.Muxer do
           {[], %{state | pending_caps: caps}}
 
         caps != ctx.pads.output.caps ->
-          {[caps: caps], state}
+          {[caps: {:output, caps}], state}
 
         true ->
           {[], state}
       end
 
-    {{:ok, [{:redemand, :output} | caps]}, state}
+    {{:ok, caps ++ [redemand: :output]}, state}
   end
 
   @impl true
