@@ -97,15 +97,20 @@ defmodule Membrane.MP4.CMAF.Muxer do
 
     # forwarding new caps action should be postponed so that
     # discontinuity event arrives after the last buffer representing old
-    # caps is sent, cache the caps and handle propagating new caps only when handling new samples
-    state =
-      if caps != ctx.pads.output.caps do
-        %{state | pending_caps: caps}
-      else
-        state
+    # caps is sent, if there are cached samples then postpone the caps propagation until a new segment gets created in handle_process
+    {caps, state} =
+      cond do
+        caps != ctx.pads.output.caps and state.samples != [] ->
+          {[], %{state | pending_caps: caps}}
+
+        caps != ctx.pads.output.caps ->
+          {[caps: caps], state}
+
+        true ->
+          {[], state}
       end
 
-    {{:ok, redemand: :output}, state}
+    {{:ok, [{:redemand, :output} | caps]}, state}
   end
 
   @impl true
