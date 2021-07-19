@@ -31,7 +31,7 @@ defmodule Membrane.MP4.CMAF.Muxer do
         seq_num: 0,
         elapsed_time: 0,
         samples: [],
-        pending_caps: nil
+        stale_caps: nil
       })
 
     {:ok, state}
@@ -49,26 +49,13 @@ defmodule Membrane.MP4.CMAF.Muxer do
     key_frame? = sample.metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
 
     cond do
-      # handle new caps case on new key frame
-      key_frame? and state.pending_caps != nil ->
-        case state.samples do
-          [] ->
-            state = Map.update!(state, :samples, &[sample | &1])
+      # if there are stale caps it means we need to generate a new segment
+      # with them and next forward current caps as their propagation has been postponed
+      key_frame? and state.stale_caps != nil ->
+        {buffer, state} = generate_segment(state.stale_caps, sample.metadata, state)
+        state = %{state | samples: [sample], stale_caps: nil}
 
-            {{:ok, caps: {:output, state.pending_caps}, redemand: :output},
-             %{state | pending_caps: nil}}
-
-          _samples ->
-            # if there are pending caps and cached samples then generate new segment even if
-            # it does not meet segment duration, caps action will trigger discontinuity event
-            # right after the the buffer with old caps is sent
-            {buffer, state} = generate_segment(caps, sample.metadata, state)
-            state = %{state | samples: [sample], pending_caps: nil}
-
-            {{:ok,
-              buffer: {:output, buffer}, caps: {:output, state.pending_caps}, redemand: :output},
-             state}
-        end
+        {{:ok, buffer: {:output, buffer}, caps: {:output, caps}, redemand: :output}, state}
 
       key_frame? and sample.metadata.timestamp - state.elapsed_time >= state.segment_duration ->
         {buffer, state} = generate_segment(caps, sample.metadata, state)
@@ -100,8 +87,9 @@ defmodule Membrane.MP4.CMAF.Muxer do
     # caps is sent, if there are cached samples then postpone the caps propagation until a new segment gets created in handle_process
     {caps, state} =
       cond do
+        # cache caps only if there are cached samples
         caps != ctx.pads.output.caps and state.samples != [] ->
-          {[], %{state | pending_caps: caps}}
+          {[], %{state | stale_caps: ctx.pads.input.caps}}
 
         caps != ctx.pads.output.caps ->
           {[caps: {:output, caps}], state}
