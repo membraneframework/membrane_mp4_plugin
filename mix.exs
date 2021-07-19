@@ -54,7 +54,6 @@ defmodule Membrane.MP4.Plugin.MixProject do
       {:membrane_mp4_format, "~> 0.3.0"},
       {:membrane_cmaf_format, "~> 0.3.0"},
       {:membrane_aac_format, "~> 0.3.0"},
-      {:membrane_http_adaptive_stream_plugin, "~> 0.3.0"},
       {:membrane_caps_video_h264, "~> 0.2.0"},
       {:membrane_file_plugin, "~> 0.6.0", only: :test},
       {:membrane_h264_ffmpeg_plugin, "~> 0.9.0", only: :test},

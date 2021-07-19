@@ -30,7 +30,8 @@ defmodule Membrane.MP4.CMAF.Muxer do
       |> Map.merge(%{
         seq_num: 0,
         elapsed_time: 0,
-        samples: []
+        samples: [],
+        stale_caps: nil
       })
 
     {:ok, state}
@@ -47,18 +48,28 @@ defmodule Membrane.MP4.CMAF.Muxer do
     %{caps: caps} = ctx.pads.input
     key_frame? = sample.metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
 
-    if key_frame? and sample.metadata.timestamp - state.elapsed_time >= state.segment_duration do
-      {buffer, state} = generate_segment(caps, sample.metadata, state)
-      state = %{state | samples: [sample]}
-      {{:ok, buffer: {:output, buffer}, redemand: :output}, state}
-    else
-      state = Map.update!(state, :samples, &[sample | &1])
-      {{:ok, redemand: :output}, state}
+    cond do
+      # if there are stale caps it means we need to generate a new segment
+      # with them and next forward current caps as their propagation has been postponed
+      key_frame? and state.stale_caps != nil ->
+        {buffer, state} = generate_segment(state.stale_caps, sample.metadata, state)
+        state = %{state | samples: [sample], stale_caps: nil}
+
+        {{:ok, buffer: {:output, buffer}, caps: {:output, caps}, redemand: :output}, state}
+
+      key_frame? and sample.metadata.timestamp - state.elapsed_time >= state.segment_duration ->
+        {buffer, state} = generate_segment(caps, sample.metadata, state)
+        state = %{state | samples: [sample]}
+        {{:ok, buffer: {:output, buffer}, redemand: :output}, state}
+
+      true ->
+        state = Map.update!(state, :samples, &[sample | &1])
+        {{:ok, redemand: :output}, state}
     end
   end
 
   @impl true
-  def handle_caps(:input, %Membrane.MP4.Payload{} = caps, _ctx, state) do
+  def handle_caps(:input, %Membrane.MP4.Payload{} = caps, ctx, state) do
     caps = %Membrane.CMAF.Track{
       content_type:
         case caps.content do
@@ -71,7 +82,23 @@ defmodule Membrane.MP4.CMAF.Muxer do
         |> Header.serialize()
     }
 
-    {{:ok, caps: {:output, caps}, redemand: :output}, state}
+    # forwarding new caps action should be postponed so that
+    # discontinuity event arrives after the last buffer representing old
+    # caps is sent, if there are cached samples then postpone the caps propagation until a new segment gets created in handle_process
+    {caps, state} =
+      cond do
+        # cache caps only if there are cached samples
+        caps != ctx.pads.output.caps and state.samples != [] ->
+          {[], %{state | stale_caps: ctx.pads.input.caps}}
+
+        caps != ctx.pads.output.caps ->
+          {[caps: {:output, caps}], state}
+
+        true ->
+          {[], state}
+      end
+
+    {{:ok, caps ++ [redemand: :output]}, state}
   end
 
   @impl true
