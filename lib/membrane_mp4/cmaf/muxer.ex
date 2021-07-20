@@ -31,7 +31,8 @@ defmodule Membrane.MP4.CMAF.Muxer do
         seq_num: 0,
         elapsed_time: 0,
         samples: [],
-        stale_caps: nil
+        old_input_caps: nil,
+        new_output_caps: nil
       })
 
     {:ok, state}
@@ -51,11 +52,14 @@ defmodule Membrane.MP4.CMAF.Muxer do
     cond do
       # if there are stale caps it means we need to generate a new segment
       # with them and next forward current caps as their propagation has been postponed
-      key_frame? and state.stale_caps != nil ->
-        {buffer, state} = generate_segment(state.stale_caps, sample.metadata, state)
-        state = %{state | samples: [sample], stale_caps: nil}
+      key_frame? and state.old_input_caps != nil ->
+        %{new_output_caps: new_output_caps, old_input_caps: old_input_caps} = state
 
-        {{:ok, buffer: {:output, buffer}, caps: {:output, caps}, redemand: :output}, state}
+        {buffer, state} = generate_segment(old_input_caps, sample.metadata, state)
+        state = %{state | samples: [sample], old_input_caps: nil, new_output_caps: nil}
+
+        {{:ok, buffer: {:output, buffer}, caps: {:output, new_output_caps}, redemand: :output},
+         state}
 
       key_frame? and sample.metadata.timestamp - state.elapsed_time >= state.segment_duration ->
         {buffer, state} = generate_segment(caps, sample.metadata, state)
@@ -82,14 +86,16 @@ defmodule Membrane.MP4.CMAF.Muxer do
         |> Header.serialize()
     }
 
-    # forwarding new caps action should be postponed so that
-    # discontinuity event arrives after the last buffer representing old
-    # caps is sent, if there are cached samples then postpone the caps propagation until a new segment gets created in handle_process
+    # returning new output caps action should be postponed so that
+    # the discontinuity event the action will trigger will come right after the last buffer representing old
+    # input caps is sent, therefore if there are cached samples we need to cache both caps:
+    # - old input caps - must be used to generate a segment from the cached samples, have to be cached as the next handle_process call will use new input caps
+    # - new output caps - must follow freshly generated segment from the old input caps
     {caps, state} =
       cond do
         # cache caps only if there are cached samples
         caps != ctx.pads.output.caps and state.samples != [] ->
-          {[], %{state | stale_caps: ctx.pads.input.caps}}
+          {[], %{state | old_input_caps: ctx.pads.input.caps, new_output_caps: caps}}
 
         caps != ctx.pads.output.caps ->
           {[caps: {:output, caps}], state}
