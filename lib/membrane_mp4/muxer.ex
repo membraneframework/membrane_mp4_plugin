@@ -4,15 +4,21 @@ defmodule Membrane.MP4.Muxer do
   """
   use Membrane.Filter
 
-  alias Membrane.MP4.Container
-  alias __MODULE__.BoxHelper
+  alias Membrane.MP4.{CommonBox, Container}
+  alias __MODULE__.MovieBox
 
   def_input_pad :input, demand_unit: :buffers, caps: Membrane.MP4.Payload
   def_output_pad :output, caps: :buffers
 
+  def_options timescale: [
+                type: :integer,
+                default: 1000,
+                description: "Common timescale for all tracks in the container"
+              ]
+
   @impl true
-  def handle_init(_options) do
-    state = %{caps: %{}, buffers: []}
+  def handle_init(options) do
+    state = %{tracks: [], timescale: options.timescale}
 
     {:ok, state}
   end
@@ -21,7 +27,10 @@ defmodule Membrane.MP4.Muxer do
   def handle_caps(:input, %Membrane.MP4.Payload{} = caps, _ctx, state) do
     caps = Map.take(caps, [:timescale, :width, :height, :content])
 
-    {{:ok, redemand: :output}, %{state | caps: caps}}
+    state =
+      Map.update!(state, :tracks, &[%{config: caps, sample_count: 0, buffers: Qex.new()} | &1])
+
+    {{:ok, redemand: :output}, state}
   end
 
   @impl true
@@ -31,30 +40,35 @@ defmodule Membrane.MP4.Muxer do
 
   @impl true
   def handle_process(:input, buffer, _ctx, state) do
-    state = Map.update!(state, :buffers, &[buffer | &1])
+    state =
+      Map.update!(state, :tracks, fn tracks ->
+        first = hd(tracks)
+        rest = tl(tracks)
+
+        [
+          first
+          |> Map.update!(:buffers, &Qex.push(&1, buffer))
+          |> Map.update!(:sample_count, &(&1 + 1))
+          | rest
+        ]
+      end)
 
     {{:ok, redemand: :output}, state}
   end
 
   @impl true
   def handle_end_of_stream(:input, _ctx, state) do
-    ftyp = BoxHelper.file_type_box()
+    ftyp = CommonBox.file_type() |> Container.serialize!()
 
-    ordered_buffers = state.buffers |> Enum.reverse()
+    mdat =
+      state.tracks
+      |> Enum.flat_map(& &1.buffers)
+      |> CommonBox.media_data()
+      |> Container.serialize!()
 
-    mdat = BoxHelper.media_data_box(ordered_buffers)
+    moov = state |> Map.take([:tracks, :timescale]) |> MovieBox.serialize()
 
-    moov_config =
-      state.caps
-      |> Map.merge(%{
-        first_timestamp: hd(ordered_buffers).metadata.timestamp,
-        last_timestamp: hd(state.buffers).metadata.timestamp,
-        payload_sizes: Enum.map(ordered_buffers, &byte_size(&1.payload))
-      })
-
-    moov = BoxHelper.movie_box([moov_config])
-
-    mp4 = [ftyp, mdat, moov] |> Enum.map(&Container.serialize!/1) |> Enum.join()
+    mp4 = [ftyp, mdat, moov] |> Enum.join()
 
     {{:ok, buffer: {:output, %Membrane.Buffer{payload: mp4}}, end_of_stream: :output}, state}
   end

@@ -1,7 +1,6 @@
 defmodule Membrane.MP4.CMAF.Muxer.Header do
   @moduledoc false
-  alias Membrane.MP4.Container
-  alias Membrane.MP4.Payload.{AAC, AVC1}
+  alias Membrane.MP4.{CommonBox, Container}
 
   @spec serialize(%{
           timescale: integer,
@@ -10,269 +9,128 @@ defmodule Membrane.MP4.CMAF.Muxer.Header do
           content: struct
         }) :: binary
   def serialize(config) do
-    sample_description = sample_description(config)
+    cmaf_config =
+      config |> Map.merge(%{duration: 0, common_duration: 0, common_timescale: 1, track_id: 1})
 
-    [
-      ftyp: %{
-        children: [],
-        fields: %{
-          compatible_brands: ["iso6", "mp41"],
-          major_brand: "iso5",
-          major_brand_version: 512
-        }
-      },
-      moov: %{
-        children: [
-          mvhd: %{
-            children: [],
-            fields: %{
-              creation_time: 0,
-              duration: 0,
-              flags: 0,
-              matrix_value_A: {1, 0},
-              matrix_value_B: {0, 0},
-              matrix_value_C: {0, 0},
-              matrix_value_D: {1, 0},
-              matrix_value_U: {0, 0},
-              matrix_value_V: {0, 0},
-              matrix_value_W: {1, 0},
-              matrix_value_X: {0, 0},
-              matrix_value_Y: {0, 0},
-              modification_time: 0,
-              next_track_id: 2,
-              quicktime_current_time: 0,
-              quicktime_poster_time: 0,
-              quicktime_preview_duration: 0,
-              quicktime_preview_time: 0,
-              quicktime_selection_duration: 0,
-              quicktime_selection_time: 0,
-              rate: {1, 0},
-              timescale: 1,
-              version: 0,
-              volume: {1, 0}
-            }
-          },
-          trak: %{
-            children: [
-              tkhd: %{
-                children: [],
-                fields: %{
-                  alternate_group: 0,
-                  creation_time: 0,
-                  duration: 0,
-                  flags: 3,
-                  height: {config.height, 0},
-                  layer: 0,
-                  matrix_value_A: {1, 0},
-                  matrix_value_B: {0, 0},
-                  matrix_value_C: {0, 0},
-                  matrix_value_D: {1, 0},
-                  matrix_value_U: {0, 0},
-                  matrix_value_V: {0, 0},
-                  matrix_value_W: {1, 0},
-                  matrix_value_X: {0, 0},
-                  matrix_value_Y: {0, 0},
-                  modification_time: 0,
-                  track_id: 1,
-                  version: 0,
-                  volume: {1, 0},
-                  width: {config.width, 0}
-                }
-              },
-              mdia: %{
-                children: [
-                  mdhd: %{
-                    children: [],
-                    fields: %{
-                      creation_time: 0,
-                      duration: 0,
-                      flags: 0,
-                      language: 21956,
-                      modification_time: 0,
-                      timescale: config.timescale,
-                      version: 0
-                    }
-                  },
-                  hdlr: handler(config),
-                  minf: %{
-                    children:
-                      media_header(config) ++
-                        [
-                          dinf: %{
-                            children: [
-                              dref: %{
-                                children: [
-                                  url: %{children: [], fields: %{flags: 1, version: 0}}
-                                ],
-                                fields: %{entry_count: 1, flags: 0, version: 0}
-                              }
-                            ],
-                            fields: %{}
-                          },
-                          stbl: %{
-                            children: [
-                              stsd: %{
-                                children: sample_description,
-                                fields: %{
-                                  entry_count: length(sample_description),
-                                  flags: 0,
-                                  version: 0
-                                }
-                              },
-                              stts: %{
-                                fields: %{version: 0, flags: 0, entry_count: 0, entry_list: []}
-                              },
-                              stsc: %{
-                                fields: %{version: 0, flags: 0, entry_count: 0, entry_list: []}
-                              },
-                              stsz: %{
-                                fields: %{
-                                  version: 0,
-                                  flags: 0,
-                                  sample_size: 0,
-                                  entry_count: 0,
-                                  entry_list: []
-                                }
-                              },
-                              stco: %{
-                                fields: %{version: 0, flags: 0, entry_count: 0, entry_list: []}
-                              }
-                            ],
-                            fields: %{}
-                          }
-                        ],
-                    fields: %{}
-                  }
-                ],
-                fields: %{}
-              }
-            ],
-            fields: %{}
-          },
-          mvex: %{
-            children: [
-              trex: %{
-                fields: %{
-                  version: 0,
-                  flags: 0,
-                  track_id: 1,
-                  default_sample_description_index: 1,
-                  default_sample_duration: 0,
-                  default_sample_size: 0,
-                  default_sample_flags: 0
-                }
-              }
-            ]
-          }
-        ],
-        fields: %{}
-      }
-    ]
+    ftyp = CommonBox.file_type()
+    mvhd = cmaf_config |> Map.put(:next_track_id, 2) |> CommonBox.movie_header()
+
+    (ftyp ++
+       [
+         moov: %{
+           children: mvhd ++ track(cmaf_config) ++ mvex(),
+           fields: %{}
+         }
+       ])
     |> Container.serialize!()
   end
 
-  defp sample_description(%{content: %AVC1{} = avc1} = config) do
+  defp track(config) do
+    track_header = CommonBox.track_header(config)
+    media_handler_header = CommonBox.media_handler_header(config)
+    handler = CommonBox.handler(config)
+    media_header = CommonBox.media_header(config)
+    sample_description = CommonBox.sample_description(config)
+
     [
-      avc1: %{
-        children: [
-          avcC: %{
-            content: avc1.avcc
-          },
-          pasp: %{
-            children: [],
-            fields: %{h_spacing: 1, v_spacing: 1}
-          }
-        ],
-        fields: %{
-          compressor_name: <<0::size(32)-unit(8)>>,
-          depth: 24,
-          flags: 0,
-          frame_count: 1,
-          height: config.height,
-          horizresolution: {0, 0},
-          num_of_entries: 1,
-          version: 0,
-          vertresolution: {0, 0},
-          width: config.width
-        }
+      trak: %{
+        children:
+          track_header ++
+            [
+              mdia: %{
+                children:
+                  media_handler_header ++
+                    handler ++
+                    [
+                      minf: %{
+                        children:
+                          media_header ++
+                            [
+                              dinf: %{
+                                children: [
+                                  dref: %{
+                                    children: [
+                                      url: %{children: [], fields: %{flags: 1, version: 0}}
+                                    ],
+                                    fields: %{entry_count: 1, flags: 0, version: 0}
+                                  }
+                                ],
+                                fields: %{}
+                              },
+                              stbl: %{
+                                children: [
+                                  stsd: %{
+                                    children: sample_description,
+                                    fields: %{
+                                      entry_count: length(sample_description),
+                                      flags: 0,
+                                      version: 0
+                                    }
+                                  },
+                                  stts: %{
+                                    fields: %{
+                                      version: 0,
+                                      flags: 0,
+                                      entry_count: 0,
+                                      entry_list: []
+                                    }
+                                  },
+                                  stsc: %{
+                                    fields: %{
+                                      version: 0,
+                                      flags: 0,
+                                      entry_count: 0,
+                                      entry_list: []
+                                    }
+                                  },
+                                  stsz: %{
+                                    fields: %{
+                                      version: 0,
+                                      flags: 0,
+                                      sample_size: 0,
+                                      sample_count: 0,
+                                      entry_list: []
+                                    }
+                                  },
+                                  stco: %{
+                                    fields: %{
+                                      version: 0,
+                                      flags: 0,
+                                      entry_count: 0,
+                                      entry_list: []
+                                    }
+                                  }
+                                ],
+                                fields: %{}
+                              }
+                            ],
+                        fields: %{}
+                      }
+                    ],
+                fields: %{}
+              }
+            ],
+        fields: %{}
       }
     ]
   end
 
-  defp sample_description(%{content: %AAC{} = aac}) do
+  defp mvex() do
     [
-      mp4a: %{
-        children: %{
-          esds: %{
+      mvex: %{
+        children: [
+          trex: %{
             fields: %{
-              elementary_stream_descriptor: aac.esds,
+              version: 0,
               flags: 0,
-              version: 0
+              track_id: 1,
+              default_sample_description_index: 1,
+              default_sample_duration: 0,
+              default_sample_size: 0,
+              default_sample_flags: 0
             }
           }
-        },
-        fields: %{
-          channel_count: aac.channels,
-          compression_id: 0,
-          data_reference_index: 1,
-          encoding_revision: 0,
-          encoding_vendor: 0,
-          encoding_version: 0,
-          packet_size: 0,
-          sample_size: 16,
-          sample_rate: {aac.sample_rate, 0}
-        }
-      }
-    ]
-  end
-
-  defp handler(%{content: %AVC1{}}) do
-    %{
-      children: [],
-      fields: %{
-        flags: 0,
-        handler_type: "vide",
-        name: "VideoHandler",
-        version: 0
-      }
-    }
-  end
-
-  defp handler(%{content: %AAC{}}) do
-    %{
-      children: [],
-      fields: %{
-        flags: 0,
-        handler_type: "soun",
-        name: "SoundHandler",
-        version: 0
-      }
-    }
-  end
-
-  defp media_header(%{content: %AVC1{}}) do
-    [
-      vmhd: %{
-        children: [],
-        fields: %{
-          flags: 1,
-          graphics_mode: 0,
-          opcolor: 0,
-          version: 0
-        }
-      }
-    ]
-  end
-
-  defp media_header(%{content: %AAC{}}) do
-    [
-      smhd: %{
-        children: [],
-        fields: %{
-          balance: {0, 0},
-          flags: 0,
-          version: 0
-        }
+        ]
       }
     ]
   end
