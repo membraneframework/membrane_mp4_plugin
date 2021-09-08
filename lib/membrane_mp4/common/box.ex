@@ -1,6 +1,7 @@
-defmodule Membrane.MP4.CommonBox do
+defmodule Membrane.MP4.Common.Box do
   @moduledoc false
-  alias Membrane.MP4.{Container, Track}
+  alias Membrane.MP4.Container
+  alias Membrane.MP4.Common.Track
   alias Membrane.MP4.Payload.{AAC, AVC1}
 
   @ftyp [
@@ -15,12 +16,13 @@ defmodule Membrane.MP4.CommonBox do
   ]
 
   @ftyp_size @ftyp |> Container.serialize!() |> byte_size()
-  @mdat_header_size [mdat: %{content: <<>>}] |> Container.serialize!() |> byte_size()
+  @mdat_header_size 8
+  @first_chunk_offset @ftyp_size + @mdat_header_size
 
-  @spec file_type_box :: keyword()
+  @spec file_type_box :: Container.t()
   def file_type_box(), do: @ftyp
 
-  @spec media_data_box(binary) :: keyword()
+  @spec media_data_box(binary) :: Container.t()
   def media_data_box(payload) do
     [
       mdat: %{
@@ -29,68 +31,49 @@ defmodule Membrane.MP4.CommonBox do
     ]
   end
 
-  @spec movie_box([%Track{}], integer, keyword()) :: keyword()
-  def movie_box(tracks, timescale, offsets, extensions \\ []) do
-    longest_track = Enum.max_by(tracks, & &1.duration.normalized)
-
+  @spec movie_box(%Track{}) :: Container.t()
+  def movie_box(%Track{kind: :cmaf} = track) do
     header =
       %{
-        timescale: timescale,
-        duration: longest_track.duration.normalized,
-        next_track_id: length(tracks) + 1
+        duration: 0,
+        timescale: 1,
+        next_track_id: 2
       }
       |> movie_header()
 
-    track_boxes = tracks |> Enum.zip(offsets) |> Enum.flat_map(&track_box(elem(&1, 0), elem(&1, 1)))
-
     [
       moov: %{
-        children: header ++ track_boxes ++ extensions,
+        children: header ++ track_box(track, 0) ++ movie_extends(track),
         fields: %{}
       }
     ]
   end
 
-  @spec track_box(%Track{}, integer) :: keyword()
-  defp track_box(track, offset) do
-    track_header = track_header(track)
-    media_handler_header = media_handler_header(track)
-    handler = handler(track)
-    media_header = media_header(track)
-    sample_table = sample_table(track, offset)
+  @spec movie_box([%Track{}], integer) :: Container.t()
+  def movie_box(tracks, common_timescale) do
+    longest_track = Enum.max_by(tracks, & &1.common_duration)
+
+    header =
+      %{
+        timescale: common_timescale,
+        duration: longest_track.common_duration,
+        next_track_id: length(tracks) + 1
+      }
+      |> movie_header()
+
+    offsets =
+      tracks
+      |> Enum.map(&Track.get_payload/1)
+      |> Enum.map(&byte_size/1)
+      |> then(&[@first_chunk_offset | &1])
+      |> Enum.scan(&+/2)
+
+    track_boxes =
+      tracks |> Enum.zip(offsets) |> Enum.flat_map(&track_box(elem(&1, 0), elem(&1, 1)))
 
     [
-      trak: %{
-        children:
-          track_header ++
-            [
-              mdia: %{
-                children:
-                  media_handler_header ++
-                    handler ++
-                    [
-                      minf: %{
-                        children:
-                          media_header ++
-                            [
-                              dinf: %{
-                                children: [
-                                  dref: %{
-                                    children: [
-                                      url: %{children: [], fields: %{flags: 1, version: 0}}
-                                    ],
-                                    fields: %{entry_count: 1, flags: 0, version: 0}
-                                  }
-                                ],
-                                fields: %{}
-                              }
-                            ] ++ sample_table,
-                        fields: %{}
-                      }
-                    ],
-                fields: %{}
-              }
-            ],
+      moov: %{
+        children: header ++ track_boxes,
         fields: %{}
       }
     ]
@@ -134,6 +117,44 @@ defmodule Membrane.MP4.CommonBox do
     ]
   end
 
+  defp track_box(track, offset) do
+    [
+      trak: %{
+        children:
+          track_header(track) ++
+            [
+              mdia: %{
+                children:
+                  media_handler_header(track) ++
+                    handler(track) ++
+                    [
+                      minf: %{
+                        children:
+                          media_header(track) ++
+                            [
+                              dinf: %{
+                                children: [
+                                  dref: %{
+                                    children: [
+                                      url: %{children: [], fields: %{flags: 1, version: 0}}
+                                    ],
+                                    fields: %{entry_count: 1, flags: 0, version: 0}
+                                  }
+                                ],
+                                fields: %{}
+                              }
+                            ] ++ sample_table(track, offset),
+                        fields: %{}
+                      }
+                    ],
+                fields: %{}
+              }
+            ],
+        fields: %{}
+      }
+    ]
+  end
+
   defp track_header(track) do
     [
       tkhd: %{
@@ -141,7 +162,7 @@ defmodule Membrane.MP4.CommonBox do
         fields: %{
           alternate_group: 0,
           creation_time: 0,
-          duration: track.duration.normalized,
+          duration: track.common_duration,
           flags: 3,
           height: {track.height, 0},
           layer: 0,
@@ -170,7 +191,7 @@ defmodule Membrane.MP4.CommonBox do
         children: [],
         fields: %{
           creation_time: 0,
-          duration: track.duration.absolute,
+          duration: track.duration,
           flags: 0,
           language: 21956,
           modification_time: 0,
@@ -236,65 +257,12 @@ defmodule Membrane.MP4.CommonBox do
     ]
   end
 
-  defp sample_table(%Track{sample_count: 0} = track, _offset) do
-    sample_description = sample_description(track)
-
-    [
-      stbl: %{
-        children: [
-          stsd: %{
-            children: sample_description,
-            fields: %{
-              entry_count: length(sample_description),
-              flags: 0,
-              version: 0
-            }
-          },
-          stts: %{
-            fields: %{
-              version: 0,
-              flags: 0,
-              entry_count: 0,
-              entry_list: []
-            }
-          },
-          stsc: %{
-            fields: %{
-              version: 0,
-              flags: 0,
-              entry_count: 0,
-              entry_list: []
-            }
-          },
-          stsz: %{
-            fields: %{
-              version: 0,
-              flags: 0,
-              sample_size: 0,
-              sample_count: 0,
-              entry_list: []
-            }
-          },
-          stco: %{
-            fields: %{
-              version: 0,
-              flags: 0,
-              entry_count: 0,
-              entry_list: []
-            }
-          }
-        ],
-        fields: %{}
-      }
-    ]
-  end
-
   defp sample_table(track, offset) do
     sample_description = sample_description(track)
-
-    sample_delta = div(track.duration.absolute, track.sample_count)
-    entry_sizes = Enum.map(track.buffers, &%{entry_size: byte_size(&1.payload)})
-    chunk_offset = @ftyp_size + @mdat_header_size + offset
+    time_to_sample = time_to_sample(track)
+    sample_to_chunk = sample_to_chunk(track)
+    sample_size = sample_size(track)
+    chunk_offset = chunk_offset(track, offset)
 
     [
       stbl: %{
@@ -311,37 +279,16 @@ defmodule Membrane.MP4.CommonBox do
             fields: %{
               version: 0,
               flags: 0,
-              entry_count: 1,
-              entry_list: [
-                %{
-                  sample_count: track.sample_count,
-                  sample_delta: sample_delta
-                }
-              ]
+              entry_count: length(time_to_sample),
+              entry_list: time_to_sample
             }
           },
-          # stss: %{
-          #   fields: %{
-          #     version: 0,
-          #     flags: 0,
-          #     entry_count: 1,
-          #     entry_list: [
-          #       %{sample_number: 1}
-          #     ]
-          #   }
-          # },
           stsc: %{
             fields: %{
               version: 0,
               flags: 0,
-              entry_count: 1,
-              entry_list: [
-                %{
-                  first_chunk: 1,
-                  samples_per_chunk: track.sample_count,
-                  sample_description_index: 1
-                }
-              ]
+              entry_count: length(sample_to_chunk),
+              entry_list: sample_to_chunk
             }
           },
           stsz: %{
@@ -350,19 +297,15 @@ defmodule Membrane.MP4.CommonBox do
               flags: 0,
               sample_size: 0,
               sample_count: track.sample_count,
-              entry_list: entry_sizes
+              entry_list: sample_size
             }
           },
           stco: %{
             fields: %{
               version: 0,
               flags: 0,
-              entry_count: 1,
-              entry_list: [
-                %{
-                  chunk_offset: chunk_offset
-                }
-              ]
+              entry_count: length(chunk_offset),
+              entry_list: chunk_offset
             }
           }
         ],
@@ -371,7 +314,7 @@ defmodule Membrane.MP4.CommonBox do
     ]
   end
 
-  defp sample_description(%Track{content: %AVC1{} = avc1} = config) do
+  defp sample_description(%Track{content: %AVC1{} = avc1} = track) do
     [
       avc1: %{
         children: [
@@ -388,12 +331,12 @@ defmodule Membrane.MP4.CommonBox do
           depth: 24,
           flags: 0,
           frame_count: 1,
-          height: config.height,
+          height: track.height,
           horizresolution: {0, 0},
           num_of_entries: 1,
           version: 0,
           vertresolution: {0, 0},
-          width: config.width
+          width: track.width
         }
       }
     ]
@@ -422,6 +365,65 @@ defmodule Membrane.MP4.CommonBox do
           sample_size: 16,
           sample_rate: {aac.sample_rate, 0}
         }
+      }
+    ]
+  end
+
+  defp time_to_sample(%Track{kind: :cmaf}), do: []
+
+  defp time_to_sample(%Track{kind: :mp4} = track) do
+    [
+      %{
+        sample_count: track.sample_count,
+        sample_delta: div(track.duration, track.sample_count)
+      }
+    ]
+  end
+
+  defp sample_to_chunk(%Track{kind: :cmaf}), do: []
+
+  defp sample_to_chunk(%Track{kind: :mp4} = track) do
+    [
+      %{
+        first_chunk: 1,
+        samples_per_chunk: track.sample_count,
+        sample_description_index: 1
+      }
+    ]
+  end
+
+  defp sample_size(%Track{kind: :cmaf}), do: []
+
+  defp sample_size(%Track{kind: :mp4} = track) do
+    Enum.map(track.buffers, &%{entry_size: byte_size(&1.payload)})
+  end
+
+  defp chunk_offset(%Track{kind: :cmaf}, _offset), do: []
+
+  defp chunk_offset(%Track{kind: :mp4}, offset) do
+    [
+      %{
+        chunk_offset: offset
+      }
+    ]
+  end
+
+  defp movie_extends(%Track{kind: :cmaf}) do
+    [
+      mvex: %{
+        children: [
+          trex: %{
+            fields: %{
+              version: 0,
+              flags: 0,
+              track_id: 1,
+              default_sample_description_index: 1,
+              default_sample_duration: 0,
+              default_sample_size: 0,
+              default_sample_flags: 0
+            }
+          }
+        ]
       }
     ]
   end
