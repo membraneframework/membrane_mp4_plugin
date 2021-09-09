@@ -212,19 +212,19 @@ defmodule Membrane.MP4.Container.Schema do
                                    ]}
                               ]
                         ],
-                        # stss: [
-                        #   version: 0,
-                        #   fields:
-                        #     @full_box ++
-                        #       [
-                        #         entry_count: :uint32,
-                        #         entry_list:
-                        #           {:list,
-                        #            [
-                        #              sample_number: :uint32
-                        #            ]}
-                        #       ]
-                        # ],
+                        stss: [
+                          version: 0,
+                          fields:
+                            @full_box ++
+                              [
+                                entry_count: :uint32,
+                                entry_list:
+                                  {:list,
+                                   [
+                                     sample_number: :uint32
+                                   ]}
+                              ]
+                        ],
                         # ctss: [
                         #   version: 0,
                         #   fields:
