@@ -40,7 +40,7 @@ defmodule Membrane.MP4.Muxer do
       playing: %{},
       stopped: [],
       chunk_offset: 0,
-      payload: <<>>
+      media_data: <<>>
     }
 
     {:ok, state}
@@ -49,11 +49,13 @@ defmodule Membrane.MP4.Muxer do
   @impl true
   def handle_caps({_pad, :input, pad_ref}, %Membrane.MP4.Payload{} = caps, _ctx, state) do
     track =
-      Track.new(%{
+      caps
+      |> Map.take([:width, :height, :content])
+      |> Map.merge(%{
         id: state.next_id,
-        metadata: Map.take(caps, [:timescale, :width, :height, :content]),
-        samples_per_chunk: state.samples_per_chunk
+        timescale: caps.timescale
       })
+      |> Track.new()
 
     state =
       state
@@ -74,11 +76,11 @@ defmodule Membrane.MP4.Muxer do
   end
 
   @impl true
-  def handle_process_list({_pad, :input, pad_ref}, buffers, _ctx, state) do
+  def handle_process({_pad, :input, pad_ref}, buffer, _ctx, state) do
     {flush_result, track} =
       get_in(state, [:playing, pad_ref])
-      |> Track.store_samples(buffers)
-      |> Track.try_flush_chunk(state.chunk_offset)
+      |> Track.store_sample(buffer)
+      |> Track.flush_chunk(state.samples_per_chunk, state.chunk_offset)
 
     state = put_in(state, [:playing, pad_ref], track)
 
@@ -86,7 +88,7 @@ defmodule Membrane.MP4.Muxer do
       if flush_result != :not_ready do
         state
         |> Map.update!(:chunk_offset, &(&1 + byte_size(flush_result)))
-        |> Map.update!(:payload, &(&1 <> flush_result))
+        |> Map.update!(:media_data, &(&1 <> flush_result))
       else
         state
       end
@@ -98,18 +100,18 @@ defmodule Membrane.MP4.Muxer do
   def handle_end_of_stream({_pad, :input, pad_ref}, _ctx, state) do
     {track, state} = pop_in(state, [:playing, pad_ref])
 
-    {last_chunk, track} = Track.finalize(track, state.chunk_offset, state.timescale)
+    {last_chunk, track} = Track.flush_chunk(track, track.buffer.current_size, state.chunk_offset)
 
     state =
       state
-      |> Map.update!(:payload, &(&1 <> last_chunk))
+      |> Map.update!(:media_data, &(&1 <> last_chunk))
       |> Map.update!(:stopped, &[track | &1])
 
     if length(state.stopped) < state.tracks do
       {:ok, state}
     else
       ftyp = Box.file_type_box()
-      mdat = Box.media_data_box(state.payload)
+      mdat = Box.media_data_box(state.media_data)
       moov = Box.movie_box(state.stopped, state.timescale)
 
       mp4 = (ftyp ++ mdat ++ moov) |> Container.serialize!()

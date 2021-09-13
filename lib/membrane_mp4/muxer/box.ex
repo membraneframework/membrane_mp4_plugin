@@ -1,5 +1,6 @@
 defmodule Membrane.MP4.Muxer.Box do
   @moduledoc false
+  alias Membrane.Time
   alias Membrane.MP4.Container
   alias Membrane.MP4.Muxer.Track
   alias Membrane.MP4.Payload.{AAC, AVC1}
@@ -8,8 +9,8 @@ defmodule Membrane.MP4.Muxer.Box do
     ftyp: %{
       children: [],
       fields: %{
-        compatible_brands: ["iso6", "mp41"],
-        major_brand: "iso5",
+        compatible_brands: ["isom", "iso2", "avc1", "mp41"],
+        major_brand: "isom",
         major_brand_version: 512
       }
     }
@@ -32,13 +33,25 @@ defmodule Membrane.MP4.Muxer.Box do
   end
 
   @spec movie_box([%Track{}], integer) :: Container.t()
-  def movie_box(tracks, common_timescale) do
-    longest_track = Enum.max_by(tracks, & &1.common_duration)
+  def movie_box(tracks, timescale) do
+    tracks =
+      tracks
+      |> Enum.map(fn track ->
+        use Ratio
+        duration = track.last_timestamp - track.first_timestamp
+
+        Map.merge(track, %{
+          media_duration: timescalify(duration, track.timescale),
+          movie_duration: timescalify(duration, timescale)
+        })
+      end)
+
+    longest_track = Enum.max_by(tracks, & &1.movie_duration)
 
     header =
       %{
-        timescale: common_timescale,
-        duration: longest_track.common_duration,
+        timescale: timescale,
+        duration: longest_track.movie_duration,
         next_track_id: length(tracks) + 1
       }
       |> movie_header()
@@ -136,9 +149,9 @@ defmodule Membrane.MP4.Muxer.Box do
         fields: %{
           alternate_group: 0,
           creation_time: 0,
-          duration: track.common_duration,
+          duration: track.media_duration,
           flags: 3,
-          height: {track.metadata.height, 0},
+          height: {track.height, 0},
           layer: 0,
           matrix_value_A: {1, 0},
           matrix_value_B: {0, 0},
@@ -153,7 +166,7 @@ defmodule Membrane.MP4.Muxer.Box do
           track_id: track.id,
           version: 0,
           volume: {1, 0},
-          width: {track.metadata.width, 0}
+          width: {track.width, 0}
         }
       }
     ]
@@ -165,18 +178,18 @@ defmodule Membrane.MP4.Muxer.Box do
         children: [],
         fields: %{
           creation_time: 0,
-          duration: track.duration,
+          duration: track.media_duration,
           flags: 0,
           language: 21956,
           modification_time: 0,
-          timescale: track.metadata.timescale,
+          timescale: track.timescale,
           version: 0
         }
       }
     ]
   end
 
-  defp handler(%Track{metadata: %{content: %AVC1{}}}) do
+  defp handler(%{kind: :video}) do
     [
       hdlr: %{
         children: [],
@@ -190,7 +203,7 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp handler(%Track{metadata: %{content: %AAC{}}}) do
+  defp handler(%{kind: :audio}) do
     [
       hdlr: %{
         children: [],
@@ -204,7 +217,7 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp media_header(%Track{metadata: %{content: %AVC1{}}}) do
+  defp media_header(%{kind: :video}) do
     [
       vmhd: %{
         children: [],
@@ -218,7 +231,7 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp media_header(%Track{metadata: %{content: %AAC{}}}) do
+  defp media_header(%{kind: :audio}) do
     [
       smhd: %{
         children: [],
@@ -233,10 +246,10 @@ defmodule Membrane.MP4.Muxer.Box do
 
   defp sample_table(track) do
     sample_description = sample_description(track)
-    time_to_sample = time_to_sample(track)
-    stts = sync_sample(track)
+    decoding_deltas = decoding_deltas(track)
+    sample_sync = sample_sync(track)
     sample_to_chunk = sample_to_chunk(track)
-    sample_size = sample_size(track)
+    sample_sizes = sample_sizes(track)
     chunk_offset = chunk_offset(track)
 
     [
@@ -255,12 +268,12 @@ defmodule Membrane.MP4.Muxer.Box do
               fields: %{
                 version: 0,
                 flags: 0,
-                entry_count: length(time_to_sample),
-                entry_list: time_to_sample
+                entry_count: length(decoding_deltas),
+                entry_list: decoding_deltas
               }
             }
           ] ++
-            stts ++
+            sample_sync ++
             [
               stsc: %{
                 fields: %{
@@ -275,8 +288,8 @@ defmodule Membrane.MP4.Muxer.Box do
                   version: 0,
                   flags: 0,
                   sample_size: 0,
-                  sample_count: track.sample_count,
-                  entry_list: sample_size
+                  sample_count: length(sample_sizes),
+                  entry_list: sample_sizes
                 }
               },
               stco: %{
@@ -293,7 +306,7 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp sample_description(%Track{metadata: %{content: %AVC1{} = avc1}} = track) do
+  defp sample_description(%{sample_table: %{codec: %AVC1{} = avc1}} = track) do
     [
       avc1: %{
         children: [
@@ -310,18 +323,18 @@ defmodule Membrane.MP4.Muxer.Box do
           depth: 24,
           flags: 0,
           frame_count: 1,
-          height: track.metadata.height,
+          height: track.height,
           horizresolution: {0, 0},
           num_of_entries: 1,
           version: 0,
           vertresolution: {0, 0},
-          width: track.metadata.width
+          width: track.width
         }
       }
     ]
   end
 
-  defp sample_description(%Track{metadata: %{content: %AAC{} = aac}}) do
+  defp sample_description(%{sample_table: %{codec: %AAC{} = aac}}) do
     [
       mp4a: %{
         children: %{
@@ -348,64 +361,71 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp time_to_sample(track) do
+  defp decoding_deltas(%{kind: :video, sample_table: %{decoding_deltas: decoding_deltas}} = track) do
+    decoding_deltas
+    |> Enum.map(fn %{sample_count: count, sample_delta: delta} ->
+      %{sample_count: count, sample_delta: timescalify(delta, track.timescale)}
+    end)
+    |> Enum.reverse()
+  end
+
+  defp decoding_deltas(%{kind: :audio, sample_table: %{sample_count: sample_count}} = track) do
     [
       %{
-        sample_count: track.sample_count,
-        sample_delta: div(track.duration, track.sample_count)
+        sample_count: sample_count,
+        sample_delta: div(track.media_duration, sample_count)
       }
     ]
   end
 
-  defp sync_sample(%Track{metadata: %{content: %AVC1{}}} = track) do
-    sync_sample = track.key_frames |> Enum.map(&%{sample_number: &1})
+  defp sample_sync(%{kind: :video, sample_table: %{keyframes: keyframes}}) do
+    sample_sync =
+      keyframes
+      |> Enum.map(&%{sample_number: &1})
+      |> Enum.reverse()
 
     [
       stss: %{
         fields: %{
           version: 0,
           flags: 0,
-          entry_count: length(sync_sample),
-          entry_list: sync_sample
+          entry_count: length(sample_sync),
+          entry_list: sample_sync
         }
       }
     ]
   end
 
-  defp sync_sample(_track) do
+  defp sample_sync(_track) do
     []
   end
 
-  defp sample_to_chunk(%{samples_per_chunk: n, samples_in_last_chunk: n}) do
-    [
-      %{
-        first_chunk: 1,
-        samples_per_chunk: n,
+  defp sample_to_chunk(%{sample_table: %{samples_per_chunk: samples_per_chunk}}) do
+    samples_per_chunk
+    |> Enum.map(
+      &%{
+        first_chunk: &1.first_chunk,
+        samples_per_chunk: &1.sample_count,
         sample_description_index: 1
       }
-    ]
+    )
+    |> Enum.reverse()
   end
 
-  defp sample_to_chunk(track) do
-    [
-      %{
-        first_chunk: 1,
-        samples_per_chunk: track.samples_per_chunk,
-        sample_description_index: 1
-      },
-      %{
-        first_chunk: track.chunks_flushed,
-        samples_per_chunk: track.samples_in_last_chunk,
-        sample_description_index: 1
-      }
-    ]
+  defp sample_sizes(%{sample_table: %{sample_sizes: sample_sizes}}) do
+    sample_sizes
+    |> Enum.map(&%{entry_size: &1})
+    |> Enum.reverse()
   end
 
-  defp sample_size(track) do
-    Enum.map(track.sample_sizes, &%{entry_size: &1})
+  defp chunk_offset(%{sample_table: %{chunk_offsets: chunk_offsets}}) do
+    chunk_offsets
+    |> Enum.map(&%{chunk_offset: @first_chunk_offset + &1})
+    |> Enum.reverse()
   end
 
-  defp chunk_offset(track) do
-    Enum.map(track.chunk_offsets, &%{chunk_offset: @first_chunk_offset + &1})
+  defp timescalify(time, timescale) do
+    use Ratio
+    Ratio.trunc(time * timescale / Time.second())
   end
 end
