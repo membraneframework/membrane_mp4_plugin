@@ -1,8 +1,6 @@
 defmodule Membrane.MP4.Muxer.Track do
   @moduledoc false
 
-  # Structure representing an MP4 track.
-
   alias Membrane.Buffer
   alias Membrane.MP4.Payload.{AVC1, AAC}
   alias __MODULE__.SampleTable
@@ -12,7 +10,6 @@ defmodule Membrane.MP4.Muxer.Track do
           kind: :audio | :video,
           height: integer,
           width: integer,
-          content: struct,
           timescale: integer,
           first_timestamp: integer,
           last_timestamp: integer,
@@ -23,7 +20,7 @@ defmodule Membrane.MP4.Muxer.Track do
           }
         }
 
-  @enforce_keys [:id, :kind, :height, :width, :content, :timescale, :sample_table]
+  @enforce_keys [:id, :kind, :height, :width, :timescale, :sample_table]
 
   defstruct @enforce_keys ++
               [
@@ -40,21 +37,20 @@ defmodule Membrane.MP4.Muxer.Track do
         id: id,
         height: height,
         width: width,
-        content: content,
+        codec: codec,
         timescale: timescale
       }) do
     %__MODULE__{
       id: id,
       height: height,
       width: width,
-      content: content,
       timescale: timescale,
       kind:
-        case content do
+        case codec do
           %AAC{} -> :audio
           %AVC1{} -> :video
         end,
-      sample_table: %SampleTable{codec: content}
+      sample_table: %SampleTable{codec: codec}
     }
   end
 

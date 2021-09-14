@@ -6,16 +6,16 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
           codec: struct,
           sample_count: integer,
           chunks_flushed: integer,
-          sample_sizes: [integer],
-          keyframes: [integer],
           last_dts: integer,
+          sample_sizes: [integer],
+          sync_samples: [integer],
+          chunk_offsets: [integer],
           decoding_deltas: [
             %{
               sample_count: integer,
               sample_delta: Ratio.t()
             }
           ],
-          chunk_offsets: [integer],
           samples_per_chunk: [
             %{
               first_chunk: integer,
@@ -30,21 +30,24 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
               [
                 sample_count: 0,
                 chunks_flushed: 0,
-                sample_sizes: [],
-                keyframes: [],
                 last_dts: 0,
-                decoding_deltas: [],
+                sample_sizes: [],
+                sync_samples: [],
                 chunk_offsets: [],
+                decoding_deltas: [],
                 samples_per_chunk: []
               ]
 
   @spec on_sample_added(__MODULE__.t(), %Buffer{}) :: __MODULE__.t()
-  def on_sample_added(sample_table, buffer) do
+  def on_sample_added(%__MODULE__{codec: %AVC1{}} = sample_table, buffer) do
     sample_table
-    |> Map.update!(:sample_count, &(&1 + 1))
-    |> Map.update!(:sample_sizes, &[byte_size(buffer.payload) | &1])
-    |> maybe_store_keyframe(buffer)
+    |> add_sample_info(buffer)
     |> update_decoding_deltas(buffer)
+    |> maybe_store_sync_sample(buffer)
+  end
+
+  def on_sample_added(sample_table, buffer) do
+    add_sample_info(sample_table, buffer)
   end
 
   @spec on_chunk_flushed(__MODULE__.t(), integer, integer) :: __MODULE__.t()
@@ -66,13 +69,11 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
     |> Map.update!(:chunk_offsets, &[offset | &1])
   end
 
-  defp maybe_store_keyframe(%{codec: %AVC1{}} = sample_table, %{
-         metadata: %{mp4_payload: %{key_frame?: true}}
-       }) do
-    Map.update!(sample_table, :keyframes, &[sample_table.sample_count | &1])
+  defp add_sample_info(sample_table, %{payload: payload}) do
+    sample_table
+    |> Map.update!(:sample_count, &(&1 + 1))
+    |> Map.update!(:sample_sizes, &[byte_size(payload) | &1])
   end
-
-  defp maybe_store_keyframe(sample_table, _buffer), do: sample_table
 
   defp update_decoding_deltas(%{codec: %AVC1{}} = sample_table, %{metadata: %{dts: dts}}) do
     sample_table
@@ -81,6 +82,9 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
       new_delta = dts - sample_table.last_dts
 
       case previous_deltas do
+        [%{sample_count: 1, sample_delta: _}] ->
+          [%{sample_count: 2, sample_delta: new_delta}]
+
         [%{sample_count: count, sample_delta: ^new_delta} | rest] ->
           [%{sample_count: count + 1, sample_delta: new_delta} | rest]
 
@@ -91,7 +95,9 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
     |> Map.put(:last_dts, dts)
   end
 
-  defp update_decoding_deltas(sample_table, _buffer) do
-    sample_table
+  defp maybe_store_sync_sample(sample_table, %{metadata: %{mp4_payload: %{key_frame?: true}}}) do
+    Map.update!(sample_table, :sync_samples, &[sample_table.sample_count | &1])
   end
+
+  defp maybe_store_sync_sample(sample_table, _buffer), do: sample_table
 end

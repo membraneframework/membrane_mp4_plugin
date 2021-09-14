@@ -33,30 +33,11 @@ defmodule Membrane.MP4.Muxer.Box do
   end
 
   @spec movie_box([%Track{}], integer) :: Container.t()
-  def movie_box(tracks, timescale) do
-    tracks =
-      tracks
-      |> Enum.map(fn track ->
-        use Ratio
-        duration = track.last_timestamp - track.first_timestamp
+  def movie_box(tracks, movie_timescale) do
+    tracks = Enum.map(tracks, &Map.merge(&1, put_durations(&1, movie_timescale)))
 
-        Map.merge(track, %{
-          media_duration: timescalify(duration, track.timescale),
-          movie_duration: timescalify(duration, timescale)
-        })
-      end)
-
-    longest_track = Enum.max_by(tracks, & &1.movie_duration)
-
-    header =
-      %{
-        timescale: timescale,
-        duration: longest_track.movie_duration,
-        next_track_id: length(tracks) + 1
-      }
-      |> movie_header()
-
-    track_boxes = tracks |> Enum.flat_map(&track_box/1)
+    header = movie_header(tracks, movie_timescale)
+    track_boxes = Enum.flat_map(tracks, &track_box/1)
 
     [
       moov: %{
@@ -66,17 +47,15 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp movie_header(%{
-         duration: duration,
-         timescale: timescale,
-         next_track_id: next_track_id
-       }) do
+  defp movie_header(tracks, movie_timescale) do
+    longest_track = Enum.max_by(tracks, & &1.movie_duration)
+
     [
       mvhd: %{
         children: [],
         fields: %{
           creation_time: 0,
-          duration: duration,
+          duration: longest_track.movie_duration,
           flags: 0,
           matrix_value_A: {1, 0},
           matrix_value_B: {0, 0},
@@ -88,7 +67,7 @@ defmodule Membrane.MP4.Muxer.Box do
           matrix_value_X: {0, 0},
           matrix_value_Y: {0, 0},
           modification_time: 0,
-          next_track_id: next_track_id,
+          next_track_id: length(tracks) + 1,
           quicktime_current_time: 0,
           quicktime_poster_time: 0,
           quicktime_preview_duration: 0,
@@ -96,7 +75,7 @@ defmodule Membrane.MP4.Muxer.Box do
           quicktime_selection_duration: 0,
           quicktime_selection_time: 0,
           rate: {1, 0},
-          timescale: timescale,
+          timescale: movie_timescale,
           version: 0,
           volume: {1, 0}
         }
@@ -149,7 +128,7 @@ defmodule Membrane.MP4.Muxer.Box do
         fields: %{
           alternate_group: 0,
           creation_time: 0,
-          duration: track.media_duration,
+          duration: track.duration,
           flags: 3,
           height: {track.height, 0},
           layer: 0,
@@ -165,7 +144,11 @@ defmodule Membrane.MP4.Muxer.Box do
           modification_time: 0,
           track_id: track.id,
           version: 0,
-          volume: {1, 0},
+          volume:
+            case track.kind do
+              :audio -> {1, 0}
+              :video -> {0, 0}
+            end,
           width: {track.width, 0}
         }
       }
@@ -178,7 +161,7 @@ defmodule Membrane.MP4.Muxer.Box do
         children: [],
         fields: %{
           creation_time: 0,
-          duration: track.media_duration,
+          duration: track.duration,
           flags: 0,
           language: 21956,
           modification_time: 0,
@@ -246,8 +229,8 @@ defmodule Membrane.MP4.Muxer.Box do
 
   defp sample_table(track) do
     sample_description = sample_description(track)
-    decoding_deltas = decoding_deltas(track)
-    sample_sync = sample_sync(track)
+    sample_deltas = sample_deltas(track)
+    maybe_sample_sync = maybe_sample_sync(track)
     sample_to_chunk = sample_to_chunk(track)
     sample_sizes = sample_sizes(track)
     chunk_offset = chunk_offset(track)
@@ -268,12 +251,12 @@ defmodule Membrane.MP4.Muxer.Box do
               fields: %{
                 version: 0,
                 flags: 0,
-                entry_count: length(decoding_deltas),
-                entry_list: decoding_deltas
+                entry_count: length(sample_deltas),
+                entry_list: sample_deltas
               }
             }
           ] ++
-            sample_sync ++
+            maybe_sample_sync ++
             [
               stsc: %{
                 fields: %{
@@ -361,24 +344,24 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp decoding_deltas(%{kind: :video, sample_table: %{decoding_deltas: decoding_deltas}} = track) do
-    decoding_deltas
+  defp sample_deltas(%{sample_table: %{codec: %AVC1{}}} = track) do
+    track.sample_table.decoding_deltas
     |> Enum.map(fn %{sample_count: count, sample_delta: delta} ->
       %{sample_count: count, sample_delta: timescalify(delta, track.timescale)}
     end)
     |> Enum.reverse()
   end
 
-  defp decoding_deltas(%{kind: :audio, sample_table: %{sample_count: sample_count}} = track) do
+  defp sample_deltas(%{sample_table: %{codec: %AAC{}, sample_count: sample_count}}) do
     [
       %{
         sample_count: sample_count,
-        sample_delta: div(track.media_duration, sample_count)
+        sample_delta: 1024
       }
     ]
   end
 
-  defp sample_sync(%{kind: :video, sample_table: %{keyframes: keyframes}}) do
+  defp maybe_sample_sync(%{sample_table: %{codec: %AVC1{}, sync_samples: keyframes}}) do
     sample_sync =
       keyframes
       |> Enum.map(&%{sample_number: &1})
@@ -396,7 +379,7 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp sample_sync(_track) do
+  defp maybe_sample_sync(_track) do
     []
   end
 
@@ -422,6 +405,42 @@ defmodule Membrane.MP4.Muxer.Box do
     chunk_offsets
     |> Enum.map(&%{chunk_offset: @first_chunk_offset + &1})
     |> Enum.reverse()
+  end
+
+  defp put_durations(%{sample_table: %{codec: %AVC1{}}} = track, timescale) do
+    use Ratio
+
+    duration =
+      track.sample_table.decoding_deltas
+      |> Enum.reduce(0, &(&1.sample_count * &1.sample_delta + &2))
+
+    %{
+      duration: timescalify(duration, track.timescale),
+      movie_duration: timescalify(duration, timescale)
+    }
+  end
+
+  defp put_durations(%{sample_table: %{codec: %AAC{}}} = track, timescale) do
+    use Ratio
+    # should update AAC caps to contain this value
+    samples_per_frame = 1024
+
+    duration = samples_per_frame * track.sample_table.sample_count
+
+    %{
+      duration: samples_per_frame * track.sample_table.sample_count,
+      movie_duration: Ratio.trunc(duration / track.timescale * timescale)
+    }
+  end
+
+  defp put_durations(track, timescale) do
+    use Ratio
+    duration = track.last_timestamp - track.first_timestamp
+
+    %{
+      duration: timescalify(duration, track.timescale),
+      movie_duration: timescalify(duration, timescale)
+    }
   end
 
   defp timescalify(time, timescale) do

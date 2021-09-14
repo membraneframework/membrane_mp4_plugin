@@ -19,11 +19,13 @@ defmodule Membrane.MP4.Muxer do
                 default: 1,
                 descriptions: "Number of tracks that the muxer should expect"
               ],
+              # once stream seeking is implemented, remove and chunk on demand
               samples_per_chunk: [
                 type: :integer,
-                default: 10,
+                default: 1000,
                 description: "Number of samples in a chunk"
               ],
+              # maybe remove and hardcode this value
               timescale: [
                 type: :integer,
                 default: 1000,
@@ -50,10 +52,10 @@ defmodule Membrane.MP4.Muxer do
   def handle_caps({_pad, :input, pad_ref}, %Membrane.MP4.Payload{} = caps, _ctx, state) do
     track =
       caps
-      |> Map.take([:width, :height, :content])
+      |> Map.take([:width, :height, :timescale])
       |> Map.merge(%{
         id: state.next_id,
-        timescale: caps.timescale
+        codec: caps.content
       })
       |> Track.new()
 
@@ -80,18 +82,18 @@ defmodule Membrane.MP4.Muxer do
     {flush_result, track} =
       get_in(state, [:playing, pad_ref])
       |> Track.store_sample(buffer)
+      # once stream seeking is implemented, flush only on demand
       |> Track.flush_chunk(state.samples_per_chunk, state.chunk_offset)
 
-    state = put_in(state, [:playing, pad_ref], track)
-
     state =
-      if flush_result != :not_ready do
+      if flush_result == :not_ready do
+        state
+      else
         state
         |> Map.update!(:chunk_offset, &(&1 + byte_size(flush_result)))
         |> Map.update!(:media_data, &(&1 <> flush_result))
-      else
-        state
       end
+      |> put_in([:playing, pad_ref], track)
 
     {{:ok, redemand: :output}, state}
   end
@@ -104,6 +106,7 @@ defmodule Membrane.MP4.Muxer do
 
     state =
       state
+      |> Map.update!(:chunk_offset, &(&1 + byte_size(last_chunk)))
       |> Map.update!(:media_data, &(&1 <> last_chunk))
       |> Map.update!(:stopped, &[track | &1])
 
