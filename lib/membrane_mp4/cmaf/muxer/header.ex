@@ -130,7 +130,7 @@ defmodule Membrane.MP4.CMAF.Muxer.Header do
                                   version: 0,
                                   flags: 0,
                                   sample_size: 0,
-                                  entry_count: 0,
+                                  sample_count: 0,
                                   entry_list: []
                                 }
                               },
