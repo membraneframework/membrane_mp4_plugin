@@ -7,6 +7,10 @@ defmodule Membrane.MP4.Muxer do
   alias Membrane.MP4.Container
   alias __MODULE__.{Box, Track}
 
+  @timescale 1000
+  # once pull mode is available, make chunks only when it's needed
+  @samples_per_chunk 100
+
   def_input_pad :input,
     demand_unit: :buffers,
     caps: Membrane.MP4.Payload,
@@ -17,27 +21,13 @@ defmodule Membrane.MP4.Muxer do
   def_options tracks: [
                 type: :integer,
                 default: 1,
-                descriptions: "Number of tracks that the muxer should expect"
-              ],
-              # once stream seeking is implemented, remove and chunk on demand
-              samples_per_chunk: [
-                type: :integer,
-                default: 1000,
-                description: "Number of samples in a chunk"
-              ],
-              # maybe remove and hardcode this value
-              timescale: [
-                type: :integer,
-                default: 1000,
-                description: "Common timescale for all tracks in the container"
+                description: "Number of tracks that the muxer should expect"
               ]
 
   @impl true
   def handle_init(options) do
     state = %{
       tracks: options.tracks,
-      timescale: options.timescale,
-      samples_per_chunk: options.samples_per_chunk,
       next_id: 1,
       playing: %{},
       stopped: [],
@@ -79,21 +69,23 @@ defmodule Membrane.MP4.Muxer do
 
   @impl true
   def handle_process({_pad, :input, pad_ref}, buffer, _ctx, state) do
-    {flush_result, track} =
+    track =
       get_in(state, [:playing, pad_ref])
       |> Track.store_sample(buffer)
-      # once stream seeking is implemented, flush only on demand
-      |> Track.flush_chunk(state.samples_per_chunk, state.chunk_offset)
 
+    # once pull mode is available, flush only on demand
     state =
-      if flush_result == :not_ready do
+      if track.buffer.current_size == @samples_per_chunk do
+        {chunk, track} = Track.flush_chunk(track, state.chunk_offset)
+
         state
+        |> Map.update!(:chunk_offset, &(&1 + byte_size(chunk)))
+        |> Map.update!(:media_data, &(&1 <> chunk))
+        |> put_in([:playing, pad_ref], track)
       else
         state
-        |> Map.update!(:chunk_offset, &(&1 + byte_size(flush_result)))
-        |> Map.update!(:media_data, &(&1 <> flush_result))
+        |> put_in([:playing, pad_ref], track)
       end
-      |> put_in([:playing, pad_ref], track)
 
     {{:ok, redemand: :output}, state}
   end
@@ -101,8 +93,7 @@ defmodule Membrane.MP4.Muxer do
   @impl true
   def handle_end_of_stream({_pad, :input, pad_ref}, _ctx, state) do
     {track, state} = pop_in(state, [:playing, pad_ref])
-
-    {last_chunk, track} = Track.flush_chunk(track, track.buffer.current_size, state.chunk_offset)
+    {last_chunk, track} = Track.flush_chunk(track, state.chunk_offset)
 
     state =
       state
@@ -115,7 +106,7 @@ defmodule Membrane.MP4.Muxer do
     else
       ftyp = Box.file_type_box()
       mdat = Box.media_data_box(state.media_data)
-      moov = Box.movie_box(state.stopped, state.timescale)
+      moov = Box.movie_box(state.stopped, @timescale)
 
       mp4 = (ftyp ++ mdat ++ moov) |> Container.serialize!()
 

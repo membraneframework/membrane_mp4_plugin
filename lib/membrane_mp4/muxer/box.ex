@@ -1,5 +1,6 @@
 defmodule Membrane.MP4.Muxer.Box do
   @moduledoc false
+
   alias Membrane.Time
   alias Membrane.MP4.Container
   alias Membrane.MP4.Muxer.Track
@@ -19,6 +20,8 @@ defmodule Membrane.MP4.Muxer.Box do
   @ftyp_size @ftyp |> Container.serialize!() |> byte_size()
   @mdat_header_size 8
   @first_chunk_offset @ftyp_size + @mdat_header_size
+
+  defguardp is_audio(track) when track.width == 0 and track.height == 0
 
   @spec file_type_box :: Container.t()
   def file_type_box(), do: @ftyp
@@ -145,9 +148,10 @@ defmodule Membrane.MP4.Muxer.Box do
           track_id: track.id,
           version: 0,
           volume:
-            case track.kind do
-              :audio -> {1, 0}
-              :video -> {0, 0}
+            if is_audio(track) do
+              {1, 0}
+            else
+              {0, 0}
             end,
           width: {track.width, 0}
         }
@@ -172,21 +176,7 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp handler(%{kind: :video}) do
-    [
-      hdlr: %{
-        children: [],
-        fields: %{
-          flags: 0,
-          handler_type: "vide",
-          name: "VideoHandler",
-          version: 0
-        }
-      }
-    ]
-  end
-
-  defp handler(%{kind: :audio}) do
+  defp handler(track) when is_audio(track) do
     [
       hdlr: %{
         children: [],
@@ -200,7 +190,34 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp media_header(%{kind: :video}) do
+  defp handler(_track) do
+    [
+      hdlr: %{
+        children: [],
+        fields: %{
+          flags: 0,
+          handler_type: "vide",
+          name: "VideoHandler",
+          version: 0
+        }
+      }
+    ]
+  end
+
+  defp media_header(track) when is_audio(track) do
+    [
+      smhd: %{
+        children: [],
+        fields: %{
+          balance: {0, 0},
+          flags: 0,
+          version: 0
+        }
+      }
+    ]
+  end
+
+  defp media_header(_track) do
     [
       vmhd: %{
         children: [],
@@ -214,26 +231,13 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp media_header(%{kind: :audio}) do
-    [
-      smhd: %{
-        children: [],
-        fields: %{
-          balance: {0, 0},
-          flags: 0,
-          version: 0
-        }
-      }
-    ]
-  end
-
   defp sample_table(track) do
     sample_description = sample_description(track)
     sample_deltas = sample_deltas(track)
     maybe_sample_sync = maybe_sample_sync(track)
     sample_to_chunk = sample_to_chunk(track)
     sample_sizes = sample_sizes(track)
-    chunk_offset = chunk_offset(track)
+    chunk_offsets = chunk_offsets(track)
 
     [
       stbl: %{
@@ -279,8 +283,8 @@ defmodule Membrane.MP4.Muxer.Box do
                 fields: %{
                   version: 0,
                   flags: 0,
-                  entry_count: length(chunk_offset),
-                  entry_list: chunk_offset
+                  entry_count: length(chunk_offsets),
+                  entry_list: chunk_offsets
                 }
               }
             ],
@@ -289,7 +293,7 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp sample_description(%{sample_table: %{codec: %AVC1{} = avc1}} = track) do
+  defp sample_description(%{format: %AVC1{} = avc1} = track) do
     [
       avc1: %{
         children: [
@@ -317,7 +321,7 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp sample_description(%{sample_table: %{codec: %AAC{} = aac}}) do
+  defp sample_description(%{format: %AAC{} = aac}) do
     [
       mp4a: %{
         children: %{
@@ -344,24 +348,15 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp sample_deltas(%{sample_table: %{codec: %AVC1{}}} = track) do
-    track.sample_table.decoding_deltas
+  defp sample_deltas(%{timescale: timescale, sample_table: sample_table}) do
+    sample_table.decoding_deltas
     |> Enum.map(fn %{sample_count: count, sample_delta: delta} ->
-      %{sample_count: count, sample_delta: timescalify(delta, track.timescale)}
+      %{sample_count: count, sample_delta: timescalify(delta, timescale)}
     end)
     |> Enum.reverse()
   end
 
-  defp sample_deltas(%{sample_table: %{codec: %AAC{}, sample_count: sample_count}}) do
-    [
-      %{
-        sample_count: sample_count,
-        sample_delta: 1024
-      }
-    ]
-  end
-
-  defp maybe_sample_sync(%{sample_table: %{codec: %AVC1{}, sync_samples: keyframes}}) do
+  defp maybe_sample_sync(%{format: %AVC1{}, sample_table: %{sync_samples: keyframes}}) do
     sample_sync =
       keyframes
       |> Enum.map(&%{sample_number: &1})
@@ -401,41 +396,18 @@ defmodule Membrane.MP4.Muxer.Box do
     |> Enum.reverse()
   end
 
-  defp chunk_offset(%{sample_table: %{chunk_offsets: chunk_offsets}}) do
+  defp chunk_offsets(%{sample_table: %{chunk_offsets: chunk_offsets}}) do
     chunk_offsets
     |> Enum.map(&%{chunk_offset: @first_chunk_offset + &1})
     |> Enum.reverse()
   end
 
-  defp put_durations(%{sample_table: %{codec: %AVC1{}}} = track, timescale) do
+  defp put_durations(track, timescale) do
     use Ratio
 
     duration =
       track.sample_table.decoding_deltas
       |> Enum.reduce(0, &(&1.sample_count * &1.sample_delta + &2))
-
-    %{
-      duration: timescalify(duration, track.timescale),
-      movie_duration: timescalify(duration, timescale)
-    }
-  end
-
-  defp put_durations(%{sample_table: %{codec: %AAC{}}} = track, timescale) do
-    use Ratio
-    # should update AAC caps to contain this value
-    samples_per_frame = 1024
-
-    duration = samples_per_frame * track.sample_table.sample_count
-
-    %{
-      duration: samples_per_frame * track.sample_table.sample_count,
-      movie_duration: Ratio.trunc(duration / track.timescale * timescale)
-    }
-  end
-
-  defp put_durations(track, timescale) do
-    use Ratio
-    duration = track.last_timestamp - track.first_timestamp
 
     %{
       duration: timescalify(duration, track.timescale),
