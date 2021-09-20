@@ -1,56 +1,26 @@
-defmodule Membrane.MP4.Muxer.Box do
+defmodule Membrane.MP4.Muxer.MovieBox do
   @moduledoc false
-
   alias Membrane.Time
   alias Membrane.MP4.Container
   alias Membrane.MP4.Muxer.Track
   alias Membrane.MP4.Payload.{AAC, AVC1}
 
-  @ftyp [
-    ftyp: %{
-      children: [],
-      fields: %{
-        compatible_brands: ["isom", "iso2", "avc1", "mp41"],
-        major_brand: "isom",
-        major_brand_version: 512
-      }
-    }
-  ]
-
-  @ftyp_size @ftyp |> Container.serialize!() |> byte_size()
-  @mdat_header_size 8
-  @first_chunk_offset @ftyp_size + @mdat_header_size
+  @movie_timescale 1000
 
   defguardp is_audio(track) when track.width == 0 and track.height == 0
 
-  @spec file_type_box :: Container.t()
-  def file_type_box(), do: @ftyp
+  @spec serialize([%Track{}], Container.t()) :: binary
+  def serialize(tracks, extensions \\ []) do
+    tracks = Enum.map(tracks, &put_durations/1)
 
-  @spec media_data_box(binary) :: Container.t()
-  def media_data_box(payload) do
-    [
-      mdat: %{
-        content: payload
-      }
-    ]
-  end
-
-  @spec movie_box([%Track{}], integer) :: Container.t()
-  def movie_box(tracks, movie_timescale) do
-    tracks = Enum.map(tracks, &Map.merge(&1, put_durations(&1, movie_timescale)))
-
-    header = movie_header(tracks, movie_timescale)
+    header = movie_header(tracks)
     track_boxes = Enum.flat_map(tracks, &track_box/1)
 
-    [
-      moov: %{
-        children: header ++ track_boxes,
-        fields: %{}
-      }
-    ]
+    [moov: %{children: header ++ track_boxes ++ extensions, fields: %{}}]
+    |> Container.serialize!()
   end
 
-  defp movie_header(tracks, movie_timescale) do
+  defp movie_header(tracks) do
     longest_track = Enum.max_by(tracks, & &1.movie_duration)
 
     [
@@ -78,7 +48,7 @@ defmodule Membrane.MP4.Muxer.Box do
           quicktime_selection_duration: 0,
           quicktime_selection_time: 0,
           rate: {1, 0},
-          timescale: movie_timescale,
+          timescale: @movie_timescale,
           version: 0,
           volume: {1, 0}
         }
@@ -293,7 +263,7 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp sample_description(%{format: %AVC1{} = avc1} = track) do
+  defp sample_description(%{content: %AVC1{} = avc1} = track) do
     [
       avc1: %{
         children: [
@@ -321,7 +291,7 @@ defmodule Membrane.MP4.Muxer.Box do
     ]
   end
 
-  defp sample_description(%{format: %AAC{} = aac}) do
+  defp sample_description(%{content: %AAC{} = aac}) do
     [
       mp4a: %{
         children: %{
@@ -356,9 +326,13 @@ defmodule Membrane.MP4.Muxer.Box do
     |> Enum.reverse()
   end
 
-  defp maybe_sample_sync(%{format: %AVC1{}, sample_table: %{sync_samples: keyframes}}) do
-    sample_sync =
-      keyframes
+  defp maybe_sample_sync(%{sample_table: %{sync_samples: []}}) do
+    []
+  end
+
+  defp maybe_sample_sync(%{sample_table: %{sync_samples: sync_samples}}) do
+    sync_samples =
+      sync_samples
       |> Enum.map(&%{sample_number: &1})
       |> Enum.reverse()
 
@@ -367,15 +341,11 @@ defmodule Membrane.MP4.Muxer.Box do
         fields: %{
           version: 0,
           flags: 0,
-          entry_count: length(sample_sync),
-          entry_list: sample_sync
+          entry_count: length(sync_samples),
+          entry_list: sync_samples
         }
       }
     ]
-  end
-
-  defp maybe_sample_sync(_track) do
-    []
   end
 
   defp sample_to_chunk(%{sample_table: %{samples_per_chunk: samples_per_chunk}}) do
@@ -391,28 +361,24 @@ defmodule Membrane.MP4.Muxer.Box do
   end
 
   defp sample_sizes(%{sample_table: %{sample_sizes: sample_sizes}}) do
-    sample_sizes
-    |> Enum.map(&%{entry_size: &1})
-    |> Enum.reverse()
+    sample_sizes |> Enum.map(&%{entry_size: &1}) |> Enum.reverse()
   end
 
   defp chunk_offsets(%{sample_table: %{chunk_offsets: chunk_offsets}}) do
-    chunk_offsets
-    |> Enum.map(&%{chunk_offset: @first_chunk_offset + &1})
-    |> Enum.reverse()
+    chunk_offsets |> Enum.map(&%{chunk_offset: &1}) |> Enum.reverse()
   end
 
-  defp put_durations(track, timescale) do
+  defp put_durations(track) do
     use Ratio
 
     duration =
       track.sample_table.decoding_deltas
       |> Enum.reduce(0, &(&1.sample_count * &1.sample_delta + &2))
 
-    %{
+    Map.merge(track, %{
       duration: timescalify(duration, track.timescale),
-      movie_duration: timescalify(duration, timescale)
-    }
+      movie_duration: timescalify(duration, @movie_timescale)
+    })
   end
 
   defp timescalify(time, timescale) do

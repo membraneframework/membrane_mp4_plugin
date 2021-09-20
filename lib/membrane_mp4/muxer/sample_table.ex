@@ -2,9 +2,8 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
   @moduledoc false
 
   @type t :: %__MODULE__{
-          sample_count: integer,
-          chunks_flushed: integer,
           last_timestamp: integer,
+          samples_buffer: [binary],
           sample_sizes: [integer],
           sync_samples: [integer],
           chunk_offsets: [integer],
@@ -22,34 +21,39 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
           ]
         }
 
-  defstruct sample_count: 0,
-            chunks_flushed: 0,
-            last_timestamp: 0,
+  defstruct last_timestamp: 0,
+            samples_buffer: [],
             sample_sizes: [],
             sync_samples: [],
             chunk_offsets: [],
             decoding_deltas: [],
             samples_per_chunk: []
 
-  @spec on_sample_added(__MODULE__.t(), %Membrane.Buffer{}) :: __MODULE__.t()
-  def on_sample_added(sample_table, buffer) do
+  @spec store_sample(__MODULE__.t(), %Membrane.Buffer{}) :: __MODULE__.t()
+  def store_sample(sample_table, buffer) do
     sample_table
-    |> add_sample_info(buffer)
+    |> Map.update!(:samples_buffer, &[buffer.payload | &1])
+    |> Map.update!(:sample_sizes, &[byte_size(buffer.payload) | &1])
     |> update_decoding_deltas(buffer)
     |> maybe_store_sync_sample(buffer)
   end
 
-  @spec on_chunk_flushed(__MODULE__.t(), integer, integer) :: __MODULE__.t()
-  def on_chunk_flushed(sample_table, sample_count, offset) do
-    sample_table
-    |> add_chunk_info(offset)
-    |> update_samples_per_chunk(sample_count)
-  end
+  @spec flush_chunk(__MODULE__.t(), integer) :: {binary, __MODULE__.t()}
+  def flush_chunk(sample_table, chunk_offset) do
+    samples_in_chunk = length(sample_table.samples_buffer)
 
-  defp add_sample_info(sample_table, %{payload: payload}) do
-    sample_table
-    |> Map.update!(:sample_count, &(&1 + 1))
-    |> Map.update!(:sample_sizes, &[byte_size(payload) | &1])
+    if samples_in_chunk > 0 do
+      {chunk, sample_table} =
+        sample_table
+        |> Map.update!(:chunk_offsets, &[chunk_offset | &1])
+        |> Map.get_and_update!(:samples_buffer, fn buffer ->
+          {buffer |> Enum.reverse() |> Enum.join(), []}
+        end)
+
+      {chunk, update_samples_per_chunk(sample_table, samples_in_chunk)}
+    else
+      {<<>>, sample_table}
+    end
   end
 
   defp update_decoding_deltas(sample_table, %{metadata: %{timestamp: timestamp}}) do
@@ -73,16 +77,10 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
   end
 
   defp maybe_store_sync_sample(sample_table, %{metadata: %{mp4_payload: %{key_frame?: true}}}) do
-    Map.update!(sample_table, :sync_samples, &[sample_table.sample_count | &1])
+    Map.update!(sample_table, :sync_samples, &[length(sample_table.sample_sizes) | &1])
   end
 
   defp maybe_store_sync_sample(sample_table, _buffer), do: sample_table
-
-  defp add_chunk_info(sample_table, offset) do
-    sample_table
-    |> Map.update!(:chunks_flushed, &(&1 + 1))
-    |> Map.update!(:chunk_offsets, &[offset | &1])
-  end
 
   defp update_samples_per_chunk(sample_table, sample_count) do
     Map.update!(sample_table, :samples_per_chunk, fn previous_chunks ->
@@ -92,7 +90,7 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
 
         _ ->
           [
-            %{first_chunk: sample_table.chunks_flushed, sample_count: sample_count}
+            %{first_chunk: length(sample_table.chunk_offsets), sample_count: sample_count}
             | previous_chunks
           ]
       end
