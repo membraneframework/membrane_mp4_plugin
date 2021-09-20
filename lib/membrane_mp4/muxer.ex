@@ -8,18 +8,18 @@ defmodule Membrane.MP4.Muxer do
   alias __MODULE__.{MovieBox, Track}
 
   @ftyp [
-    ftyp: %{
-      children: [],
-      fields: %{
-        compatible_brands: ["isom", "iso2", "avc1", "mp41"],
-        major_brand: "isom",
-        major_brand_version: 512
-      }
-    }
-  ] |> Container.serialize!()
+          ftyp: %{
+            children: [],
+            fields: %{
+              compatible_brands: ["isom", "iso2", "avc1", "mp41"],
+              major_brand: "isom",
+              major_brand_version: 512
+            }
+          }
+        ]
+        |> Container.serialize!()
 
   @mdat_data_offset 8
-  @first_chunk_offset byte_size(@ftyp) + @mdat_data_offset
 
   def_input_pad :input,
     demand_unit: :buffers,
@@ -38,10 +38,9 @@ defmodule Membrane.MP4.Muxer do
   def handle_init(options) do
     state = %{
       tracks: options.tracks,
-      next_id: 1,
       playing: %{},
       stopped: [],
-      chunk_offset: @first_chunk_offset,
+      chunk_offset: byte_size(@ftyp) + @mdat_data_offset,
       media_data: <<>>
     }
 
@@ -50,16 +49,15 @@ defmodule Membrane.MP4.Muxer do
 
   @impl true
   def handle_caps({_pad, :input, pad_ref}, %Membrane.MP4.Payload{} = caps, _ctx, state) do
+    next_track_id = Enum.count(state.playing) + length(state.stopped) + 1
+
     track =
       caps
       |> Map.take([:width, :height, :content, :timescale])
-      |> Map.put(:id, state.next_id)
+      |> Map.put(:id, next_track_id)
       |> Track.new()
 
-    state =
-      state
-      |> put_in([:playing, pad_ref], track)
-      |> Map.update!(:next_id, &(&1 + 1))
+    state = put_in(state, [:playing, pad_ref], track)
 
     {{:ok, redemand: :output}, state}
   end
