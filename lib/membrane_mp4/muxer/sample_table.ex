@@ -1,5 +1,10 @@
 defmodule Membrane.MP4.Muxer.Track.SampleTable do
-  @moduledoc false
+  @moduledoc """
+  A module that defines a structure and functions allowing to store
+  samples, assemble them into chunks and flush when needed. Its
+  public functions take care of recording information required to
+  build a sample table.
+  """
 
   @type t :: %__MODULE__{
           last_timestamp: integer,
@@ -39,21 +44,19 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
   end
 
   @spec flush_chunk(__MODULE__.t(), integer) :: {binary, __MODULE__.t()}
+  def flush_chunk(%{samples_buffer: []} = sample_table, _chunk_offset), do: {<<>>, sample_table}
+
   def flush_chunk(sample_table, chunk_offset) do
-    samples_in_chunk = length(sample_table.samples_buffer)
+    {samples, sample_table} = Map.get_and_update!(sample_table, :samples_buffer, &{&1, []})
 
-    if samples_in_chunk > 0 do
-      {chunk, sample_table} =
-        sample_table
-        |> Map.update!(:chunk_offsets, &[chunk_offset | &1])
-        |> Map.get_and_update!(:samples_buffer, fn buffer ->
-          {buffer |> Enum.reverse() |> Enum.join(), []}
-        end)
+    sample_table =
+      sample_table
+      |> Map.update!(:chunk_offsets, &[chunk_offset | &1])
+      |> update_samples_per_chunk(length(samples))
 
-      {chunk, update_samples_per_chunk(sample_table, samples_in_chunk)}
-    else
-      {<<>>, sample_table}
-    end
+    chunk = samples |> Enum.reverse() |> Enum.join()
+
+    {chunk, sample_table}
   end
 
   defp update_decoding_deltas(sample_table, %{metadata: %{timestamp: timestamp}}) do

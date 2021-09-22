@@ -1,5 +1,7 @@
 defmodule Membrane.MP4.Muxer.MovieBox do
-  @moduledoc false
+  @moduledoc """
+  This module cotainins a set of utilities for creating an MPEG-4 movie box.
+  """
   alias Membrane.Time
   alias Membrane.MP4.Container
   alias Membrane.MP4.Muxer.Track
@@ -11,7 +13,11 @@ defmodule Membrane.MP4.Muxer.MovieBox do
 
   @spec serialize([%Track{}], Container.t()) :: binary
   def serialize(tracks, extensions \\ []) do
-    tracks = Enum.map(tracks, &put_durations/1)
+    tracks =
+      1..length(tracks)
+      |> Enum.zip(tracks)
+      |> Enum.map(fn {id, track} -> %{track | id: id} end)
+      |> Enum.map(&put_durations/1)
 
     header = movie_header(tracks)
     track_boxes = Enum.flat_map(tracks, &track_box/1)
@@ -375,10 +381,11 @@ defmodule Membrane.MP4.Muxer.MovieBox do
       track.sample_table.decoding_deltas
       |> Enum.reduce(0, &(&1.sample_count * &1.sample_delta + &2))
 
-    Map.merge(track, %{
-      duration: timescalify(duration, track.timescale),
-      movie_duration: timescalify(duration, @movie_timescale)
-    })
+    %{
+      track
+      | duration: timescalify(duration, track.timescale),
+        movie_duration: timescalify(duration, @movie_timescale)
+    }
   end
 
   defp timescalify(time, timescale) do

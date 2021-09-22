@@ -1,22 +1,29 @@
 defmodule Membrane.MP4.Muxer.Track do
-  @moduledoc false
+  @moduledoc """
+  A module defining a structure that represents an MPEG-4 track.
+  All new samples of a track must be stored in the structure
+  first in order to build a sample table. The samples can be
+  flushed later in chunks.
+  """
   alias __MODULE__.SampleTable
 
   @type t :: %__MODULE__{
-          id: integer,
           content: struct,
           height: integer,
           width: integer,
           timescale: integer,
-          sample_table: SampleTable.t()
+          sample_table: SampleTable.t(),
+          id: nil,
+          duration: nil,
+          movie_duration: nil
         }
 
-  @enforce_keys [:id, :content, :height, :width, :timescale]
+  @enforce_keys [:content, :height, :width, :timescale]
 
-  defstruct @enforce_keys ++ [sample_table: %SampleTable{}]
+  defstruct @enforce_keys ++
+              [sample_table: %SampleTable{}, id: nil, duration: nil, movie_duration: nil]
 
   @spec new(%{
-          id: integer,
           content: struct,
           height: integer,
           width: integer,
@@ -24,7 +31,6 @@ defmodule Membrane.MP4.Muxer.Track do
         }) :: __MODULE__.t()
   def new(config) do
     %__MODULE__{
-      id: config.id,
       content: config.content,
       height: config.height,
       width: config.width,
@@ -36,6 +42,9 @@ defmodule Membrane.MP4.Muxer.Track do
   def store_sample(track, buffer) do
     Map.update!(track, :sample_table, &SampleTable.store_sample(&1, buffer))
   end
+
+  @spec current_buffer_size(__MODULE__.t()) :: non_neg_integer
+  def current_buffer_size(track), do: length(track.sample_table.samples_buffer)
 
   @spec flush_chunk(__MODULE__.t(), integer) :: {binary, __MODULE__.t()}
   def flush_chunk(track, chunk_offset) do

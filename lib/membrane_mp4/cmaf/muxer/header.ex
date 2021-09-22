@@ -3,8 +3,6 @@ defmodule Membrane.MP4.CMAF.Muxer.Header do
   alias Membrane.MP4.Container
   alias Membrane.MP4.Muxer.{Track, MovieBox}
 
-  @track_id 1
-
   @ftyp [
           ftyp: %{
             children: [],
@@ -24,7 +22,7 @@ defmodule Membrane.MP4.CMAF.Muxer.Header do
           fields: %{
             version: 0,
             flags: 0,
-            track_id: @track_id,
+            track_id: 1,
             default_sample_description_index: 1,
             default_sample_duration: 0,
             default_sample_size: 0,
@@ -42,7 +40,10 @@ defmodule Membrane.MP4.CMAF.Muxer.Header do
           content: struct
         }) :: binary
   def serialize(config) do
-    track = config |> Map.put(:id, @track_id) |> Track.new()
+    track =
+      config
+      |> Map.take([:timescale, :width, :height, :content])
+      |> Track.new()
 
     movie_box = MovieBox.serialize([track], @mvex)
 
