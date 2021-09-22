@@ -11,7 +11,7 @@ defmodule Membrane.MP4.IntegrationTest do
       file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
       parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
       payloader: Membrane.MP4.Payloader.H264,
-      muxer: %Membrane.MP4.Muxer{tracks: 1},
+      muxer: %Membrane.MP4.Muxer{tracks: 1, samples_per_chunk: 10},
       sink: Membrane.Testing.Sink
     ]
 
@@ -33,7 +33,7 @@ defmodule Membrane.MP4.IntegrationTest do
       file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
       parser: %Membrane.AAC.Parser{out_encapsulation: :none},
       payloader: Membrane.MP4.Payloader.AAC,
-      muxer: %Membrane.MP4.Muxer{tracks: 1},
+      muxer: %Membrane.MP4.Muxer{tracks: 1, samples_per_chunk: 10},
       sink: Membrane.Testing.Sink
     ]
 
@@ -59,7 +59,7 @@ defmodule Membrane.MP4.IntegrationTest do
       parser: %Membrane.AAC.Parser{out_encapsulation: :none},
       payloader: Membrane.MP4.Payloader.AAC,
       tee: Membrane.Element.Tee.Master,
-      muxer: %Membrane.MP4.Muxer{tracks: 2},
+      muxer: %Membrane.MP4.Muxer{tracks: 2, samples_per_chunk: 10},
       sink: Membrane.Testing.Sink
     ]
 
