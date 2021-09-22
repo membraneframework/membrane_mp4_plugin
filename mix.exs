@@ -57,7 +57,8 @@ defmodule Membrane.MP4.Plugin.MixProject do
       {:membrane_caps_video_h264, "~> 0.2.0"},
       {:membrane_file_plugin, "~> 0.6.0", only: :test},
       {:membrane_h264_ffmpeg_plugin, "~> 0.11.0", only: :test},
-      {:membrane_aac_plugin, "~> 0.7.0", only: :test},
+      {:membrane_aac_plugin, "~> 0.7.1", only: :test},
+      {:membrane_element_tee, "~> 0.5.0", only: :test},
       {:ex_doc, "~> 0.21", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.0.0", only: [:dev, :test], runtime: false}
     ]
