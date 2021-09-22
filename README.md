@@ -4,11 +4,12 @@
 [![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](https://hexdocs.pm/membrane_mp4_plugin/)
 [![CircleCI](https://circleci.com/gh/membraneframework/membrane_mp4_plugin.svg?style=svg)](https://circleci.com/gh/membraneframework/membrane_mp4_plugin)
 
-This plugin provides utilities for MP4 container parsing and serialization and elements for muxing the stream to [CMAF](https://www.wowza.com/blog/what-is-cmaf).
+This plugin provides utilities for MP4 container parsing and serialization along with elements for muxing the stream to [CMAF](https://www.wowza.com/blog/what-is-cmaf) or regular MP4.
 
 ## Updating tests
 
-In case `out_*` reference files in `test/fixtures` change, `out_playlist.m3u8` and its dependent playlists should be updated and checked if they are still playable. The current files have been checked with ffplay (FFmpeg) and Safari.
+In case `out_*` reference files in `test/fixtures/cmaf` change, `out_playlist.m3u8` and its dependent playlists should be updated and checked if they are still playable.
+The current files have been checked with ffplay (FFmpeg) and Safari.
 
 ## Copyright and License
 
