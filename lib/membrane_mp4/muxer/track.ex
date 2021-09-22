@@ -2,8 +2,8 @@ defmodule Membrane.MP4.Muxer.Track do
   @moduledoc """
   A module defining a structure that represents an MPEG-4 track.
   All new samples of a track must be stored in the structure
-  first in order to build a sample table. The samples can be
-  flushed later in chunks.
+  first in order to build a sample table for regular MP4 file.
+  The samples can be flushed later as chunks.
   """
   alias __MODULE__.SampleTable
 
