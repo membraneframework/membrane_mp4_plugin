@@ -4,12 +4,14 @@ defmodule Membrane.MP4.IntegrationTest do
   alias Membrane.MP4.Container
   alias Membrane.Testing
 
+  # Fixtures used in muxer tests below were generated with `samples_per_chunk` option set to `10`.
+
   test "video" do
     children = [
       file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
       parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
       payloader: Membrane.MP4.Payloader.H264,
-      cmaf: Membrane.MP4.CMAF.Muxer,
+      muxer: %Membrane.MP4.Muxer{tracks: 1},
       sink: Membrane.Testing.Sink
     ]
 
@@ -19,14 +21,8 @@ defmodule Membrane.MP4.IntegrationTest do
     :ok = Testing.Pipeline.play(pipeline)
     assert_pipeline_playback_changed(pipeline, _, :playing)
 
-    assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{header: header, content_type: :video})
-    assert_mp4_equal(header, "out_video_header.mp4")
-
-    1..2
-    |> Enum.map(fn i ->
-      assert_sink_buffer(pipeline, :sink, buffer)
-      assert_mp4_equal(buffer.payload, "out_video_segment#{i}.m4s")
-    end)
+    assert_sink_buffer(pipeline, :sink, %Membrane.Buffer{payload: mp4})
+    assert_mp4_equal(mp4, "out_video.mp4")
 
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _, 0)
@@ -37,7 +33,7 @@ defmodule Membrane.MP4.IntegrationTest do
       file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
       parser: %Membrane.AAC.Parser{out_encapsulation: :none},
       payloader: Membrane.MP4.Payloader.AAC,
-      cmaf: %Membrane.MP4.CMAF.Muxer{segment_duration: Membrane.Time.seconds(4)},
+      muxer: %Membrane.MP4.Muxer{tracks: 1},
       sink: Membrane.Testing.Sink
     ]
 
@@ -47,21 +43,53 @@ defmodule Membrane.MP4.IntegrationTest do
     :ok = Testing.Pipeline.play(pipeline)
     assert_pipeline_playback_changed(pipeline, _, :playing)
 
-    assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{header: header, content_type: :audio})
-    assert_mp4_equal(header, "out_audio_header.mp4")
+    assert_sink_buffer(pipeline, :sink, %Membrane.Buffer{payload: mp4})
+    assert_mp4_equal(mp4, "out_audio.mp4")
 
-    1..3
-    |> Enum.map(fn i ->
-      assert_sink_buffer(pipeline, :sink, buffer)
-      assert_mp4_equal(buffer.payload, "out_audio_segment#{i}.m4s")
-    end)
+    assert_end_of_stream(pipeline, :sink)
+    refute_sink_buffer(pipeline, :sink, _, 0)
+  end
+
+  test "muxer two tracks" do
+    # We use Membrane.Element.Tee to ensure that buffers will be delivered
+    # in the same order every time the test is running.
+
+    children = [
+      src: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
+      parser: %Membrane.AAC.Parser{out_encapsulation: :none},
+      payloader: Membrane.MP4.Payloader.AAC,
+      tee: Membrane.Element.Tee.Master,
+      muxer: %Membrane.MP4.Muxer{tracks: 2},
+      sink: Membrane.Testing.Sink
+    ]
+
+    import Membrane.ParentSpec
+
+    links = [
+      link(:src) |> to(:parser) |> to(:payloader) |> to(:tee),
+      link(:tee) |> via_out(:master) |> to(:muxer),
+      link(:tee) |> via_out(:copy) |> to(:muxer),
+      link(:muxer) |> to(:sink)
+    ]
+
+    assert {:ok, pipeline} =
+             Testing.Pipeline.start_link(%Testing.Pipeline.Options{
+               elements: children,
+               links: links
+             })
+
+    :ok = Testing.Pipeline.play(pipeline)
+    assert_pipeline_playback_changed(pipeline, _, :playing)
+
+    assert_sink_buffer(pipeline, :sink, %Membrane.Buffer{payload: mp4})
+    assert_mp4_equal(mp4, "out_two_tracks.mp4")
 
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _, 0)
   end
 
   defp assert_mp4_equal(output, ref_file) do
-    ref_output = File.read!(Path.join("test/fixtures", ref_file))
+    ref_output = File.read!(Path.join("test/fixtures/muxer", ref_file))
     assert {ref_file, Container.parse!(output)} == {ref_file, Container.parse!(ref_output)}
     assert {ref_file, output} == {ref_file, ref_output}
   end
