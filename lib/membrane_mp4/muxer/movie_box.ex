@@ -1,6 +1,29 @@
 defmodule Membrane.MP4.Muxer.MovieBox do
   @moduledoc """
-  This module cotainins a set of utilities for creating an MPEG-4 movie box.
+  A module containing a set of utilities for assembling an MPEG-4 movie box.
+
+  The movie box (`moov`) is a top-level box that contains information about
+  a presentation as a whole. It consists of:
+
+    * exactly one movie header (`mvhd`)
+
+      Movie header contains media-independent data, such as the number of tracks,
+      volume, duration or timescale (presentation-wide).
+
+    * one or more track box (`trak`)
+
+      Track box describes a single track of a presentation. The description includes
+      information like its timescale, duration, volume, media-specific data (media
+      handlers, sample descriptions) as well as a sample table, which allows media
+      players to find and interpret track's data in the media data box.
+
+    * zero or one movie extends box (`mvex`)
+
+      Movie extends box provides information about movie fragment boxes in case when
+      media data is fragmented (for example in CMAF).
+
+  For more information about movie box contents, refer to
+  [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html).
   """
   alias Membrane.Time
   alias Membrane.MP4.Container
@@ -9,10 +32,11 @@ defmodule Membrane.MP4.Muxer.MovieBox do
 
   @movie_timescale 1000
 
-  defguardp is_audio(track) when track.width == 0 and track.height == 0
+  defguardp is_audio(track) when {track.height, track.width} == {0, 0}
 
   @spec serialize([%Track{}], Container.t()) :: binary
   def serialize(tracks, extensions \\ []) do
+    # to proceed, we need to supplement the tracks by unique IDs and durations
     tracks =
       1..length(tracks)
       |> Enum.zip(tracks)
@@ -63,6 +87,15 @@ defmodule Membrane.MP4.Muxer.MovieBox do
   end
 
   defp track_box(track) do
+    dinf =
+      [
+        dref: %{
+          children: [url: %{children: [], fields: %{flags: 1, version: 0}}],
+          fields: %{entry_count: 1, flags: 0, version: 0}
+        }
+      ]
+      |> then(&[dinf: %{children: &1, fields: %{}}])
+
     [
       trak: %{
         children:
@@ -76,19 +109,7 @@ defmodule Membrane.MP4.Muxer.MovieBox do
                       minf: %{
                         children:
                           media_header(track) ++
-                            [
-                              dinf: %{
-                                children: [
-                                  dref: %{
-                                    children: [
-                                      url: %{children: [], fields: %{flags: 1, version: 0}}
-                                    ],
-                                    fields: %{entry_count: 1, flags: 0, version: 0}
-                                  }
-                                ],
-                                fields: %{}
-                              }
-                            ] ++ sample_table(track),
+                            dinf ++ sample_table(track),
                         fields: %{}
                       }
                     ],
@@ -143,7 +164,7 @@ defmodule Membrane.MP4.Muxer.MovieBox do
           creation_time: 0,
           duration: track.duration,
           flags: 0,
-          language: 21956,
+          language: 21_956,
           modification_time: 0,
           timescale: track.timescale,
           version: 0

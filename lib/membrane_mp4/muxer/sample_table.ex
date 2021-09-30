@@ -7,21 +7,21 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
   """
 
   @type t :: %__MODULE__{
-          last_timestamp: integer,
+          last_timestamp: non_neg_integer,
           samples_buffer: [binary],
-          sample_sizes: [integer],
-          sync_samples: [integer],
-          chunk_offsets: [integer],
+          sample_sizes: [pos_integer],
+          sync_samples: [pos_integer],
+          chunk_offsets: [non_neg_integer],
           decoding_deltas: [
             %{
               sample_delta: Ratio.t(),
-              sample_count: integer
+              sample_count: pos_integer
             }
           ],
           samples_per_chunk: [
             %{
-              first_chunk: integer,
-              sample_count: integer
+              first_chunk: pos_integer,
+              sample_count: pos_integer
             }
           ]
         }
@@ -43,7 +43,7 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
     |> maybe_store_sync_sample(buffer)
   end
 
-  @spec flush_chunk(__MODULE__.t(), integer) :: {binary, __MODULE__.t()}
+  @spec flush_chunk(__MODULE__.t(), non_neg_integer) :: {binary, __MODULE__.t()}
   def flush_chunk(%{samples_buffer: []} = sample_table, _chunk_offset), do: {<<>>, sample_table}
 
   def flush_chunk(sample_table, chunk_offset) do
@@ -66,12 +66,16 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
       new_delta = timestamp - sample_table.last_timestamp
 
       case previous_deltas do
+        # there was only one sample in the sample table - we should assume its delta is
+        # equal to the one of the second sample
         [%{sample_count: 1, sample_delta: _}] ->
           [%{sample_count: 2, sample_delta: new_delta}]
 
+        # the delta did not change, simply increase the counter in the last entry to save space
         [%{sample_count: count, sample_delta: ^new_delta} | rest] ->
           [%{sample_count: count + 1, sample_delta: new_delta} | rest]
 
+        # the delta is different, we need to create a new entry
         _ ->
           [%{sample_count: 1, sample_delta: new_delta} | previous_deltas]
       end
@@ -80,7 +84,7 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
   end
 
   defp maybe_store_sync_sample(sample_table, %{metadata: %{mp4_payload: %{key_frame?: true}}}) do
-    Map.update!(sample_table, :sync_samples, &[length(sample_table.sample_sizes) | &1])
+    Map.update!(sample_table, :sync_samples, &[sample_count(sample_table) | &1])
   end
 
   defp maybe_store_sync_sample(sample_table, _buffer), do: sample_table
@@ -88,9 +92,11 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
   defp update_samples_per_chunk(sample_table, sample_count) do
     Map.update!(sample_table, :samples_per_chunk, fn previous_chunks ->
       case previous_chunks do
+        # the sample count of new chunk is identical, no action needed
         [%{first_chunk: _, sample_count: ^sample_count} | _rest] ->
           previous_chunks
 
+        # we provide information that starting from this chunk, sample count per chunk changes
         _ ->
           [
             %{first_chunk: length(sample_table.chunk_offsets), sample_count: sample_count}
@@ -99,4 +105,6 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
       end
     end)
   end
+
+  defp sample_count(%{sample_sizes: sample_sizes}), do: length(sample_sizes)
 end

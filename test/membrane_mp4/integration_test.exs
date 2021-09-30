@@ -48,14 +48,16 @@ defmodule Membrane.MP4.IntegrationTest do
 
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _, 0)
+
+    :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
   end
 
   test "muxer two tracks" do
-    # We use Membrane.Element.Tee to ensure that buffers will be delivered
+    # We use `Membrane.Element.Tee` to ensure that buffers will be delivered
     # in the same order every time the test is running.
 
     children = [
-      src: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
+      file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
       parser: %Membrane.AAC.Parser{out_encapsulation: :none},
       payloader: Membrane.MP4.Payloader.AAC,
       tee: Membrane.Element.Tee.Master,
@@ -66,7 +68,7 @@ defmodule Membrane.MP4.IntegrationTest do
     import Membrane.ParentSpec
 
     links = [
-      link(:src) |> to(:parser) |> to(:payloader) |> to(:tee),
+      link(:file) |> to(:parser) |> to(:payloader) |> to(:tee),
       link(:tee) |> via_out(:master) |> to(:muxer),
       link(:tee) |> via_out(:copy) |> to(:muxer),
       link(:muxer) |> to(:sink)
@@ -86,6 +88,8 @@ defmodule Membrane.MP4.IntegrationTest do
 
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _, 0)
+
+    :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
   end
 
   defp assert_mp4_equal(output, ref_file) do

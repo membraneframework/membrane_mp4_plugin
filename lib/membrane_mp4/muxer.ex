@@ -4,8 +4,8 @@ defmodule Membrane.MP4.Muxer do
   """
 
   # Due to the structure of MPEG-4 containers, it is not possible
-  # to send buffers with mdat box content right after they are
-  # processed - we need to know the size of this box up front.
+  # to send buffers with `mdat` box content right after they are
+  # processed — we need to know the size of this box up front.
   # The current solution requires storing all incoming buffers
   # in memory until the last track ends.
   # Once some kind of seeking mechanism is implemented, it will
@@ -49,7 +49,7 @@ defmodule Membrane.MP4.Muxer do
                 spec: :auto | pos_integer,
                 default: :auto,
                 description: """
-                Number of samples per chunk (last chunk may be smaller).
+                Number of samples per chunk (the last chunk may be smaller).
 
                 If set to `:auto`, it's determined by the number of tracks —
                 for two or more it equals `@default_samples_per_chunk`,
