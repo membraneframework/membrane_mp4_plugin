@@ -26,6 +26,8 @@ defmodule Membrane.MP4.IntegrationTest do
 
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _, 0)
+
+    :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
   end
 
   test "audio" do
