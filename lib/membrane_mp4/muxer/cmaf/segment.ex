@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.CMAF.Muxer.Segment do
+defmodule Membrane.MP4.Muxer.CMAF.Segment do
   @moduledoc false
   alias Membrane.MP4.Container
 

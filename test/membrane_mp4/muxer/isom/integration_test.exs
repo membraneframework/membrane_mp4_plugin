@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.IntegrationTest do
+defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
   use ExUnit.Case, async: true
   import Membrane.Testing.Assertions
   alias Membrane.MP4.Container
@@ -11,7 +11,7 @@ defmodule Membrane.MP4.IntegrationTest do
       file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
       parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
       payloader: Membrane.MP4.Payloader.H264,
-      muxer: %Membrane.MP4.Muxer{tracks: 1, samples_per_chunk: 10},
+      muxer: %Membrane.MP4.Muxer.ISOM{tracks: 1, samples_per_chunk: 10},
       sink: Membrane.Testing.Sink
     ]
 
@@ -35,7 +35,7 @@ defmodule Membrane.MP4.IntegrationTest do
       file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
       parser: %Membrane.AAC.Parser{out_encapsulation: :none},
       payloader: Membrane.MP4.Payloader.AAC,
-      muxer: %Membrane.MP4.Muxer{tracks: 1, samples_per_chunk: 10},
+      muxer: %Membrane.MP4.Muxer.ISOM{tracks: 1, samples_per_chunk: 10},
       sink: Membrane.Testing.Sink
     ]
 
@@ -55,24 +55,35 @@ defmodule Membrane.MP4.IntegrationTest do
   end
 
   test "muxer two tracks" do
-    # We use `Membrane.Element.Tee` to ensure that buffers will be delivered
-    # in the same order every time the test is running.
-
     children = [
-      file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
-      parser: %Membrane.AAC.Parser{out_encapsulation: :none},
-      payloader: Membrane.MP4.Payloader.AAC,
-      tee: Membrane.Element.Tee.Master,
-      muxer: %Membrane.MP4.Muxer{tracks: 2, samples_per_chunk: 10},
+      video_file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
+      video_parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
+      video_payloader: Membrane.MP4.Payloader.H264,
+      audio_file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
+      audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
+      audio_payloader: Membrane.MP4.Payloader.AAC,
+      sequential: Membrane.MP4.Support.Sequential,
+      muxer: %Membrane.MP4.Muxer.ISOM{tracks: 2, samples_per_chunk: 10},
       sink: Membrane.Testing.Sink
     ]
 
     import Membrane.ParentSpec
 
     links = [
-      link(:file) |> to(:parser) |> to(:payloader) |> to(:tee),
-      link(:tee) |> via_out(:master) |> to(:muxer),
-      link(:tee) |> via_out(:copy) |> to(:muxer),
+      link(:video_file)
+      |> to(:video_parser)
+      |> to(:video_payloader)
+      |> via_in(:primary_in)
+      |> to(:sequential)
+      |> via_out(:primary_out)
+      |> to(:muxer),
+      link(:audio_file)
+      |> to(:audio_parser)
+      |> to(:audio_payloader)
+      |> via_in(:secondary_in)
+      |> to(:sequential)
+      |> via_out(:secondary_out)
+      |> to(:muxer),
       link(:muxer) |> to(:sink)
     ]
 

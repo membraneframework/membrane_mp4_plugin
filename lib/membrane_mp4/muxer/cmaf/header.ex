@@ -1,7 +1,7 @@
-defmodule Membrane.MP4.CMAF.Muxer.Header do
+defmodule Membrane.MP4.Muxer.CMAF.Header do
   @moduledoc false
   alias Membrane.MP4.Container
-  alias Membrane.MP4.Muxer.{Track, MovieBox}
+  alias Membrane.MP4.Muxer.{MovieBox, Track}
 
   @ftyp [
           ftyp: %{

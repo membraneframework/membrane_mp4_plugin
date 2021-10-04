@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Muxer do
+defmodule Membrane.MP4.Muxer.ISOM do
   @moduledoc """
   Puts payloaded streams into an MPEG-4 container.
   """
@@ -10,12 +10,12 @@ defmodule Membrane.MP4.Muxer do
   # in memory until the last track ends.
   # Once some kind of seeking mechanism is implemented, it will
   # be possible to send chunks of samples on demand, only
-  # correcting the mdat header after all media data was send.
+  # correcting the mdat header after all media data has been sent.
 
   use Membrane.Filter
 
   alias Membrane.MP4.Container
-  alias __MODULE__.{MovieBox, Track}
+  alias Membrane.MP4.Muxer.{MovieBox, Track}
 
   @ftyp [
           ftyp: %{
@@ -42,7 +42,7 @@ defmodule Membrane.MP4.Muxer do
 
   def_options tracks: [
                 spec: pos_integer,
-                default: 1,
+                default: 2,
                 description: "Number of tracks that the muxer should expect"
               ],
               samples_per_chunk: [
@@ -52,8 +52,7 @@ defmodule Membrane.MP4.Muxer do
                 Number of samples per chunk (the last chunk may be smaller).
 
                 If set to `:auto`, it's determined by the number of tracks —
-                for two or more it equals `@default_samples_per_chunk`,
-                otherwise no upper limit is set.
+                for two or more it equals `10`, otherwise no upper limit is set.
                 """
               ]
 
@@ -77,7 +76,7 @@ defmodule Membrane.MP4.Muxer do
   end
 
   @impl true
-  def handle_caps({_pad, :input, pad_ref}, %Membrane.MP4.Payload{} = caps, _ctx, state) do
+  def handle_caps(Pad.ref(:input, pad_ref), %Membrane.MP4.Payload{} = caps, _ctx, state) do
     track =
       caps
       |> Map.take([:width, :height, :content, :timescale])
@@ -99,7 +98,7 @@ defmodule Membrane.MP4.Muxer do
   end
 
   @impl true
-  def handle_process({_pad, :input, pad_ref}, buffer, _ctx, state) do
+  def handle_process(Pad.ref(:input, pad_ref), buffer, _ctx, state) do
     state =
       state
       |> update_in([:playing, pad_ref], &Track.store_sample(&1, buffer))
@@ -109,7 +108,7 @@ defmodule Membrane.MP4.Muxer do
   end
 
   @impl true
-  def handle_end_of_stream({_pad, :input, pad_ref}, _ctx, state) do
+  def handle_end_of_stream(Pad.ref(:input, pad_ref), _ctx, state) do
     {track, state} = pop_in(state, [:playing, pad_ref])
     {last_chunk, track} = Track.flush_chunk(track, state.chunk_offset)
 

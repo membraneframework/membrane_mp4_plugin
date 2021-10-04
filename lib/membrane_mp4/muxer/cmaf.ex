@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.CMAF.Muxer do
+defmodule Membrane.MP4.Muxer.CMAF do
   @moduledoc """
   Puts payloaded stream into [Common Media Application Format](https://www.wowza.com/blog/what-is-cmaf),
   an MP4-based container commonly used in adaptive streaming over HTTP.
