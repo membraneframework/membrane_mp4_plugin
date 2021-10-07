@@ -8,7 +8,7 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
 
   @type t :: %__MODULE__{
           last_timestamp: non_neg_integer,
-          samples_buffer: [binary],
+          samples_buffer: [Membrane.Buffer.t()],
           sample_sizes: [pos_integer],
           sync_samples: [pos_integer],
           chunk_offsets: [non_neg_integer],
@@ -34,11 +34,10 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
             decoding_deltas: [],
             samples_per_chunk: []
 
-  @spec store_sample(__MODULE__.t(), %Membrane.Buffer{}) :: __MODULE__.t()
+  @spec store_sample(__MODULE__.t(), Membrane.Buffer.t()) :: __MODULE__.t()
   def store_sample(sample_table, buffer) do
     sample_table
-    |> Map.update!(:samples_buffer, &[buffer.payload | &1])
-    |> Map.update!(:sample_sizes, &[byte_size(buffer.payload) | &1])
+    |> do_store_sample(buffer)
     |> update_decoding_deltas(buffer)
     |> maybe_store_sync_sample(buffer)
   end
@@ -54,9 +53,15 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
       |> Map.update!(:chunk_offsets, &[chunk_offset | &1])
       |> update_samples_per_chunk(length(samples))
 
-    chunk = samples |> Enum.reverse() |> Enum.join()
+    chunk = samples |> Enum.map(& &1.payload) |> Enum.reverse() |> Enum.join()
 
     {chunk, sample_table}
+  end
+
+  defp do_store_sample(sample_table, buffer) do
+    sample_table
+    |> Map.update!(:samples_buffer, &[buffer | &1])
+    |> Map.update!(:sample_sizes, &[byte_size(buffer.payload) | &1])
   end
 
   defp update_decoding_deltas(sample_table, %{metadata: %{timestamp: timestamp}}) do
@@ -75,7 +80,7 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
         [%{sample_count: count, sample_delta: ^new_delta} | rest] ->
           [%{sample_count: count + 1, sample_delta: new_delta} | rest]
 
-        # the delta is different, we need to create a new entry
+        # the delta is different or this is the first sample, we need to create a new entry
         _ ->
           [%{sample_count: 1, sample_delta: new_delta} | previous_deltas]
       end

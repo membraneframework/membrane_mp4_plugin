@@ -14,6 +14,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   use Membrane.Filter
 
+  alias Membrane.{Buffer, Time}
   alias Membrane.MP4.Container
   alias Membrane.MP4.Muxer.{MovieBox, Track}
 
@@ -29,9 +30,8 @@ defmodule Membrane.MP4.Muxer.ISOM do
         ]
         |> Container.serialize!()
 
+  @ftyp_size byte_size(@ftyp)
   @mdat_data_offset 8
-
-  @default_samples_per_chunk 10
 
   def_input_pad :input,
     demand_unit: :buffers,
@@ -40,37 +40,33 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   def_output_pad :output, caps: :buffers
 
-  def_options tracks: [
-                spec: pos_integer,
-                default: 2,
-                description: "Number of tracks that the muxer should expect"
-              ],
-              samples_per_chunk: [
-                spec: :auto | pos_integer,
-                default: :auto,
+  def_options chunk_duration: [
+                spec: Time.t(),
+                default: Time.seconds(1),
                 description: """
-                Number of samples per chunk (the last chunk may be smaller).
+                Expected duration of each chunk in the resulting MP4 container.
 
-                If set to `:auto`, it's determined by the number of tracks —
-                for two or more it equals `10`, otherwise no upper limit is set.
+                Once the total duration of samples received on one of the input pads exceeds
+                that threshold, a chunk containing these samples is flushed. Interleaving chunks
+                belonging to different tracks may have positive impact on performance of media players.
                 """
               ]
 
   @impl true
   def handle_init(options) do
     state = %{
-      playing: %{},
-      stopped: [],
+      pad_to_track: %{},
+      pad_order: [],
       media_data: <<>>,
-      chunk_offset: byte_size(@ftyp) + @mdat_data_offset,
-      tracks: options.tracks,
-      samples_per_chunk:
-        case {options.samples_per_chunk, options.tracks} do
-          {:auto, 1} -> :infinity
-          {:auto, _} -> @default_samples_per_chunk
-          _ -> options.samples_per_chunk
-        end
+      chunk_duration: options.chunk_duration
     }
+
+    {:ok, state}
+  end
+
+  @impl true
+  def handle_pad_added(Pad.ref(:input, pad_ref), _ctx, state) do
+    state = Map.update!(state, :pad_order, &[pad_ref | &1])
 
     {:ok, state}
   end
@@ -82,26 +78,23 @@ defmodule Membrane.MP4.Muxer.ISOM do
       |> Map.take([:width, :height, :content, :timescale])
       |> Track.new()
 
-    state = put_in(state, [:playing, pad_ref], track)
+    state = put_in(state, [:pad_to_track, pad_ref], track)
 
-    {{:ok, redemand: :output}, state}
+    {:ok, state}
   end
 
   @impl true
-  def handle_demand(:output, size, :buffers, _ctx, state) do
-    demands =
-      state.playing
-      |> Map.keys()
-      |> Enum.map(&{:demand, {Pad.ref(:input, &1), size}})
+  def handle_demand(:output, _size, :buffers, _ctx, state) do
+    next_ref = hd(state.pad_order)
 
-    {{:ok, demands}, state}
+    {{:ok, demand: {Pad.ref(:input, next_ref), 1}}, state}
   end
 
   @impl true
   def handle_process(Pad.ref(:input, pad_ref), buffer, _ctx, state) do
     state =
       state
-      |> update_in([:playing, pad_ref], &Track.store_sample(&1, buffer))
+      |> update_in([:pad_to_track, pad_ref], &Track.store_sample(&1, buffer))
       |> maybe_flush_chunk(pad_ref)
 
     {{:ok, redemand: :output}, state}
@@ -109,40 +102,48 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   @impl true
   def handle_end_of_stream(Pad.ref(:input, pad_ref), _ctx, state) do
-    {track, state} = pop_in(state, [:playing, pad_ref])
-    {last_chunk, track} = Track.flush_chunk(track, state.chunk_offset)
-
     state =
       state
-      |> Map.update!(:chunk_offset, &(&1 + byte_size(last_chunk)))
-      |> Map.update!(:media_data, &(&1 <> last_chunk))
-      |> Map.update!(:stopped, &[track | &1])
+      |> do_flush_chunk(pad_ref)
+      |> Map.update!(:pad_order, &List.delete(&1, pad_ref))
 
-    if length(state.stopped) < state.tracks do
+    if length(state.pad_order) > 0 do
       {:ok, state}
     else
       mdat = [mdat: %{content: state.media_data}] |> Container.serialize!()
-      moov = MovieBox.serialize(state.stopped)
+      moov = state.pad_to_track |> Map.values() |> MovieBox.serialize()
       mp4 = @ftyp <> mdat <> moov
 
-      {{:ok, buffer: {:output, %Membrane.Buffer{payload: mp4}}, end_of_stream: :output}, state}
+      {{:ok, buffer: {:output, %Buffer{payload: mp4}}, end_of_stream: :output}, state}
     end
   end
 
-  defp maybe_flush_chunk(%{samples_per_chunk: :infinity} = state, _pad_ref), do: state
-
   defp maybe_flush_chunk(state, pad_ref) do
-    track = get_in(state, [:playing, pad_ref])
+    use Ratio, comparison: true
+    track = get_in(state, [:pad_to_track, pad_ref])
 
-    if Track.current_buffer_size(track) == state.samples_per_chunk do
-      {chunk, track} = Track.flush_chunk(track, state.chunk_offset)
-
-      state
-      |> Map.update!(:chunk_offset, &(&1 + byte_size(chunk)))
-      |> Map.update!(:media_data, &(&1 <> chunk))
-      |> put_in([:playing, pad_ref], track)
+    if Track.current_chunk_duration(track) >= state.chunk_duration do
+      do_flush_chunk(state, pad_ref)
     else
       state
     end
   end
+
+  defp do_flush_chunk(state, pad_ref) do
+    track = get_in(state, [:pad_to_track, pad_ref])
+
+    {chunk, track} = Track.flush_chunk(track, chunk_offset(state))
+
+    state
+    |> Map.update!(:media_data, &(&1 <> chunk))
+    |> put_in([:pad_to_track, pad_ref], track)
+    |> Map.update!(:pad_order, &shift_left/1)
+  end
+
+  defp chunk_offset(%{media_data: media_data}),
+    do: @ftyp_size + @mdat_data_offset + byte_size(media_data)
+
+  defp shift_left([]), do: []
+
+  defp shift_left([first | rest]), do: rest ++ [first]
 end

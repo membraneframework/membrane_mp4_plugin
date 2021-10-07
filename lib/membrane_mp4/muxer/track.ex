@@ -30,21 +30,25 @@ defmodule Membrane.MP4.Muxer.Track do
           timescale: pos_integer
         }) :: __MODULE__.t()
   def new(config) do
-    %__MODULE__{
-      content: config.content,
-      height: config.height,
-      width: config.width,
-      timescale: config.timescale
-    }
+    struct!(__MODULE__, config)
   end
 
-  @spec store_sample(__MODULE__.t(), %Membrane.Buffer{}) :: __MODULE__.t()
+  @spec store_sample(__MODULE__.t(), Membrane.Buffer.t()) :: __MODULE__.t()
   def store_sample(track, buffer) do
     Map.update!(track, :sample_table, &SampleTable.store_sample(&1, buffer))
   end
 
-  @spec current_buffer_size(__MODULE__.t()) :: non_neg_integer
-  def current_buffer_size(track), do: length(track.sample_table.samples_buffer)
+  @spec current_chunk_duration(__MODULE__.t()) :: non_neg_integer
+  def current_chunk_duration(%{sample_table: sample_table}) do
+    case List.last(sample_table.samples_buffer).metadata.timestamp do
+      nil ->
+        0
+
+      first_timestamp ->
+        use Ratio
+        sample_table.last_timestamp - first_timestamp
+    end
+  end
 
   @spec flush_chunk(__MODULE__.t(), non_neg_integer) :: {binary, __MODULE__.t()}
   def flush_chunk(track, chunk_offset) do
