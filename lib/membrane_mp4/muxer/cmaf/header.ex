@@ -45,7 +45,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Header do
       |> Map.take([:timescale, :width, :height, :content])
       |> Track.new()
 
-    movie_box = MovieBox.serialize([track], @mvex)
+    movie_box = MovieBox.assemble([track], @mvex) |> Container.serialize!()
 
     @ftyp <> movie_box
   end

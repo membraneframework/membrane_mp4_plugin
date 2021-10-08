@@ -19,18 +19,17 @@ defmodule Membrane.MP4.Muxer.ISOM do
   alias Membrane.MP4.Muxer.{MovieBox, Track}
 
   @ftyp [
-          ftyp: %{
-            children: [],
-            fields: %{
-              compatible_brands: ["isom", "iso2", "avc1", "mp41"],
-              major_brand: "isom",
-              major_brand_version: 512
-            }
-          }
-        ]
-        |> Container.serialize!()
+    ftyp: %{
+      children: [],
+      fields: %{
+        compatible_brands: ["isom", "iso2", "avc1", "mp41"],
+        major_brand: "isom",
+        major_brand_version: 512
+      }
+    }
+  ]
 
-  @ftyp_size byte_size(@ftyp)
+  @ftyp_size @ftyp |> Container.serialize!() |> byte_size()
   @mdat_data_offset 8
 
   def_input_pad :input,
@@ -40,7 +39,17 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   def_output_pad :output, caps: :buffers
 
-  def_options chunk_duration: [
+  def_options fast_start: [
+                spec: boolean,
+                default: false,
+                description: """
+                Whether the container metadata (`moov` atom) should be placed before media data.
+
+                Especially suitable for streaming, where makes it possible to start playback before all
+                media data arrives. Equivalent of `ffmpeg`'s `-movflags faststart` option.
+                """
+              ],
+              chunk_duration: [
                 spec: Time.t(),
                 default: Time.seconds(1),
                 description: """
@@ -58,7 +67,8 @@ defmodule Membrane.MP4.Muxer.ISOM do
       pad_to_track: %{},
       pad_order: [],
       media_data: <<>>,
-      chunk_duration: options.chunk_duration
+      chunk_duration: options.chunk_duration,
+      fast_start: options.fast_start
     }
 
     {:ok, state}
@@ -110,11 +120,8 @@ defmodule Membrane.MP4.Muxer.ISOM do
     if length(state.pad_order) > 0 do
       {{:ok, redemand: :output}, state}
     else
-      mdat = [mdat: %{content: state.media_data}] |> Container.serialize!()
-      moov = state.pad_to_track |> Map.values() |> MovieBox.serialize()
-      mp4 = @ftyp <> mdat <> moov
-
-      {{:ok, buffer: {:output, %Buffer{payload: mp4}}, end_of_stream: :output}, state}
+      {{:ok, buffer: {:output, %Buffer{payload: serialize(state)}}, end_of_stream: :output},
+       state}
     end
   end
 
@@ -146,4 +153,42 @@ defmodule Membrane.MP4.Muxer.ISOM do
   defp shift_left([]), do: []
 
   defp shift_left([first | rest]), do: rest ++ [first]
+
+  defp serialize(state) do
+    mdat = [mdat: %{content: state.media_data}]
+    moov = state.pad_to_track |> Map.values() |> MovieBox.assemble()
+
+    if state.fast_start do
+      [@ftyp, fast_start_moov(moov), mdat]
+    else
+      [@ftyp, mdat, moov]
+    end
+    |> Enum.map(&Container.serialize!/1)
+    |> Enum.reduce(&(&2 <> &1))
+  end
+
+  defp fast_start_moov(moov) do
+    moov_size = moov |> Container.serialize!() |> byte_size()
+    moov_children = get_in(moov, [:moov, :children])
+
+    # updates all `trak`s by increasing chunk_offset by `moov_size`
+    traks_with_offset =
+      moov_children
+      |> Keyword.get_values(:trak)
+      |> Enum.map(fn trak ->
+        Container.update_box(
+          trak.children,
+          [:mdia, :minf, :stbl, :stco],
+          [:fields, :entry_list],
+          &Enum.map(&1, fn %{chunk_offset: offset} -> %{chunk_offset: offset + moov_size} end)
+        )
+      end)
+      |> Enum.reduce([], &([trak: %{children: &1, fields: %{}}] ++ &2))
+
+    # replaces all `trak`s with the ones with updated chunk offsets
+    moov_children
+    |> Keyword.delete(:trak)
+    |> Keyword.merge(traks_with_offset)
+    |> then(&[moov: %{children: &1, fields: %{}}])
+  end
 end

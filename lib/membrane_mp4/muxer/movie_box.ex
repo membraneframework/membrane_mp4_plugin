@@ -34,8 +34,8 @@ defmodule Membrane.MP4.Muxer.MovieBox do
 
   defguardp is_audio(track) when {track.height, track.width} == {0, 0}
 
-  @spec serialize([%Track{}], Container.t()) :: binary
-  def serialize(tracks, extensions \\ []) do
+  @spec assemble([%Track{}], Container.t()) :: Container.t()
+  def assemble(tracks, extensions \\ []) do
     # to proceed, we need to supplement the tracks by unique IDs and durations
     tracks =
       1..length(tracks)
@@ -47,7 +47,6 @@ defmodule Membrane.MP4.Muxer.MovieBox do
     track_boxes = Enum.flat_map(tracks, &track_box/1)
 
     [moov: %{children: header ++ track_boxes ++ extensions, fields: %{}}]
-    |> Container.serialize!()
   end
 
   defp movie_header(tracks) do
@@ -87,14 +86,14 @@ defmodule Membrane.MP4.Muxer.MovieBox do
   end
 
   defp track_box(track) do
-    dinf =
-      [
-        dref: %{
-          children: [url: %{children: [], fields: %{flags: 1, version: 0}}],
-          fields: %{entry_count: 1, flags: 0, version: 0}
-        }
-      ]
-      |> then(&[dinf: %{children: &1, fields: %{}}])
+    dref =
+      {:dref,
+       %{
+         children: [url: %{children: [], fields: %{flags: 1, version: 0}}],
+         fields: %{entry_count: 1, flags: 0, version: 0}
+       }}
+
+    dinf = [dinf: %{children: [dref], fields: %{}}]
 
     [
       trak: %{
