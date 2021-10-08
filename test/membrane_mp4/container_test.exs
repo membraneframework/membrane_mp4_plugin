@@ -3,7 +3,7 @@ defmodule Membrane.MP4.ContainerTest do
   alias Membrane.MP4.Container
 
   @cmaf_fixtures "test/fixtures/cmaf"
-  @muxer_fixtures "test/fixtures/muxer"
+  @isom_fixtures "test/fixtures/isom"
 
   test "video" do
     data = @cmaf_fixtures |> Path.join("out_video_header.mp4") |> File.read!()
@@ -12,7 +12,7 @@ defmodule Membrane.MP4.ContainerTest do
     assert data |> Container.parse!() |> Container.serialize!() == data
     data = @cmaf_fixtures |> Path.join("out_video_segment2.m4s") |> File.read!()
     assert data |> Container.parse!() |> Container.serialize!() == data
-    data = @muxer_fixtures |> Path.join("out_video.mp4") |> File.read!()
+    data = @isom_fixtures |> Path.join("out_video.mp4") |> File.read!()
     assert data |> Container.parse!() |> Container.serialize!() == data
   end
 
@@ -25,12 +25,12 @@ defmodule Membrane.MP4.ContainerTest do
     assert data |> Container.parse!() |> Container.serialize!() == data
     data = @cmaf_fixtures |> Path.join("out_audio_segment3.m4s") |> File.read!()
     assert data |> Container.parse!() |> Container.serialize!() == data
-    data = @muxer_fixtures |> Path.join("out_audio.mp4") |> File.read!()
+    data = @isom_fixtures |> Path.join("out_audio.mp4") |> File.read!()
     assert data |> Container.parse!() |> Container.serialize!() == data
   end
 
   test "two tracks" do
-    data = @muxer_fixtures |> Path.join("out_two_tracks.mp4") |> File.read!()
+    data = @isom_fixtures |> Path.join("out_two_tracks.mp4") |> File.read!()
     assert data |> Container.parse!() |> Container.serialize!() == data
   end
 

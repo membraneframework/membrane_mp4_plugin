@@ -1,17 +1,17 @@
 defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
   use ExUnit.Case, async: true
   import Membrane.Testing.Assertions
+  alias Membrane.{Testing, Time}
   alias Membrane.MP4.Container
-  alias Membrane.Testing
 
-  # Fixtures used in muxer tests below were generated with `samples_per_chunk` option set to `10`.
+  # Fixtures used in muxer tests below were generated with `chunk_duration` option set to `Membrane.Time.seconds(1)`.
 
   test "video" do
     children = [
       file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
       parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
       payloader: Membrane.MP4.Payloader.H264,
-      muxer: %Membrane.MP4.Muxer.ISOM{tracks: 1, samples_per_chunk: 10},
+      muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)},
       sink: Membrane.Testing.Sink
     ]
 
@@ -35,7 +35,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
       parser: %Membrane.AAC.Parser{out_encapsulation: :none},
       payloader: Membrane.MP4.Payloader.AAC,
-      muxer: %Membrane.MP4.Muxer.ISOM{tracks: 1, samples_per_chunk: 10},
+      muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)},
       sink: Membrane.Testing.Sink
     ]
 
@@ -62,8 +62,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       audio_file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
       audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
       audio_payloader: Membrane.MP4.Payloader.AAC,
-      sequential: Membrane.MP4.Support.Sequential,
-      muxer: %Membrane.MP4.Muxer.ISOM{tracks: 2, samples_per_chunk: 10},
+      muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)},
       sink: Membrane.Testing.Sink
     ]
 
@@ -73,16 +72,10 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       link(:video_file)
       |> to(:video_parser)
       |> to(:video_payloader)
-      |> via_in(:primary_in)
-      |> to(:sequential)
-      |> via_out(:primary_out)
       |> to(:muxer),
       link(:audio_file)
       |> to(:audio_parser)
       |> to(:audio_payloader)
-      |> via_in(:secondary_in)
-      |> to(:sequential)
-      |> via_out(:secondary_out)
       |> to(:muxer),
       link(:muxer) |> to(:sink)
     ]
@@ -106,7 +99,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
   end
 
   defp assert_mp4_equal(output, ref_file) do
-    ref_output = File.read!(Path.join("test/fixtures/muxer", ref_file))
+    ref_output = File.read!(Path.join("test/fixtures/isom", ref_file))
     assert {ref_file, Container.parse!(output)} == {ref_file, Container.parse!(ref_output)}
     assert {ref_file, output} == {ref_file, ref_output}
   end
