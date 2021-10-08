@@ -108,7 +108,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
       |> Map.update!(:pad_order, &List.delete(&1, pad_ref))
 
     if length(state.pad_order) > 0 do
-      {:ok, state}
+      {{:ok, redemand: :output}, state}
     else
       mdat = [mdat: %{content: state.media_data}] |> Container.serialize!()
       moov = state.pad_to_track |> Map.values() |> MovieBox.serialize()
