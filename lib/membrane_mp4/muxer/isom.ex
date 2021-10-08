@@ -63,13 +63,14 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   @impl true
   def handle_init(options) do
-    state = %{
-      pad_to_track: %{},
-      pad_order: [],
-      media_data: <<>>,
-      chunk_duration: options.chunk_duration,
-      fast_start: options.fast_start
-    }
+    state =
+      options
+      |> Map.from_struct()
+      |> Map.merge(%{
+        pad_to_track: %{},
+        pad_order: [],
+        media_data: <<>>
+      })
 
     {:ok, state}
   end
@@ -120,8 +121,9 @@ defmodule Membrane.MP4.Muxer.ISOM do
     if length(state.pad_order) > 0 do
       {{:ok, redemand: :output}, state}
     else
-      {{:ok, buffer: {:output, %Buffer{payload: serialize(state)}}, end_of_stream: :output},
-       state}
+      mp4 = serialize(state)
+
+      {{:ok, buffer: {:output, %Buffer{payload: mp4}}, end_of_stream: :output}, state}
     end
   end
 
@@ -147,13 +149,6 @@ defmodule Membrane.MP4.Muxer.ISOM do
     |> Map.update!(:pad_order, &shift_left/1)
   end
 
-  defp chunk_offset(%{media_data: media_data}),
-    do: @ftyp_size + @mdat_data_offset + byte_size(media_data)
-
-  defp shift_left([]), do: []
-
-  defp shift_left([first | rest]), do: rest ++ [first]
-
   defp serialize(state) do
     mdat = [mdat: %{content: state.media_data}]
     moov = state.pad_to_track |> Map.values() |> MovieBox.assemble()
@@ -171,7 +166,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
     moov_size = moov |> Container.serialize!() |> byte_size()
     moov_children = get_in(moov, [:moov, :children])
 
-    # updates all `trak`s by increasing chunk_offset by `moov_size`
+    # updates all `trak` boxes by adding `moov_size` to the offset of each chunk in its sample table
     traks_with_offset =
       moov_children
       |> Keyword.get_values(:trak)
@@ -185,10 +180,17 @@ defmodule Membrane.MP4.Muxer.ISOM do
       end)
       |> Enum.reduce([], &([trak: %{children: &1, fields: %{}}] ++ &2))
 
-    # replaces all `trak`s with the ones with updated chunk offsets
+    # replaces all `trak` boxes with the ones with updated chunk offsets
     moov_children
     |> Keyword.delete(:trak)
     |> Keyword.merge(traks_with_offset)
     |> then(&[moov: %{children: &1, fields: %{}}])
   end
+
+  defp chunk_offset(%{media_data: media_data}),
+    do: @ftyp_size + @mdat_data_offset + byte_size(media_data)
+
+  defp shift_left([]), do: []
+
+  defp shift_left([first | rest]), do: rest ++ [first]
 end
