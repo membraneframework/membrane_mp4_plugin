@@ -40,14 +40,7 @@ defmodule Membrane.MP4.Muxer.Track do
 
   @spec current_chunk_duration(__MODULE__.t()) :: non_neg_integer
   def current_chunk_duration(%{sample_table: sample_table}) do
-    case List.last(sample_table.samples_buffer).metadata.timestamp do
-      nil ->
-        0
-
-      first_timestamp ->
-        use Ratio
-        sample_table.last_timestamp - first_timestamp
-    end
+    SampleTable.chunk_duration(sample_table)
   end
 
   @spec flush_chunk(__MODULE__.t(), non_neg_integer) :: {binary, __MODULE__.t()}

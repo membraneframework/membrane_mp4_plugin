@@ -271,7 +271,7 @@ defmodule Membrane.MP4.Muxer.MovieBox do
                   version: 0,
                   flags: 0,
                   sample_size: 0,
-                  sample_count: length(sample_sizes),
+                  sample_count: track.sample_table.sample_count,
                   entry_list: sample_sizes
                 }
               },

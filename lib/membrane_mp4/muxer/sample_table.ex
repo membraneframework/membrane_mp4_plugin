@@ -7,8 +7,12 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
   """
 
   @type t :: %__MODULE__{
-          last_timestamp: non_neg_integer,
-          samples_buffer: [Membrane.Buffer.t()],
+          chunk: %{
+            samples: [binary],
+            first_timestamp: non_neg_integer,
+            last_timestamp: non_neg_integer
+          },
+          sample_count: non_neg_integer,
           sample_sizes: [pos_integer],
           sync_samples: [pos_integer],
           chunk_offsets: [non_neg_integer],
@@ -26,8 +30,12 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
           ]
         }
 
-  defstruct last_timestamp: 0,
-            samples_buffer: [],
+  defstruct chunk: %{
+              samples: [],
+              first_timestamp: 0,
+              last_timestamp: 0
+            },
+            sample_count: 0,
             sample_sizes: [],
             sync_samples: [],
             chunk_offsets: [],
@@ -37,38 +45,56 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
   @spec store_sample(__MODULE__.t(), Membrane.Buffer.t()) :: __MODULE__.t()
   def store_sample(sample_table, buffer) do
     sample_table
+    |> maybe_store_first_timestamp(buffer)
     |> do_store_sample(buffer)
     |> update_decoding_deltas(buffer)
     |> maybe_store_sync_sample(buffer)
+    |> store_last_timestamp(buffer)
+  end
+
+  @spec chunk_duration(__MODULE__.t()) :: non_neg_integer
+  def chunk_duration(%{chunk: %{samples: []}}), do: 0
+
+  def chunk_duration(%{chunk: chunk}) do
+    use Ratio
+    chunk.last_timestamp - chunk.first_timestamp
   end
 
   @spec flush_chunk(__MODULE__.t(), non_neg_integer) :: {binary, __MODULE__.t()}
-  def flush_chunk(%{samples_buffer: []} = sample_table, _chunk_offset), do: {<<>>, sample_table}
+  def flush_chunk(%{chunk: %{samples: []}} = sample_table, _chunk_offset),
+    do: {<<>>, sample_table}
 
-  def flush_chunk(sample_table, chunk_offset) do
-    {samples, sample_table} = Map.get_and_update!(sample_table, :samples_buffer, &{&1, []})
-
+  def flush_chunk(%{chunk: %{samples: samples}} = sample_table, chunk_offset) do
     sample_table =
       sample_table
+      |> Map.update!(:chunk, &Map.put(&1, :samples, []))
       |> Map.update!(:chunk_offsets, &[chunk_offset | &1])
       |> update_samples_per_chunk(length(samples))
 
-    chunk = samples |> Enum.map(& &1.payload) |> Enum.reverse() |> Enum.join()
+    chunk = samples |> Enum.reverse() |> Enum.join()
 
     {chunk, sample_table}
   end
 
-  defp do_store_sample(sample_table, buffer) do
+  defp do_store_sample(sample_table, %{payload: payload}) do
     sample_table
-    |> Map.update!(:samples_buffer, &[buffer | &1])
-    |> Map.update!(:sample_sizes, &[byte_size(buffer.payload) | &1])
+    |> Map.update!(:chunk, fn chunk -> Map.update!(chunk, :samples, &[payload | &1]) end)
+    |> Map.update!(:sample_sizes, &[byte_size(payload) | &1])
+    |> Map.update!(:sample_count, &(&1 + 1))
   end
 
+  defp maybe_store_first_timestamp(%{chunk: %{samples: []}} = sample_table, %{
+         metadata: %{timestamp: timestamp}
+       }) do
+    Map.update!(sample_table, :chunk, &Map.put(&1, :first_timestamp, timestamp))
+  end
+
+  defp maybe_store_first_timestamp(sample_table, _buffer), do: sample_table
+
   defp update_decoding_deltas(sample_table, %{metadata: %{timestamp: timestamp}}) do
-    sample_table
-    |> Map.update!(:decoding_deltas, fn previous_deltas ->
+    Map.update!(sample_table, :decoding_deltas, fn previous_deltas ->
       use Ratio
-      new_delta = timestamp - sample_table.last_timestamp
+      new_delta = timestamp - sample_table.chunk.last_timestamp
 
       case previous_deltas do
         # there was only one sample in the sample table - we should assume its delta is
@@ -85,14 +111,17 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
           [%{sample_count: 1, sample_delta: new_delta} | previous_deltas]
       end
     end)
-    |> Map.put(:last_timestamp, timestamp)
   end
 
   defp maybe_store_sync_sample(sample_table, %{metadata: %{mp4_payload: %{key_frame?: true}}}) do
-    Map.update!(sample_table, :sync_samples, &[sample_count(sample_table) | &1])
+    Map.update!(sample_table, :sync_samples, &[sample_table.sample_count | &1])
   end
 
   defp maybe_store_sync_sample(sample_table, _buffer), do: sample_table
+
+  defp store_last_timestamp(sample_table, %{metadata: %{timestamp: timestamp}}) do
+    Map.update!(sample_table, :chunk, &Map.put(&1, :last_timestamp, timestamp))
+  end
 
   defp update_samples_per_chunk(sample_table, sample_count) do
     Map.update!(sample_table, :samples_per_chunk, fn previous_chunks ->
@@ -110,6 +139,4 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
       end
     end)
   end
-
-  defp sample_count(%{sample_sizes: sample_sizes}), do: length(sample_sizes)
 end
