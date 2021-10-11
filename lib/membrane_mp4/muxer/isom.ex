@@ -178,7 +178,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
           &Enum.map(&1, fn %{chunk_offset: offset} -> %{chunk_offset: offset + moov_size} end)
         )
       end)
-      |> Enum.reduce([], &([trak: %{children: &1, fields: %{}}] ++ &2))
+      |> Enum.map(&{:trak, %{children: &1, fields: %{}}})
 
     # replaces all `trak` boxes with the ones with updated chunk offsets
     moov_children
