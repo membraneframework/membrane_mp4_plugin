@@ -43,10 +43,10 @@ defmodule Membrane.MP4.Muxer.ISOM do
                 spec: boolean,
                 default: false,
                 description: """
-                Whether the container metadata (`moov` atom) should be placed before media data.
+                Makes it possible for media players to start playback before loading all media data.
 
-                Especially suitable for streaming, where makes it possible to start playback before all
-                media data arrives. Equivalent of `ffmpeg`'s `-movflags faststart` option.
+                When set to `true`, the container metadata (`moov` atom) will be placed before media data,
+                what is especially suitable for streaming. Equivalent of `ffmpeg`'s `-movflags faststart` option.
                 """
               ],
               chunk_duration: [
