@@ -12,6 +12,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   alias __MODULE__.{Header, Segment}
   alias Membrane.{Buffer, Time}
+  alias Membrane.MP4.Muxer.Helper
   alias Membrane.MP4.Payload.{AAC, AVC1}
 
   def_input_pad :input, demand_unit: :buffers, caps: Membrane.MP4.Payload
@@ -127,7 +128,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
           sample_size: byte_size(sample.payload),
           sample_flags: generate_sample_flags(sample.metadata),
           sample_duration:
-            timescalify(next_sample.metadata.timestamp - sample.metadata.timestamp, timescale)
+            Helper.timescalify(
+              next_sample.metadata.timestamp - sample.metadata.timestamp,
+              timescale
+            )
         }
       end)
 
@@ -140,8 +144,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
     payload =
       Segment.serialize(%{
         sequence_number: state.seq_num,
-        elapsed_time: timescalify(state.elapsed_time, timescale),
-        duration: timescalify(duration, timescale),
+        elapsed_time: Helper.timescalify(state.elapsed_time, timescale),
+        duration: Helper.timescalify(duration, timescale),
         timescale: timescale,
         samples_table: samples_table,
         samples_data: samples_data
@@ -169,10 +173,5 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     <<0::4, is_leading::2, depends_on::2, is_depended_on::2, has_redundancy::2, padding_value::3,
       non_sync::1, degradation_priority::16>>
-  end
-
-  defp timescalify(time, timescale) do
-    use Ratio
-    Ratio.trunc(time * timescale / Time.second())
   end
 end

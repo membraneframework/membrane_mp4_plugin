@@ -5,6 +5,7 @@ defmodule Membrane.MP4.Muxer.Track do
   in order to build a sample table of a regular MP4 container.
   Samples that were stored can be flushed later in form of chunks.
   """
+  alias Membrane.MP4.Muxer.Helper
   alias __MODULE__.SampleTable
 
   @type t :: %__MODULE__{
@@ -47,6 +48,28 @@ defmodule Membrane.MP4.Muxer.Track do
   def flush_chunk(track, chunk_offset) do
     {chunk, sample_table} = SampleTable.flush_chunk(track.sample_table, chunk_offset)
 
-    {chunk, Map.put(track, :sample_table, sample_table)}
+    {chunk, %{track | sample_table: sample_table}}
+  end
+
+  @spec finalize(__MODULE__.t(), pos_integer, pos_integer) :: __MODULE__.t()
+  def finalize(track, id, movie_timescale) do
+    track
+    |> Map.put(:id, id)
+    |> put_durations(movie_timescale)
+    |> Map.update!(:sample_table, &SampleTable.reverse/1)
+  end
+
+  defp put_durations(track, movie_timescale) do
+    use Ratio
+
+    duration =
+      track.sample_table.decoding_deltas
+      |> Enum.reduce(0, &(&1.sample_count * &1.sample_delta + &2))
+
+    %{
+      track
+      | duration: Helper.timescalify(duration, track.timescale),
+        movie_duration: Helper.timescalify(duration, movie_timescale)
+    }
   end
 end

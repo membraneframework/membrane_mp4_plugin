@@ -43,10 +43,11 @@ defmodule Membrane.MP4.Muxer.ISOM do
                 spec: boolean,
                 default: false,
                 description: """
-                Makes it possible for media players to start playback before loading all media data.
+                Generates a container more suitable for streaming by allowing media players to start
+                playback as soon as they start to receive its media data.
 
-                When set to `true`, the container metadata (`moov` atom) will be placed before media data,
-                what is especially suitable for streaming. Equivalent of `ffmpeg`'s `-movflags faststart` option.
+                When set to `true`, the container metadata (`moov` atom) will be placed before media
+                data (`mdat` atom). The equivalent of FFmpeg's `-movflags faststart` option.
                 """
               ],
               chunk_duration: [
@@ -67,9 +68,9 @@ defmodule Membrane.MP4.Muxer.ISOM do
       options
       |> Map.from_struct()
       |> Map.merge(%{
-        pad_to_track: %{},
+        media_data: <<>>,
         pad_order: [],
-        media_data: <<>>
+        pad_to_track: %{}
       })
 
     {:ok, state}
@@ -118,11 +119,10 @@ defmodule Membrane.MP4.Muxer.ISOM do
       |> do_flush_chunk(pad_ref)
       |> Map.update!(:pad_order, &List.delete(&1, pad_ref))
 
-    if length(state.pad_order) > 0 do
+    if state.pad_order != [] do
       {{:ok, redemand: :output}, state}
     else
       mp4 = serialize(state)
-
       {{:ok, buffer: {:output, %Buffer{payload: mp4}}, end_of_stream: :output}, state}
     end
   end
@@ -139,9 +139,10 @@ defmodule Membrane.MP4.Muxer.ISOM do
   end
 
   defp do_flush_chunk(state, pad_ref) do
-    track = get_in(state, [:pad_to_track, pad_ref])
-
-    {chunk, track} = Track.flush_chunk(track, chunk_offset(state))
+    {chunk, track} =
+      state
+      |> get_in([:pad_to_track, pad_ref])
+      |> Track.flush_chunk(chunk_offset(state))
 
     state
     |> Map.update!(:media_data, &(&1 <> chunk))
@@ -159,7 +160,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
       [@ftyp, mdat, moov]
     end
     |> Enum.map(&Container.serialize!/1)
-    |> Enum.reduce(&(&2 <> &1))
+    |> Enum.join()
   end
 
   defp fast_start_moov(moov) do

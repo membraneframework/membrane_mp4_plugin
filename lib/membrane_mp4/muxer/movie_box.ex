@@ -25,9 +25,8 @@ defmodule Membrane.MP4.Muxer.MovieBox do
   For more information about movie box contents, refer to
   [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html).
   """
-  alias Membrane.Time
   alias Membrane.MP4.Container
-  alias Membrane.MP4.Muxer.Track
+  alias Membrane.MP4.Muxer.{Helper, Track}
   alias Membrane.MP4.Payload.{AAC, AVC1}
 
   @movie_timescale 1000
@@ -36,12 +35,10 @@ defmodule Membrane.MP4.Muxer.MovieBox do
 
   @spec assemble([%Track{}], Container.t()) :: Container.t()
   def assemble(tracks, extensions \\ []) do
-    # to proceed, we need to supplement the tracks by unique IDs and durations
     tracks =
       1..length(tracks)
       |> Enum.zip(tracks)
-      |> Enum.map(fn {id, track} -> %{track | id: id} end)
-      |> Enum.map(&put_durations/1)
+      |> Enum.map(fn {id, track} -> Track.finalize(track, id, @movie_timescale) end)
 
     header = movie_header(tracks)
     track_boxes = Enum.flat_map(tracks, &track_box/1)
@@ -344,72 +341,45 @@ defmodule Membrane.MP4.Muxer.MovieBox do
     ]
   end
 
-  defp sample_deltas(%{timescale: timescale, sample_table: sample_table}) do
-    sample_table.decoding_deltas
-    |> Enum.map(fn %{sample_count: count, sample_delta: delta} ->
-      %{sample_count: count, sample_delta: timescalify(delta, timescale)}
-    end)
-    |> Enum.reverse()
-  end
+  defp sample_deltas(%{timescale: timescale, sample_table: %{decoding_deltas: decoding_deltas}}),
+    do:
+      Enum.map(decoding_deltas, fn %{sample_count: count, sample_delta: delta} ->
+        %{sample_count: count, sample_delta: Helper.timescalify(delta, timescale)}
+      end)
 
-  defp maybe_sample_sync(%{sample_table: %{sync_samples: []}}) do
-    []
-  end
+  defp maybe_sample_sync(%{sample_table: %{sync_samples: []}}), do: []
 
   defp maybe_sample_sync(%{sample_table: %{sync_samples: sync_samples}}) do
-    sync_samples =
-      sync_samples
-      |> Enum.map(&%{sample_number: &1})
-      |> Enum.reverse()
-
-    [
-      stss: %{
-        fields: %{
-          version: 0,
-          flags: 0,
-          entry_count: length(sync_samples),
-          entry_list: sync_samples
+    sync_samples
+    |> Enum.map(&%{sample_number: &1})
+    |> then(
+      &[
+        stss: %{
+          fields: %{
+            version: 0,
+            flags: 0,
+            entry_count: length(&1),
+            entry_list: &1
+          }
         }
-      }
-    ]
-  end
-
-  defp sample_to_chunk(%{sample_table: %{samples_per_chunk: samples_per_chunk}}) do
-    samples_per_chunk
-    |> Enum.map(
-      &%{
-        first_chunk: &1.first_chunk,
-        samples_per_chunk: &1.sample_count,
-        sample_description_index: 1
-      }
+      ]
     )
-    |> Enum.reverse()
   end
 
-  defp sample_sizes(%{sample_table: %{sample_sizes: sample_sizes}}) do
-    sample_sizes |> Enum.map(&%{entry_size: &1}) |> Enum.reverse()
-  end
+  defp sample_to_chunk(%{sample_table: %{samples_per_chunk: samples_per_chunk}}),
+    do:
+      Enum.map(
+        samples_per_chunk,
+        &%{
+          first_chunk: &1.first_chunk,
+          samples_per_chunk: &1.sample_count,
+          sample_description_index: 1
+        }
+      )
 
-  defp chunk_offsets(%{sample_table: %{chunk_offsets: chunk_offsets}}) do
-    chunk_offsets |> Enum.map(&%{chunk_offset: &1}) |> Enum.reverse()
-  end
+  defp sample_sizes(%{sample_table: %{sample_sizes: sample_sizes}}),
+    do: Enum.map(sample_sizes, &%{entry_size: &1})
 
-  defp put_durations(track) do
-    use Ratio
-
-    duration =
-      track.sample_table.decoding_deltas
-      |> Enum.reduce(0, &(&1.sample_count * &1.sample_delta + &2))
-
-    %{
-      track
-      | duration: timescalify(duration, track.timescale),
-        movie_duration: timescalify(duration, @movie_timescale)
-    }
-  end
-
-  defp timescalify(time, timescale) do
-    use Ratio
-    Ratio.trunc(time * timescale / Time.second())
-  end
+  defp chunk_offsets(%{sample_table: %{chunk_offsets: chunk_offsets}}),
+    do: Enum.map(chunk_offsets, &%{chunk_offset: &1})
 end
