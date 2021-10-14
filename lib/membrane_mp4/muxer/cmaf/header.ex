@@ -1,37 +1,8 @@
 defmodule Membrane.MP4.Muxer.CMAF.Header do
   @moduledoc false
-  alias Membrane.MP4.Container
-  alias Membrane.MP4.Muxer.{MovieBox, Track}
+  alias Membrane.MP4.{Box, Container, Track}
 
-  @ftyp [
-          ftyp: %{
-            children: [],
-            fields: %{
-              compatible_brands: ["iso6", "mp41"],
-              major_brand: "iso5",
-              major_brand_version: 512
-            }
-          }
-        ]
-        |> Container.serialize!()
-
-  @mvex [
-    mvex: %{
-      children: [
-        trex: %{
-          fields: %{
-            version: 0,
-            flags: 0,
-            track_id: 1,
-            default_sample_description_index: 1,
-            default_sample_duration: 0,
-            default_sample_size: 0,
-            default_sample_flags: 0
-          }
-        }
-      ]
-    }
-  ]
+  @ftyp Box.FileType.assemble("iso5", ["iso6", "mp41"])
 
   @spec serialize(%{
           timescale: integer,
@@ -43,10 +14,15 @@ defmodule Membrane.MP4.Muxer.CMAF.Header do
     track =
       config
       |> Map.take([:timescale, :width, :height, :content])
+      |> Map.put(:id, 1)
       |> Track.new()
+      |> List.wrap()
 
-    movie_box = MovieBox.assemble([track], @mvex) |> Container.serialize!()
+    movie_extends = Box.Movie.Extends.assemble(track)
+    movie_box = Box.Movie.assemble(track, movie_extends)
 
-    @ftyp <> movie_box
+    [@ftyp, movie_box]
+    |> Enum.map(&Container.serialize!/1)
+    |> Enum.join()
   end
 end

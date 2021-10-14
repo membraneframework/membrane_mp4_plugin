@@ -1,15 +1,14 @@
-defmodule Membrane.MP4.Muxer.Track.SampleTable do
+defmodule Membrane.MP4.Track.SampleTable do
   @moduledoc """
-  A module that defines a structure and functions allowing to store
-  samples, assemble them into chunks and flush when needed. Its
-  public functions take care of recording information required to
-  build a sample table.
+  A module that defines a structure and functions allowing to store samples,
+  assemble them into chunks and flush when needed. Its public functions take
+  care of recording information required to build a sample table.
   """
 
   @type t :: %__MODULE__{
           chunk: [binary],
-          chunk_first_timestamp: non_neg_integer,
-          last_timestamp: non_neg_integer,
+          chunk_first_timestamp: non_neg_integer | nil,
+          last_timestamp: non_neg_integer | nil,
           sample_count: non_neg_integer,
           sample_sizes: [pos_integer],
           sync_samples: [pos_integer],
@@ -29,8 +28,8 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
         }
 
   defstruct chunk: [],
-            chunk_first_timestamp: 0,
-            last_timestamp: 0,
+            chunk_first_timestamp: nil,
+            last_timestamp: nil,
             sample_count: 0,
             sample_sizes: [],
             sync_samples: [],
@@ -49,7 +48,7 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
   end
 
   @spec chunk_duration(__MODULE__.t()) :: non_neg_integer
-  def chunk_duration(%{chunk: []}), do: 0
+  def chunk_duration(%{chunk_first_timestamp: nil}), do: 0
 
   def chunk_duration(sample_table) do
     use Ratio
@@ -61,12 +60,13 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
     do: {<<>>, sample_table}
 
   def flush_chunk(sample_table, chunk_offset) do
-    {chunk, sample_table} = Map.get_and_update!(sample_table, :chunk, &{&1, []})
+    chunk = Map.fetch!(sample_table, :chunk)
 
     sample_table =
       sample_table
       |> Map.update!(:chunk_offsets, &[chunk_offset | &1])
       |> update_samples_per_chunk(length(chunk))
+      |> Map.merge(%{chunk: [], chunk_first_timestamp: nil})
 
     chunk = chunk |> Enum.reverse() |> Enum.join()
 
@@ -104,6 +104,10 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
 
   defp maybe_store_first_timestamp(sample_table, _buffer), do: sample_table
 
+  defp update_decoding_deltas(%{last_timestamp: nil} = sample_table, _buffer) do
+    Map.put(sample_table, :decoding_deltas, [%{sample_count: 1, sample_delta: 0}])
+  end
+
   defp update_decoding_deltas(sample_table, %{metadata: %{timestamp: timestamp}}) do
     Map.update!(sample_table, :decoding_deltas, fn previous_deltas ->
       use Ratio
@@ -112,7 +116,7 @@ defmodule Membrane.MP4.Muxer.Track.SampleTable do
       case previous_deltas do
         # there was only one sample in the sample table - we should assume its delta is
         # equal to the one of the second sample
-        [%{sample_count: 1, sample_delta: _}] ->
+        [%{sample_count: 1, sample_delta: 0}] ->
           [%{sample_count: 2, sample_delta: new_delta}]
 
         # the delta did not change, simply increase the counter in the last entry to save space

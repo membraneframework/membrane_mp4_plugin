@@ -1,88 +1,21 @@
-defmodule Membrane.MP4.Muxer.MovieBox do
+defmodule Membrane.MP4.Box.Movie.Track do
   @moduledoc """
-  A module containing a set of utilities for assembling an MPEG-4 movie box.
+  A module containing a set of utilities for assembling an MPEG-4 track box.
 
-  The movie box (`moov`) is a top-level box that contains information about
-  a presentation as a whole. It consists of:
+  The track box (`trak` atom) describes a single track of a presentation. This description includes
+  information like its timescale, duration, volume, media-specific data (media handlers, sample
+  descriptions) as well as a sample table, which allows media players to find and interpret
+  track's data in the media data box.
 
-    * exactly one movie header (`mvhd`)
-
-      Movie header contains media-independent data, such as the number of tracks,
-      volume, duration or timescale (presentation-wide).
-
-    * one or more track box (`trak`)
-
-      Track box describes a single track of a presentation. The description includes
-      information like its timescale, duration, volume, media-specific data (media
-      handlers, sample descriptions) as well as a sample table, which allows media
-      players to find and interpret track's data in the media data box.
-
-    * zero or one movie extends box (`mvex`)
-
-      Movie extends box provides information about movie fragment boxes in case when
-      media data is fragmented (for example in CMAF).
-
-  For more information about movie box contents, refer to
-  [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html).
+  For more information about the track box, refer to [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html).
   """
-  alias Membrane.MP4.Container
-  alias Membrane.MP4.Muxer.{Helper, Track}
+  alias Membrane.MP4.{Container, Helper, Track}
   alias Membrane.MP4.Payload.{AAC, AVC1}
-
-  @movie_timescale 1000
 
   defguardp is_audio(track) when {track.height, track.width} == {0, 0}
 
-  @spec assemble([%Track{}], Container.t()) :: Container.t()
-  def assemble(tracks, extensions \\ []) do
-    tracks =
-      1..length(tracks)
-      |> Enum.zip(tracks)
-      |> Enum.map(fn {id, track} -> Track.finalize(track, id, @movie_timescale) end)
-
-    header = movie_header(tracks)
-    track_boxes = Enum.flat_map(tracks, &track_box/1)
-
-    [moov: %{children: header ++ track_boxes ++ extensions, fields: %{}}]
-  end
-
-  defp movie_header(tracks) do
-    longest_track = Enum.max_by(tracks, & &1.movie_duration)
-
-    [
-      mvhd: %{
-        children: [],
-        fields: %{
-          creation_time: 0,
-          duration: longest_track.movie_duration,
-          flags: 0,
-          matrix_value_A: {1, 0},
-          matrix_value_B: {0, 0},
-          matrix_value_C: {0, 0},
-          matrix_value_D: {1, 0},
-          matrix_value_U: {0, 0},
-          matrix_value_V: {0, 0},
-          matrix_value_W: {1, 0},
-          matrix_value_X: {0, 0},
-          matrix_value_Y: {0, 0},
-          modification_time: 0,
-          next_track_id: length(tracks) + 1,
-          quicktime_current_time: 0,
-          quicktime_poster_time: 0,
-          quicktime_preview_duration: 0,
-          quicktime_preview_time: 0,
-          quicktime_selection_duration: 0,
-          quicktime_selection_time: 0,
-          rate: {1, 0},
-          timescale: @movie_timescale,
-          version: 0,
-          volume: {1, 0}
-        }
-      }
-    ]
-  end
-
-  defp track_box(track) do
+  @spec assemble(Track.t()) :: Container.t()
+  def assemble(track) do
     dref =
       {:dref,
        %{

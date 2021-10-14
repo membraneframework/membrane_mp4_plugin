@@ -15,20 +15,9 @@ defmodule Membrane.MP4.Muxer.ISOM do
   use Membrane.Filter
 
   alias Membrane.{Buffer, Time}
-  alias Membrane.MP4.Container
-  alias Membrane.MP4.Muxer.{MovieBox, Track}
+  alias Membrane.MP4.{Box, Container, Track}
 
-  @ftyp [
-    ftyp: %{
-      children: [],
-      fields: %{
-        compatible_brands: ["isom", "iso2", "avc1", "mp41"],
-        major_brand: "isom",
-        major_brand_version: 512
-      }
-    }
-  ]
-
+  @ftyp Box.FileType.assemble("isom", ["isom", "iso2", "avc1", "mp41"])
   @ftyp_size @ftyp |> Container.serialize!() |> byte_size()
   @mdat_data_offset 8
 
@@ -69,6 +58,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
       |> Map.from_struct()
       |> Map.merge(%{
         media_data: <<>>,
+        next_track_id: 1,
         pad_order: [],
         pad_to_track: %{}
       })
@@ -85,9 +75,12 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   @impl true
   def handle_caps(Pad.ref(:input, pad_ref), %Membrane.MP4.Payload{} = caps, _ctx, state) do
+    {next_id, state} = Map.get_and_update!(state, :next_track_id, &{&1, &1 + 1})
+
     track =
       caps
       |> Map.take([:width, :height, :content, :timescale])
+      |> Map.put(:id, next_id)
       |> Track.new()
 
     state = put_in(state, [:pad_to_track, pad_ref], track)
@@ -151,40 +144,40 @@ defmodule Membrane.MP4.Muxer.ISOM do
   end
 
   defp serialize(state) do
-    mdat = [mdat: %{content: state.media_data}]
-    moov = state.pad_to_track |> Map.values() |> MovieBox.assemble()
+    media_data_box = state.media_data |> Box.MediaData.assemble()
+    movie_box = state.pad_to_track |> Map.values() |> Box.Movie.assemble()
 
     if state.fast_start do
-      [@ftyp, fast_start_moov(moov), mdat]
+      [@ftyp, prepare_for_fast_start(movie_box), media_data_box]
     else
-      [@ftyp, mdat, moov]
+      [@ftyp, media_data_box, movie_box]
     end
     |> Enum.map(&Container.serialize!/1)
     |> Enum.join()
   end
 
-  defp fast_start_moov(moov) do
-    moov_size = moov |> Container.serialize!() |> byte_size()
-    moov_children = get_in(moov, [:moov, :children])
+  defp prepare_for_fast_start(movie_box) do
+    movie_box_size = movie_box |> Container.serialize!() |> byte_size()
+    movie_box_children = get_in(movie_box, [:moov, :children])
 
-    # updates all `trak` boxes by adding `moov_size` to the offset of each chunk in its sample table
-    traks_with_offset =
-      moov_children
+    # updates all `trak` boxes by adding `movie_box_size` to the offset of each chunk in their sample tables
+    track_boxes_with_offset =
+      movie_box_children
       |> Keyword.get_values(:trak)
       |> Enum.map(fn trak ->
         Container.update_box(
           trak.children,
           [:mdia, :minf, :stbl, :stco],
           [:fields, :entry_list],
-          &Enum.map(&1, fn %{chunk_offset: offset} -> %{chunk_offset: offset + moov_size} end)
+          &Enum.map(&1, fn %{chunk_offset: offset} -> %{chunk_offset: offset + movie_box_size} end)
         )
       end)
       |> Enum.map(&{:trak, %{children: &1, fields: %{}}})
 
     # replaces all `trak` boxes with the ones with updated chunk offsets
-    moov_children
+    movie_box_children
     |> Keyword.delete(:trak)
-    |> Keyword.merge(traks_with_offset)
+    |> Keyword.merge(track_boxes_with_offset)
     |> then(&[moov: %{children: &1, fields: %{}}])
   end
 

@@ -1,30 +1,32 @@
-defmodule Membrane.MP4.Muxer.Track do
+defmodule Membrane.MP4.Track do
   @moduledoc """
   A module defining a structure that represents an MPEG-4 track.
-  All new samples of a track must be stored in the structure first
-  in order to build a sample table of a regular MP4 container.
-  Samples that were stored can be flushed later in form of chunks.
+
+  All new samples of a track must be stored in the structure first in order
+  to build a sample table of a regular MP4 container. Samples that were stored
+  can be flushed later in form of chunks.
   """
-  alias Membrane.MP4.Muxer.Helper
+  alias Membrane.MP4.Helper
   alias __MODULE__.SampleTable
 
   @type t :: %__MODULE__{
+          id: pos_integer,
           content: struct,
           height: non_neg_integer,
           width: non_neg_integer,
           timescale: pos_integer,
           sample_table: SampleTable.t(),
-          id: pos_integer | nil,
           duration: non_neg_integer | nil,
           movie_duration: non_neg_integer | nil
         }
 
-  @enforce_keys [:content, :height, :width, :timescale]
+  @enforce_keys [:id, :content, :height, :width, :timescale]
 
   defstruct @enforce_keys ++
-              [sample_table: %SampleTable{}, id: nil, duration: nil, movie_duration: nil]
+              [sample_table: %SampleTable{}, duration: nil, movie_duration: nil]
 
   @spec new(%{
+          id: pos_integer,
           content: struct,
           height: non_neg_integer,
           width: non_neg_integer,
@@ -51,10 +53,9 @@ defmodule Membrane.MP4.Muxer.Track do
     {chunk, %{track | sample_table: sample_table}}
   end
 
-  @spec finalize(__MODULE__.t(), pos_integer, pos_integer) :: __MODULE__.t()
-  def finalize(track, id, movie_timescale) do
+  @spec finalize(__MODULE__.t(), pos_integer) :: __MODULE__.t()
+  def finalize(track, movie_timescale) do
     track
-    |> Map.put(:id, id)
     |> put_durations(movie_timescale)
     |> Map.update!(:sample_table, &SampleTable.reverse/1)
   end

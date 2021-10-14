@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Muxer.Helper do
+defmodule Membrane.MP4.Helper do
   @moduledoc false
   alias Membrane.Time
 
