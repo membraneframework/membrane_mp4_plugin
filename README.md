@@ -6,6 +6,22 @@
 
 This plugin provides utilities for MP4 container parsing and serialization along with elements for muxing the stream to MP4 or [CMAF](https://www.wowza.com/blog/what-is-cmaf).
 
+## Usage
+### `Membrane.MP4.Muxer.ISOM`
+For an example of muxing streams to a regular MP4 file, refer to 
+[`example_isom.exs`](examples/example_isom.exs).
+
+To run the example, you can use the following command:
+ ```bash
+elixir examples/example_isom.exs
+``` 
+
+### `Membrane.MP4.Muxer.CMAF`
+To use the output stream of CMAF muxer, you need a sink that will dump it to a playlist in a proper format.
+
+You can find an example that uses the CMAF muxer to create a HLS playlist in 
+[`membrane_http_adaptive_stream_plugin`](https://github.com/membraneframework/membrane_http_adaptive_stream_plugin) repository.
+
 ## Updating tests
 
 In case `out_*` reference files in `test/fixtures/cmaf` change, `out_playlist.m3u8` and its dependent playlists should be updated and checked if they are still playable.
