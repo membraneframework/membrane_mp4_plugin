@@ -1,12 +1,12 @@
 defmodule Membrane.MP4.Box.SegmentIndex do
   @moduledoc """
-    A module containing a function for assembling a CMAF segment index box.
+  A module containing a function for assembling a CMAF segment index box.
 
-    The segment index box (`sidx` atom) contains information related to presentation
-    time and byte-range locations of other boxes belonging to its segment.
+  The segment index box (`sidx` atom) contains information related to presentation
+  time and byte-range locations of other boxes belonging to its segment.
 
-    For more information about segment index box refer to
-    [ISO/IEC 23000-19](https://www.iso.org/standard/79106.html).
+  For more information about segment index box refer to
+  [ISO/IEC 23000-19](https://www.iso.org/standard/79106.html).
   """
   alias Membrane.MP4.Container
 

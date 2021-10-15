@@ -1,24 +1,26 @@
 defmodule Membrane.MP4.Box.MovieFragment do
   @moduledoc """
-    A module containing a function for assembling an MPEG-4 movie fragment box.
+  A module containing a function for assembling an MPEG-4 movie fragment box.
 
-    The movie fragment box (`moof` atom) is a top-level box and consists of:
-      * exactly one movie fragment header (`mfhd` atom)
+  The movie fragment box (`moof` atom) is a top-level box and consists of:
 
-        The movie fragment header contains a sequence number that is
-        increased for every subsequent movie fragment in order in which
-        they occur.
+    * exactly one movie fragment header (`mfhd` atom)
 
-      * zero or more track fragment box (`traf`)
+      The movie fragment header contains a sequence number that is
+      increased for every subsequent movie fragment in order in which
+      they occur.
 
-        The track fragment box provides information related to a track fragment's presentation
-        time, duration and physical location of its samples in media data box.
+    * zero or more track fragment box (`traf` atom)
 
-    This box is required by Common Media Application Format.
+      The track fragment box provides information related to a track
+      fragment's presentation time, duration and physical location of
+      its samples in the media data box.
 
-    For more information about movie fragment box and its contents refer to
-    [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html) or to
-    [ISO/IEC 23000-19](https://www.iso.org/standard/79106.html).
+  This box is required by Common Media Application Format.
+
+  For more information about movie fragment box and its contents refer to
+  [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html) or to
+  [ISO/IEC 23000-19](https://www.iso.org/standard/79106.html).
   """
   alias Membrane.MP4.Container
 

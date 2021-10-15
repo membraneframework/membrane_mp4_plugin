@@ -1,13 +1,13 @@
 defmodule Membrane.MP4.Box.SegmentType do
   @moduledoc """
-    A module containing a function for assembling a CMAF segment type box.
+  A module containing a function for assembling a CMAF segment type box.
 
-    The segment type box (`styp` atom) is a top-level box that contains specifications
-    and compatibility information that media players can use to correctly interpret
-    a CMAF segment.
+  The segment type box (`styp` atom) is a top-level box that contains specifications
+  and compatibility information that media players can use to correctly interpret
+  a CMAF segment.
 
-    For more information about the segment type box, refer to
-    [ISO/IEC 23000-19](https://www.iso.org/standard/79106.html).
+  For more information about the segment type box, refer to
+  [ISO/IEC 23000-19](https://www.iso.org/standard/79106.html).
   """
   alias Membrane.MP4.Container
 
