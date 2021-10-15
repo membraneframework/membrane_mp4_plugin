@@ -5,14 +5,14 @@ defmodule Membrane.MP4.Box.Movie do
   The movie box (`moov`) is a top-level box that contains information about a presentation as a whole.
   It consists of:
 
-    * exactly one movie header (`mvhd`)
+    * exactly one movie header (`mvhd` atom)
 
       The movie header contains media-independent data, such as the
       number of tracks, volume, duration or timescale (presentation-wide).
 
-    * one or more track box (`trak`)
+    * one or more track box (`trak` atom)
 
-    * zero or one movie extends box (`mvex`)
+    * zero or one movie extends box (`mvex` atom)
 
   For more information about movie box and its contents, refer to moduledocs in
   `Membrane.MP4.Box.Movie` or to [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html).

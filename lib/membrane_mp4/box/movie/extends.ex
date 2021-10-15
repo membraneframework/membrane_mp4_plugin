@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Box.Movie.Extends do
+defmodule Membrane.MP4.Box.Movie.MovieExtends do
   @moduledoc """
   The module provides a function that assembles an MPEG-4 movie extends box (`mvex` atom).
 

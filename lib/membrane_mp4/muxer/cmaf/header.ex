@@ -18,7 +18,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Header do
       |> Track.new()
       |> List.wrap()
 
-    movie_extends = Box.Movie.Extends.assemble(track)
+    movie_extends = Box.Movie.MovieExtends.assemble(track)
     movie_box = Box.Movie.assemble(track, movie_extends)
 
     [@ftyp, movie_box]

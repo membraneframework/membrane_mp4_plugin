@@ -4,7 +4,7 @@ defmodule Membrane.MP4.Box.FileType do
 
     The file type box (`ftyp` atom) is a top-level box that contains specifications
     and compatibility information that media players can use to correctly interpret
-    the container.
+    an MPEG-4 container.
 
     For more information about the file type box, refer to
     [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html).
