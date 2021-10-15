@@ -12,15 +12,18 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment do
         }) :: binary
   def serialize(config) do
     styp = Box.SegmentType.assemble("msdh", ["msdh", "msix"]) |> Container.serialize!()
-    moof = Box.MovieFragment.assemble(config) |> Container.serialize!()
+
+    moof_config = Map.take(config, [:sequence_number, :elapsed_time, :timescale, :duration])
+    moof = Box.MovieFragment.assemble(moof_config) |> Container.serialize!()
+
     mdat = Box.MediaData.assemble(config.samples_data) |> Container.serialize!()
 
-    sidx =
+    sidx_config =
       config
       |> Map.take([:elapsed_time, :timescale, :duration])
       |> Map.put(:referenced_size, byte_size(moof) + byte_size(mdat))
-      |> Box.SegmentIndex.assemble()
-      |> Container.serialize!()
+
+    sidx = Box.SegmentIndex.assemble(sidx_config) |> Container.serialize!()
 
     styp <> sidx <> moof <> mdat
   end
