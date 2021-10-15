@@ -13,7 +13,8 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment do
   def serialize(config) do
     styp = Box.SegmentType.assemble("msdh", ["msdh", "msix"]) |> Container.serialize!()
 
-    moof_config = Map.take(config, [:sequence_number, :elapsed_time, :timescale, :duration])
+    # fix for dialyzer
+    moof_config = Map.delete(config, :samples_data)
     moof = Box.MovieFragment.assemble(moof_config) |> Container.serialize!()
 
     mdat = Box.MediaData.assemble(config.samples_data) |> Container.serialize!()
