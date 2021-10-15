@@ -68,22 +68,25 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   @impl true
   def handle_pad_added(Pad.ref(:input, pad_ref), _ctx, state) do
-    state = Map.update!(state, :pad_order, &[pad_ref | &1])
+    {track_id, state} = Map.get_and_update!(state, :next_track_id, &{&1, &1 + 1})
+
+    state =
+      state
+      |> Map.update!(:pad_order, &[pad_ref | &1])
+      |> put_in([:pad_to_track, pad_ref], track_id)
 
     {:ok, state}
   end
 
   @impl true
   def handle_caps(Pad.ref(:input, pad_ref), %Membrane.MP4.Payload{} = caps, _ctx, state) do
-    {next_id, state} = Map.get_and_update!(state, :next_track_id, &{&1, &1 + 1})
-
-    track =
-      caps
-      |> Map.take([:width, :height, :content, :timescale])
-      |> Map.put(:id, next_id)
-      |> Track.new()
-
-    state = put_in(state, [:pad_to_track, pad_ref], track)
+    state =
+      update_in(state, [:pad_to_track, pad_ref], fn track_id ->
+        caps
+        |> Map.take([:width, :height, :content, :timescale])
+        |> Map.put(:id, track_id)
+        |> Track.new()
+      end)
 
     {:ok, state}
   end
@@ -145,7 +148,9 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   defp serialize(state) do
     media_data_box = state.media_data |> Box.MediaData.assemble()
-    movie_box = state.pad_to_track |> Map.values() |> Box.Movie.assemble()
+
+    movie_box =
+      state.pad_to_track |> Map.values() |> Enum.sort_by(& &1.id) |> Box.Movie.assemble()
 
     if state.fast_start do
       [@ftyp, prepare_for_fast_start(movie_box), media_data_box]
