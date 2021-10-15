@@ -58,7 +58,7 @@ defmodule Membrane.MP4.ContainerTest do
              |> File.read!()
              |> Container.parse()
 
-    mp4 = Container.update_box(mp4, :ftyp, [:fields, :major_brand], fn _ -> 123 end)
+    mp4 = Container.update_box(mp4, :ftyp, [:fields, :major_brand], fn _brand -> 123 end)
     assert Container.serialize(mp4) == {:error, box: :ftyp, field: :major_brand}
     assert_raise RuntimeError, ~r/Error serializing MP4/, fn -> Container.serialize!(mp4) end
   end
