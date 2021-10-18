@@ -12,29 +12,28 @@ defmodule Example do
 
   @impl true
   def handle_init(_options) do
-    children =
-      [
-        video_source: %Membrane.Hackney.Source{
-          location:
-            "https://raw.githubusercontent.com/membraneframework/static/gh-pages/video-samples/test-video.h264",
-          hackney_opts: [follow_redirect: true]
-        },
-        video_parser: %Membrane.H264.FFmpeg.Parser{
-          framerate: {30, 1},
-          alignment: :au,
-          attach_nalus?: true
-        },
-        video_payloader: Membrane.MP4.Payloader.H264,
-        audio_source: %Membrane.Hackney.Source{
-          location:
-            "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/test-audio.aac",
-          hackney_opts: [follow_redirect: true]
-        },
-        audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
-        audio_payloader: Membrane.MP4.Payloader.AAC,
-        muxer: Membrane.MP4.Muxer.ISOM,
-        file_sink: %Membrane.File.Sink{location: "example.mp4"}
-      ]
+    children = [
+      video_source: %Membrane.Hackney.Source{
+        location:
+          "https://raw.githubusercontent.com/membraneframework/static/gh-pages/video-samples/test-video.h264",
+        hackney_opts: [follow_redirect: true]
+      },
+      video_parser: %Membrane.H264.FFmpeg.Parser{
+        framerate: {30, 1},
+        alignment: :au,
+        attach_nalus?: true
+      },
+      video_payloader: Membrane.MP4.Payloader.H264,
+      audio_source: %Membrane.Hackney.Source{
+        location:
+          "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/test-audio.aac",
+        hackney_opts: [follow_redirect: true]
+      },
+      audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
+      audio_payloader: Membrane.MP4.Payloader.AAC,
+      muxer: Membrane.MP4.Muxer.ISOM,
+      file_sink: %Membrane.File.Sink{location: "example.mp4"}
+    ]
 
     links = [
       link(:video_source)
