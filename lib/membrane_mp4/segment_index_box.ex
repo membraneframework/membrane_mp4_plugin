@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Box.SegmentIndex do
+defmodule Membrane.MP4.SegmentIndexBox do
   @moduledoc """
   A module containing a function for assembling a CMAF segment index box.
 

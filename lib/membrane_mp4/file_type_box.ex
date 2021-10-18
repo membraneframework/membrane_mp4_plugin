@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Box.FileType do
+defmodule Membrane.MP4.FileTypeBox do
   @moduledoc """
   A module containing a function for assembling an MPEG-4 file type box.
 

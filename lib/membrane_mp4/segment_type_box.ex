@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Box.SegmentType do
+defmodule Membrane.MP4.SegmentTypeBox do
   @moduledoc """
   A module containing a function for assembling a CMAF segment type box.
 

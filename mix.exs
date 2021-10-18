@@ -35,14 +35,13 @@ defmodule Membrane.MP4.Plugin.MixProject do
       source_ref: "v#{@version}",
       nest_modules_by_prefix: [
         Membrane.MP4,
-        Membrane.MP4.Box,
         Membrane.MP4.Muxer,
         Membrane.MP4.Payloader
       ],
       groups_for_modules: [
         Muxers: ~r/Membrane.MP4.Muxer/,
         Payloaders: ~r/Membrane.MP4.Payloader/,
-        Boxes: ~r/Membrane.MP4.Box/
+        Boxes: ~r/Membrane.MP4.*Box$/
       ]
     ]
   end

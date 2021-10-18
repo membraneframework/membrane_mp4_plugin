@@ -11,7 +11,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
   @box_header_size @box_name_size + @box_size_size
 
   @spec parse_boxes(binary, Schema.t(), Container.t()) ::
-          {:ok | :error, Container.parse_error_context_t()}
+          {:ok, Container.t()} | {:error, Container.parse_error_context_t()}
   def parse_boxes(<<>>, _schema, acc) do
     {:ok, Enum.reverse(acc)}
   end

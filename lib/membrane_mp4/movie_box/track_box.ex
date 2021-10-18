@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Box.Movie.Track do
+defmodule Membrane.MP4.MovieBox.TrackBox do
   @moduledoc """
   A module containing a set of utilities for assembling an MPEG-4 track box.
 

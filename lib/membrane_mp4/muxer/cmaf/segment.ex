@@ -1,6 +1,6 @@
 defmodule Membrane.MP4.Muxer.CMAF.Segment do
   @moduledoc false
-  alias Membrane.MP4.{Box, Container}
+  alias Membrane.MP4.{Container, MediaDataBox, MovieFragmentBox, SegmentIndexBox, SegmentTypeBox}
 
   @spec serialize(%{
           sequence_number: integer,
@@ -11,20 +11,20 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment do
           samples_data: binary
         }) :: binary
   def serialize(config) do
-    styp = Box.SegmentType.assemble("msdh", ["msdh", "msix"]) |> Container.serialize!()
+    styp = SegmentTypeBox.assemble("msdh", ["msdh", "msix"]) |> Container.serialize!()
 
     # fix for dialyzer
     moof_config = Map.delete(config, :samples_data)
-    moof = Box.MovieFragment.assemble(moof_config) |> Container.serialize!()
+    moof = MovieFragmentBox.assemble(moof_config) |> Container.serialize!()
 
-    mdat = Box.MediaData.assemble(config.samples_data) |> Container.serialize!()
+    mdat = MediaDataBox.assemble(config.samples_data) |> Container.serialize!()
 
     sidx_config =
       config
       |> Map.take([:elapsed_time, :timescale, :duration])
       |> Map.put(:referenced_size, byte_size(moof) + byte_size(mdat))
 
-    sidx = Box.SegmentIndex.assemble(sidx_config) |> Container.serialize!()
+    sidx = SegmentIndexBox.assemble(sidx_config) |> Container.serialize!()
 
     styp <> sidx <> moof <> mdat
   end

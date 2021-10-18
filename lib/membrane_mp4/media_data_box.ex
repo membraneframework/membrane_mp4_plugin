@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Box.MediaData do
+defmodule Membrane.MP4.MediaDataBox do
   @moduledoc """
   A module containing a function for assembling an MPEG-4 media data box.
 

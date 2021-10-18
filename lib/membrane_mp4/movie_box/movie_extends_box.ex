@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Box.Movie.MovieExtends do
+defmodule Membrane.MP4.MovieBox.MovieExtendsBox do
   @moduledoc """
   The module provides a function that assembles an MPEG-4 movie extends box (`mvex` atom).
 
@@ -6,8 +6,7 @@ defmodule Membrane.MP4.Box.Movie.MovieExtends do
   media data is fragmented (for example in CMAF). It has to contain as many track
   extends box (`trex` atoms) as there are tracks in the movie box.
 
-  For more information about the movie extends box, refer to
-  [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html).
+  For more information about the movie extends box, refer to [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html).
   """
   alias Membrane.MP4.{Container, Track}
 

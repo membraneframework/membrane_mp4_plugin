@@ -7,8 +7,6 @@ defmodule Membrane.MP4.Container do
   use Bunch
   alias __MODULE__.{ParseHelper, Schema, SerializeHelper}
 
-  @dialyzer {:no_contracts, [parse!: 1, parse!: 2]}
-
   @schema Schema.schema()
 
   @type box_name_t :: atom

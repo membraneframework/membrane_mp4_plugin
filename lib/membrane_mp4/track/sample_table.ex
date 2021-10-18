@@ -3,6 +3,10 @@ defmodule Membrane.MP4.Track.SampleTable do
   A module that defines a structure and functions allowing to store samples,
   assemble them into chunks and flush when needed. Its public functions take
   care of recording information required to build a sample table.
+
+  For performance reasons, the module uses prepends when storing information
+  about new samples. To compensate for it, use `#{inspect(&__MODULE__.reverse/1)}`
+  when it's known that no more samples will be stored.
   """
 
   @type t :: %__MODULE__{
@@ -60,7 +64,7 @@ defmodule Membrane.MP4.Track.SampleTable do
     do: {<<>>, sample_table}
 
   def flush_chunk(sample_table, chunk_offset) do
-    chunk = Map.fetch!(sample_table, :chunk)
+    chunk = sample_table.chunk
 
     sample_table =
       sample_table
@@ -90,12 +94,13 @@ defmodule Membrane.MP4.Track.SampleTable do
     end)
   end
 
-  defp do_store_sample(sample_table, %{payload: payload}) do
-    sample_table
-    |> Map.update!(:chunk, &[payload | &1])
-    |> Map.update!(:sample_sizes, &[byte_size(payload) | &1])
-    |> Map.update!(:sample_count, &(&1 + 1))
-  end
+  defp do_store_sample(sample_table, %{payload: payload}),
+    do:
+      Map.merge(sample_table, %{
+        chunk: [payload | sample_table.chunk],
+        sample_sizes: [byte_size(payload) | sample_table.sample_sizes],
+        sample_count: sample_table.sample_count + 1
+      })
 
   defp maybe_store_first_timestamp(%{chunk: []} = sample_table, %{
          metadata: %{timestamp: timestamp}

@@ -15,9 +15,9 @@ defmodule Membrane.MP4.Muxer.ISOM do
   use Membrane.Filter
 
   alias Membrane.{Buffer, Time}
-  alias Membrane.MP4.{Box, Container, Track}
+  alias Membrane.MP4.{Container, FileTypeBox, MediaDataBox, MovieBox, Track}
 
-  @ftyp Box.FileType.assemble("isom", ["isom", "iso2", "avc1", "mp41"])
+  @ftyp FileTypeBox.assemble("isom", ["isom", "iso2", "avc1", "mp41"])
   @ftyp_size @ftyp |> Container.serialize!() |> byte_size()
   @mdat_data_offset 8
 
@@ -147,10 +147,9 @@ defmodule Membrane.MP4.Muxer.ISOM do
   end
 
   defp serialize(state) do
-    media_data_box = state.media_data |> Box.MediaData.assemble()
+    media_data_box = state.media_data |> MediaDataBox.assemble()
 
-    movie_box =
-      state.pad_to_track |> Map.values() |> Enum.sort_by(& &1.id) |> Box.Movie.assemble()
+    movie_box = state.pad_to_track |> Map.values() |> Enum.sort_by(& &1.id) |> MovieBox.assemble()
 
     if state.fast_start do
       [@ftyp, prepare_for_fast_start(movie_box), media_data_box]

@@ -1,8 +1,8 @@
 defmodule Membrane.MP4.Muxer.CMAF.Header do
   @moduledoc false
-  alias Membrane.MP4.{Box, Container, Track}
+  alias Membrane.MP4.{Container, FileTypeBox, MovieBox, Track}
 
-  @ftyp Box.FileType.assemble("iso5", ["iso6", "mp41"])
+  @ftyp FileTypeBox.assemble("iso5", ["iso6", "mp41"])
 
   @spec serialize(%{
           timescale: integer,
@@ -18,8 +18,8 @@ defmodule Membrane.MP4.Muxer.CMAF.Header do
       |> Track.new()
       |> List.wrap()
 
-    movie_extends = Box.Movie.MovieExtends.assemble(track)
-    movie_box = Box.Movie.assemble(track, movie_extends)
+    movie_extends = MovieBox.MovieExtendsBox.assemble(track)
+    movie_box = MovieBox.assemble(track, movie_extends)
 
     [@ftyp, movie_box]
     |> Enum.map(&Container.serialize!/1)

@@ -1,9 +1,9 @@
-defmodule Membrane.MP4.Box.Movie do
+defmodule Membrane.MP4.MovieBox do
   @moduledoc """
   A module providing a function assembling an MPEG-4 movie box.
 
-  The movie box (`moov`) is a top-level box that contains information about a presentation as a whole.
-  It consists of:
+  The movie box (`moov`) is a top-level box that contains information about
+  a presentation as a whole. It consists of:
 
     * exactly one movie header (`mvhd` atom)
 
@@ -14,10 +14,11 @@ defmodule Membrane.MP4.Box.Movie do
 
     * zero or one movie extends box (`mvex` atom)
 
-  For more information about movie box and its contents, refer to moduledocs in
-  `Membrane.MP4.Box.Movie` or to [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html).
+  For more information about movie box and its contents, refer to documentation of
+  `#{inspect(__MODULE__)}` submodules or to [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html).
   """
-  alias Membrane.MP4.{Box, Container, Track}
+  alias Membrane.MP4.{Container, Track}
+  alias __MODULE__.TrackBox
 
   @movie_timescale 1000
 
@@ -26,7 +27,7 @@ defmodule Membrane.MP4.Box.Movie do
     tracks = Enum.map(tracks, &Track.finalize(&1, @movie_timescale))
 
     header = movie_header(tracks)
-    track_boxes = Enum.flat_map(tracks, &Box.Movie.Track.assemble/1)
+    track_boxes = Enum.flat_map(tracks, &TrackBox.assemble/1)
 
     [moov: %{children: header ++ track_boxes ++ extensions, fields: %{}}]
   end

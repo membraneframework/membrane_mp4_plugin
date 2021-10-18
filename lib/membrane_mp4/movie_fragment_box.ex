@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Box.MovieFragment do
+defmodule Membrane.MP4.MovieFragmentBox do
   @moduledoc """
   A module containing a function for assembling an MPEG-4 movie fragment box.
 

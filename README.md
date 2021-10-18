@@ -19,8 +19,8 @@ elixir examples/muxer_isom.exs
 ### `Membrane.MP4.Muxer.CMAF`
 To use the output stream of the CMAF muxer, you need a sink that will dump it to a playlist in a proper format.
 
-You can find an example that uses the CMAF muxer to create a HLS playlist in 
-[`membrane_http_adaptive_stream_plugin`](https://github.com/membraneframework/membrane_http_adaptive_stream_plugin) repository.
+In `membrane_http_adaptive_stream_plugin` repository you can find [an example](https://github.com/membraneframework/membrane_http_adaptive_stream_plugin/blob/master/examples/hls_sink.exs) 
+that uses the CMAF muxer to create an HTTP Live Streaming playlist.
 
 ## Updating tests
 
