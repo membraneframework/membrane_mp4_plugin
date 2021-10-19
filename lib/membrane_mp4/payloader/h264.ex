@@ -19,7 +19,7 @@ defmodule Membrane.MP4.Payloader.H264 do
   def_output_pad :output, caps: Membrane.MP4.Payload
 
   @impl true
-  def handle_init(_) do
+  def handle_init(_options) do
     {:ok, %{sps: nil, pps: nil}}
   end
 

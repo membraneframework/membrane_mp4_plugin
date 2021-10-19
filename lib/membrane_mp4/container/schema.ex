@@ -212,6 +212,19 @@ defmodule Membrane.MP4.Container.Schema do
                                    ]}
                               ]
                         ],
+                        stss: [
+                          version: 0,
+                          fields:
+                            @full_box ++
+                              [
+                                entry_count: :uint32,
+                                entry_list:
+                                  {:list,
+                                   [
+                                     sample_number: :uint32
+                                   ]}
+                              ]
+                        ],
                         stsc: [
                           version: 0,
                           fields:
@@ -233,7 +246,7 @@ defmodule Membrane.MP4.Container.Schema do
                             @full_box ++
                               [
                                 sample_size: :uint32,
-                                entry_count: :uint32,
+                                sample_count: :uint32,
                                 entry_list:
                                   {:list,
                                    [

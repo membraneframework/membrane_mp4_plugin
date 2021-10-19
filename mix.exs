@@ -31,9 +31,18 @@ defmodule Membrane.MP4.Plugin.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: ["README.md"],
+      extras: ["README.md", "LICENSE"],
       source_ref: "v#{@version}",
-      nest_modules_by_prefix: [Membrane.MP4]
+      nest_modules_by_prefix: [
+        Membrane.MP4,
+        Membrane.MP4.Muxer,
+        Membrane.MP4.Payloader
+      ],
+      groups_for_modules: [
+        Muxers: ~r/Membrane\.MP4\.Muxer/,
+        Payloaders: ~r/Membrane\.MP4\.Payloader/,
+        Boxes: ~r/Membrane\.MP4\..+Box$/
+      ]
     ]
   end
 
@@ -57,9 +66,10 @@ defmodule Membrane.MP4.Plugin.MixProject do
       {:membrane_caps_video_h264, "~> 0.2.0"},
       {:membrane_file_plugin, "~> 0.6.0", only: :test},
       {:membrane_h264_ffmpeg_plugin, "~> 0.11.0", only: :test},
-      {:membrane_aac_plugin, "~> 0.7.0", only: :test},
-      {:ex_doc, "~> 0.21", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.0.0", only: [:dev, :test], runtime: false}
+      {:membrane_aac_plugin, "~> 0.7.1", only: :test},
+      {:ex_doc, "~> 0.25", only: :dev, runtime: false},
+      {:dialyxir, "~> 1.1", only: :dev, runtime: false},
+      {:credo, "~> 1.5", only: :dev, runtime: false}
     ]
   end
 end

@@ -3,10 +3,15 @@ defmodule Membrane.MP4.Container.ParseHelper do
 
   use Bunch
 
+  alias Membrane.MP4.Container
+  alias Membrane.MP4.Container.Schema
+
   @box_name_size 4
   @box_size_size 4
   @box_header_size @box_name_size + @box_size_size
 
+  @spec parse_boxes(binary, Schema.t(), Container.t()) ::
+          {:ok, Container.t()} | {:error, Container.parse_error_context_t()}
   def parse_boxes(<<>>, _schema, acc) do
     {:ok, Enum.reverse(acc)}
   end
@@ -79,14 +84,14 @@ defmodule Membrane.MP4.Container.ParseHelper do
   defp parse_field(data, {name, {:int, size}}) do
     case data do
       <<int::signed-integer-size(size), rest::bitstring>> -> {:ok, {int, rest}}
-      _ -> parse_field_error(data, name)
+      _unknown_format -> parse_field_error(data, name)
     end
   end
 
   defp parse_field(data, {name, {:uint, size}}) do
     case data do
       <<uint::integer-size(size), rest::bitstring>> -> {:ok, {uint, rest}}
-      _ -> parse_field_error(data, name)
+      _unknown_format -> parse_field_error(data, name)
     end
   end
 
@@ -95,7 +100,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
       <<int::integer-size(int_size), frac::integer-size(frac_size), rest::bitstring>> ->
         {:ok, {{int, frac}, rest}}
 
-      _ ->
+      _unknown_format ->
         parse_field_error(data, name)
     end
   end
@@ -107,14 +112,14 @@ defmodule Membrane.MP4.Container.ParseHelper do
   defp parse_field(data, {name, {type, size}}) when type in [:bin, :str] do
     case data do
       <<bin::bitstring-size(size), rest::bitstring>> -> {:ok, {bin, rest}}
-      _ -> parse_field_error(data, name)
+      _unknown_format -> parse_field_error(data, name)
     end
   end
 
   defp parse_field(data, {name, :str}) do
     case String.split(data, "\0", parts: 2) do
       [str, rest] -> {:ok, {str, rest}}
-      _ -> parse_field_error(data, name)
+      _unknown_format -> parse_field_error(data, name)
     end
   end
 

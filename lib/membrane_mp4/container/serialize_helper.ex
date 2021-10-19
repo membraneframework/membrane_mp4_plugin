@@ -3,10 +3,15 @@ defmodule Membrane.MP4.Container.SerializeHelper do
 
   use Bunch
 
+  alias Membrane.MP4.Container
+  alias Membrane.MP4.Container.Schema
+
   @box_name_size 4
   @box_size_size 4
   @box_header_size @box_name_size + @box_size_size
 
+  @spec serialize_boxes(Container.t(), Schema.t()) ::
+          {:error, Container.serialize_error_context_t()} | {:ok, binary}
   def serialize_boxes(mp4, schema) do
     with {:ok, data} <-
            Bunch.Enum.try_map(mp4, fn {box_name, box} ->
