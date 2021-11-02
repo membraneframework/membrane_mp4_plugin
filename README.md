@@ -6,6 +6,17 @@
 
 This plugin provides utilities for MP4 container parsing and serialization along with elements for muxing the stream to MP4 or [CMAF](https://www.wowza.com/blog/what-is-cmaf).
 
+## Installation
+The package can be installed by adding `membrane_mp4_plugin` to your list of dependencies in `mix.exs`:
+
+```elixir
+defp deps do
+[
+    {:membrane_mp4_plugin, "~> 0.8.0"}
+]
+end
+```
+
 ## Usage
 ### `Membrane.MP4.Muxer.ISOM`
 For an example of muxing streams to a regular MP4 file, refer to 
