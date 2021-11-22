@@ -69,7 +69,7 @@ defmodule Membrane.MP4.Plugin.MixProject do
       {:membrane_aac_plugin, "~> 0.9.0", only: :test},
       {:ex_doc, "~> 0.25", only: :dev, runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
-      {:credo, "~> 1.5", only: :dev, runtime: false}
+      {:credo, "~> 1.5", [only: :test, env: :prod, hex: "credo", repo: "hexpm", optional: false]}
     ]
   end
 end
