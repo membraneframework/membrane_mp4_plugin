@@ -30,9 +30,10 @@ defmodule Membrane.MP4.Payloader.H264 do
 
   @impl true
   def handle_process(:input, buffer, ctx, state) do
-    %Buffer{payload: payload, metadata: metadata} = buffer
-    {nalus, metadata} = process_metadata(metadata)
-    nalus = Enum.map(nalus, &Map.put(&1, :payload, :binary.part(payload, &1.unprefixed_poslen)))
+    {nalus, metadata} = process_metadata(buffer.metadata)
+
+    nalus =
+      Enum.map(nalus, &Map.put(&1, :payload, :binary.part(buffer.payload, &1.unprefixed_poslen)))
 
     grouped_nalus = Enum.group_by(nalus, & &1.metadata.h264.type)
 
@@ -48,7 +49,7 @@ defmodule Membrane.MP4.Payloader.H264 do
       end
 
     payload = nalus |> Enum.map(&process_nalu/1) |> Enum.join()
-    buffer = %Buffer{payload: payload, metadata: metadata}
+    buffer = %Buffer{buffer | payload: payload, metadata: metadata}
     {{:ok, caps ++ [buffer: {:output, buffer}, redemand: :output]}, state}
   end
 

@@ -38,6 +38,8 @@ defmodule Membrane.MP4.Payloader.AAC do
 
   @impl true
   def handle_process(:input, buffer, _ctx, state) do
+    # TODO: remove once bumping to a version of AAC plugin that supports buffers with dts/pts
+    buffer = Map.put(buffer, :dts, buffer.metadata.timestamp)
     {{:ok, buffer: {:output, buffer}}, state}
   end
 

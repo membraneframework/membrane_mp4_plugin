@@ -8,11 +8,12 @@ defmodule Membrane.MP4.Track.SampleTable do
   about new samples. To compensate for it, use `#{inspect(&__MODULE__.reverse/1)}`
   when it's known that no more samples will be stored.
   """
+  alias Membrane.Buffer
 
   @type t :: %__MODULE__{
           chunk: [binary],
-          chunk_first_timestamp: non_neg_integer | nil,
-          last_timestamp: non_neg_integer | nil,
+          chunk_first_dts: non_neg_integer | nil,
+          last_dts: non_neg_integer | nil,
           sample_count: non_neg_integer,
           sample_sizes: [pos_integer],
           sync_samples: [pos_integer],
@@ -32,8 +33,8 @@ defmodule Membrane.MP4.Track.SampleTable do
         }
 
   defstruct chunk: [],
-            chunk_first_timestamp: nil,
-            last_timestamp: nil,
+            chunk_first_dts: nil,
+            last_dts: nil,
             sample_count: 0,
             sample_sizes: [],
             sync_samples: [],
@@ -41,22 +42,22 @@ defmodule Membrane.MP4.Track.SampleTable do
             decoding_deltas: [],
             samples_per_chunk: []
 
-  @spec store_sample(__MODULE__.t(), Membrane.Buffer.t()) :: __MODULE__.t()
+  @spec store_sample(__MODULE__.t(), Buffer.t()) :: __MODULE__.t()
   def store_sample(sample_table, buffer) do
     sample_table
-    |> maybe_store_first_timestamp(buffer)
+    |> maybe_store_first_dts(buffer)
     |> do_store_sample(buffer)
     |> update_decoding_deltas(buffer)
     |> maybe_store_sync_sample(buffer)
-    |> store_last_timestamp(buffer)
+    |> store_last_dts(buffer)
   end
 
   @spec chunk_duration(__MODULE__.t()) :: non_neg_integer
-  def chunk_duration(%{chunk_first_timestamp: nil}), do: 0
+  def chunk_duration(%{chunk_first_dts: nil}), do: 0
 
   def chunk_duration(sample_table) do
     use Ratio
-    sample_table.last_timestamp - sample_table.chunk_first_timestamp
+    sample_table.last_dts - sample_table.chunk_first_dts
   end
 
   @spec flush_chunk(__MODULE__.t(), non_neg_integer) :: {binary, __MODULE__.t()}
@@ -70,7 +71,7 @@ defmodule Membrane.MP4.Track.SampleTable do
       sample_table
       |> Map.update!(:chunk_offsets, &[chunk_offset | &1])
       |> update_samples_per_chunk(length(chunk))
-      |> Map.merge(%{chunk: [], chunk_first_timestamp: nil})
+      |> Map.merge(%{chunk: [], chunk_first_dts: nil})
 
     chunk = chunk |> Enum.reverse() |> Enum.join()
 
@@ -102,21 +103,19 @@ defmodule Membrane.MP4.Track.SampleTable do
         sample_count: sample_table.sample_count + 1
       })
 
-  defp maybe_store_first_timestamp(%{chunk: []} = sample_table, %{
-         metadata: %{timestamp: timestamp}
-       }),
-       do: %{sample_table | chunk_first_timestamp: timestamp}
+  defp maybe_store_first_dts(%{chunk: []} = sample_table, %Buffer{dts: dts}),
+    do: %{sample_table | chunk_first_dts: dts}
 
-  defp maybe_store_first_timestamp(sample_table, _buffer), do: sample_table
+  defp maybe_store_first_dts(sample_table, _buffer), do: sample_table
 
-  defp update_decoding_deltas(%{last_timestamp: nil} = sample_table, _buffer) do
+  defp update_decoding_deltas(%{last_dts: nil} = sample_table, _buffer) do
     Map.put(sample_table, :decoding_deltas, [%{sample_count: 1, sample_delta: 0}])
   end
 
-  defp update_decoding_deltas(sample_table, %{metadata: %{timestamp: timestamp}}) do
+  defp update_decoding_deltas(sample_table, %Buffer{dts: dts}) do
     Map.update!(sample_table, :decoding_deltas, fn previous_deltas ->
       use Ratio
-      new_delta = timestamp - sample_table.last_timestamp
+      new_delta = dts - sample_table.last_dts
 
       case previous_deltas do
         # there was only one sample in the sample table - we should assume its delta is
@@ -134,14 +133,16 @@ defmodule Membrane.MP4.Track.SampleTable do
     end)
   end
 
-  defp maybe_store_sync_sample(sample_table, %{metadata: %{mp4_payload: %{key_frame?: true}}}) do
+  defp maybe_store_sync_sample(sample_table, %Buffer{
+         metadata: %{mp4_payload: %{key_frame?: true}}
+       }) do
     Map.update!(sample_table, :sync_samples, &[sample_table.sample_count | &1])
   end
 
   defp maybe_store_sync_sample(sample_table, _buffer), do: sample_table
 
-  defp store_last_timestamp(sample_table, %{metadata: %{timestamp: timestamp}}),
-    do: %{sample_table | last_timestamp: timestamp}
+  defp store_last_dts(sample_table, %Buffer{dts: dts}),
+    do: %{sample_table | last_dts: dts}
 
   defp update_samples_per_chunk(sample_table, sample_count) do
     Map.update!(sample_table, :samples_per_chunk, fn previous_chunks ->
