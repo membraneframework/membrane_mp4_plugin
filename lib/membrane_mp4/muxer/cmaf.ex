@@ -56,14 +56,18 @@ defmodule Membrane.MP4.Muxer.CMAF do
       key_frame? and state.old_input_caps != nil ->
         %{new_output_caps: new_output_caps, old_input_caps: old_input_caps} = state
 
-        {buffer, state} = generate_segment(old_input_caps, sample, state)
+        {buffer, state} =
+          generate_segment(old_input_caps, %{dts: sample.dts, metadata: sample.metadata}, state)
+
         state = %{state | samples: [sample], old_input_caps: nil, new_output_caps: nil}
 
         {{:ok, buffer: {:output, buffer}, caps: {:output, new_output_caps}, redemand: :output},
          state}
 
       key_frame? and sample.dts - state.elapsed_time >= state.segment_duration ->
-        {buffer, state} = generate_segment(caps, sample, state)
+        {buffer, state} =
+          generate_segment(caps, %{dts: sample.dts, metadata: sample.metadata}, state)
+
         state = %{state | samples: [sample]}
         {{:ok, buffer: {:output, buffer}, redemand: :output}, state}
 
@@ -113,7 +117,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     last_dts = hd(state.samples).dts
 
     {buffer, state} =
-      generate_segment(ctx.pads.input.caps, %{dts: last_dts, payload: <<>>}, state)
+      generate_segment(ctx.pads.input.caps, %{dts: last_dts, metadata: %{}}, state)
 
     {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
   end
@@ -121,7 +125,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   defp generate_segment(caps, last_sample, state) do
     use Ratio, comparison: true
     %{timescale: timescale} = caps
-    samples = state.samples |> Enum.reverse([%{last_sample | payload: <<>>}])
+    samples = state.samples |> Enum.reverse([%{dts: last_sample.dts, payload: <<>>}])
 
     samples_table =
       samples
