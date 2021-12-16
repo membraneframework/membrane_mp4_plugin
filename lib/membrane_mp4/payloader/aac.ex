@@ -38,7 +38,8 @@ defmodule Membrane.MP4.Payloader.AAC do
 
   @impl true
   def handle_process(:input, buffer, _ctx, state) do
-    {{:ok, buffer: {:output, buffer}}, state}
+    # we set DTS=PTS, as ISO base media file format specification uses DTS for calculating deltas
+    {{:ok, buffer: {:output, %{buffer | dts: buffer.pts}}}, state}
   end
 
   @impl true

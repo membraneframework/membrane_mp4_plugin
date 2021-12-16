@@ -15,7 +15,7 @@ defmodule Example do
     children = [
       video_source: %Membrane.Hackney.Source{
         location:
-          "https://raw.githubusercontent.com/membraneframework/static/gh-pages/video-samples/test-video.h264",
+          "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/ffmpeg-testsrc.h264",
         hackney_opts: [follow_redirect: true]
       },
       video_parser: %Membrane.H264.FFmpeg.Parser{

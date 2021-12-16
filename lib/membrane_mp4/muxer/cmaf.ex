@@ -56,14 +56,18 @@ defmodule Membrane.MP4.Muxer.CMAF do
       key_frame? and state.old_input_caps != nil ->
         %{new_output_caps: new_output_caps, old_input_caps: old_input_caps} = state
 
-        {buffer, state} = generate_segment(old_input_caps, sample.metadata, state)
+        {buffer, state} =
+          generate_segment(old_input_caps, %{dts: sample.dts, metadata: sample.metadata}, state)
+
         state = %{state | samples: [sample], old_input_caps: nil, new_output_caps: nil}
 
         {{:ok, buffer: {:output, buffer}, caps: {:output, new_output_caps}, redemand: :output},
          state}
 
-      key_frame? and sample.metadata.timestamp - state.elapsed_time >= state.segment_duration ->
-        {buffer, state} = generate_segment(caps, sample.metadata, state)
+      key_frame? and sample.dts - state.elapsed_time >= state.segment_duration ->
+        {buffer, state} =
+          generate_segment(caps, %{dts: sample.dts, metadata: sample.metadata}, state)
+
         state = %{state | samples: [sample]}
         {{:ok, buffer: {:output, buffer}, redemand: :output}, state}
 
@@ -110,15 +114,18 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   @impl true
   def handle_end_of_stream(:input, ctx, state) do
-    last_timestamp = hd(state.samples).metadata.timestamp
-    {buffer, state} = generate_segment(ctx.pads.input.caps, %{timestamp: last_timestamp}, state)
+    last_dts = hd(state.samples).dts
+
+    {buffer, state} =
+      generate_segment(ctx.pads.input.caps, %{dts: last_dts, metadata: %{}}, state)
+
     {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
   end
 
-  defp generate_segment(caps, next_metadata, state) do
+  defp generate_segment(caps, last_sample, state) do
     use Ratio, comparison: true
     %{timescale: timescale} = caps
-    samples = state.samples |> Enum.reverse([%{metadata: next_metadata, payload: <<>>}])
+    samples = state.samples |> Enum.reverse([%{dts: last_sample.dts, payload: <<>>}])
 
     samples_table =
       samples
@@ -129,7 +136,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
           sample_flags: generate_sample_flags(sample.metadata),
           sample_duration:
             Helper.timescalify(
-              next_sample.metadata.timestamp - sample.metadata.timestamp,
+              next_sample.dts - sample.dts,
               timescale
             )
         }
@@ -137,9 +144,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     samples_data = samples |> Enum.map(& &1.payload) |> Enum.join()
 
-    first_metadata = hd(samples).metadata
-    duration = next_metadata.timestamp - first_metadata.timestamp
-    metadata = Map.put(first_metadata, :duration, duration)
+    first_sample = hd(samples)
+    duration = last_sample.dts - first_sample.dts
+    metadata = Map.put(first_sample.metadata, :duration, duration)
 
     payload =
       Segment.serialize(%{
@@ -154,7 +161,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     buffer = %Buffer{payload: payload, metadata: metadata}
 
     state =
-      %{state | samples: [], elapsed_time: next_metadata.timestamp}
+      %{state | samples: [], elapsed_time: last_sample.dts}
       |> Map.update!(:seq_num, &(&1 + 1))
 
     {buffer, state}
