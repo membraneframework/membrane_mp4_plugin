@@ -1,21 +1,25 @@
 Mix.install([
   :membrane_core,
-  :membrane_file_plugin,
-  :membrane_h264_ffmpeg_plugin,
+  {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()},
   :membrane_hackney_plugin,
+  :membrane_h264_ffmpeg_plugin,
   :membrane_aac_plugin,
-  {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()}
+  :membrane_file_plugin
 ])
 
 defmodule Example do
   use Membrane.Pipeline
 
+  @samples_url "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/"
+  @video_url @samples_url <> "ffmpeg-testsrc.h264"
+  @audio_url @samples_url <> "test-audio.aac"
+  @output_file System.get_env("MP4_OUTPUT_FILE", "example.mp4") |> Path.expand()
+
   @impl true
   def handle_init(_options) do
     children = [
       video_source: %Membrane.Hackney.Source{
-        location:
-          "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/ffmpeg-testsrc.h264",
+        location: @video_url,
         hackney_opts: [follow_redirect: true]
       },
       video_parser: %Membrane.H264.FFmpeg.Parser{
@@ -25,14 +29,13 @@ defmodule Example do
       },
       video_payloader: Membrane.MP4.Payloader.H264,
       audio_source: %Membrane.Hackney.Source{
-        location:
-          "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/test-audio.aac",
+        location: @audio_url,
         hackney_opts: [follow_redirect: true]
       },
       audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
       audio_payloader: Membrane.MP4.Payloader.AAC,
       muxer: Membrane.MP4.Muxer.ISOM,
-      file_sink: %Membrane.File.Sink{location: "example.mp4"}
+      file_sink: %Membrane.File.Sink{location: @output_file}
     ]
 
     links = [

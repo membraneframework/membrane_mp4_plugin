@@ -27,6 +27,8 @@ To run the example, you can use the following command:
 elixir examples/muxer_isom.exs
 ``` 
 
+You can use `MP4_OUTPUT_FILE` environment variable to set location of the output file (defaults to `example.mp4`).
+
 ### `Membrane.MP4.Muxer.CMAF`
 To use the output stream of the CMAF muxer, you need a sink that will dump it to a playlist in a proper format.
 
