@@ -12,9 +12,7 @@ defmodule Membrane.MP4.Payloader.H264 do
 
   def_input_pad :input,
     demand_unit: :buffers,
-    caps:
-      {Membrane.Caps.Video.H264,
-       stream_format: :byte_stream, alignment: :au, nalu_in_metadata?: true}
+    caps: {Membrane.H264, stream_format: :byte_stream, alignment: :au, nalu_in_metadata?: true}
 
   def_output_pad :output, caps: Membrane.MP4.Payload
 
