@@ -22,7 +22,7 @@ defmodule Membrane.MP4.MovieBox do
 
   @movie_timescale 1000
 
-  @spec assemble([%Track{}], Container.t()) :: Container.t()
+  @spec assemble([Track.t()], Container.t()) :: Container.t()
   def assemble(tracks, extensions \\ []) do
     tracks = Enum.map(tracks, &Track.finalize(&1, @movie_timescale))
 
