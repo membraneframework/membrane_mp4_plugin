@@ -22,7 +22,6 @@ defmodule Membrane.MP4.Muxer.CMAF.Header do
     movie_box = MovieBox.assemble(track, movie_extends)
 
     [@ftyp, movie_box]
-    |> Enum.map(&Container.serialize!/1)
-    |> Enum.join()
+    |> Enum.map_join(&Container.serialize!/1)
   end
 end

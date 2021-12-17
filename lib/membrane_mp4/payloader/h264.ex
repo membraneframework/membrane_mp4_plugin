@@ -48,7 +48,7 @@ defmodule Membrane.MP4.Payloader.H264 do
         {[], state}
       end
 
-    payload = nalus |> Enum.map(&process_nalu/1) |> Enum.join()
+    payload = nalus |> Enum.map_join(&process_nalu/1)
     buffer = %Buffer{buffer | payload: payload, metadata: metadata}
     {{:ok, caps ++ [buffer: {:output, buffer}, redemand: :output]}, state}
   end
@@ -93,8 +93,6 @@ defmodule Membrane.MP4.Payloader.H264 do
   end
 
   defp encode_parameter_sets(pss) do
-    pss
-    |> Enum.map(&<<byte_size(&1)::16-integer, &1::binary>>)
-    |> Enum.join()
+    Enum.map_join(pss, &<<byte_size(&1)::16-integer, &1::binary>>)
   end
 end

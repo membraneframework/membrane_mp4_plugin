@@ -156,8 +156,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
     else
       [@ftyp, media_data_box, movie_box]
     end
-    |> Enum.map(&Container.serialize!/1)
-    |> Enum.join()
+    |> Enum.map_join(&Container.serialize!/1)
   end
 
   defp prepare_for_fast_start(movie_box) do
