@@ -304,7 +304,7 @@ defmodule Membrane.MP4.Container.Schema do
                       first_offset: :uint64,
                       reserved: <<0::16-integer>>,
                       reference_count: :uint16,
-                      # FIXME: make a list once list length is supported
+                      # TODO: make a list once list length is supported
                       # reference_list: [
                       #   [
                       #     reference_type: :bin1,
@@ -367,7 +367,7 @@ defmodule Membrane.MP4.Container.Schema do
                                sample_duration: :uint32,
                                sample_size: :uint32,
                                sample_flags: :bin32
-                               # FIXME: handle sample offset, include basing on flags once conditional fields are supported
+                               # TODO: handle sample offset, include basing on flags once conditional fields are supported
                                # sample_offset: :uint32
                              ]}
                         ]

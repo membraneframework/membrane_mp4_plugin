@@ -142,7 +142,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
         }
       end)
 
-    samples_data = samples |> Enum.map(& &1.payload) |> Enum.join()
+    samples_data = Enum.map_join(samples, & &1.payload)
 
     first_sample = hd(samples)
     duration = last_sample.dts - first_sample.dts
