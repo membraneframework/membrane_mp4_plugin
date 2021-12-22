@@ -10,12 +10,18 @@ defmodule Membrane.MP4.Muxer.CMAF do
   """
   use Membrane.Filter
 
-  alias __MODULE__.{Header, Segment}
+  alias __MODULE__.{Header}
   alias Membrane.{Buffer, Time}
-  alias Membrane.MP4.Helper
   alias Membrane.MP4.Payload.{AAC, AVC1}
+  alias Membrane.MP4.{Track, MediaDataBox, MovieBox}
 
-  def_input_pad :input, demand_unit: :buffers, caps: Membrane.MP4.Payload
+  require Membrane.Logger
+
+  def_input_pad :input,
+    availability: :on_request,
+    demand_unit: :buffers,
+    caps: Membrane.MP4.Payload
+
   def_output_pad :output, caps: Membrane.CMAF.Track
 
   def_options segment_duration: [
@@ -30,10 +36,14 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> Map.from_struct()
       |> Map.merge(%{
         seq_num: 0,
-        elapsed_time: 0,
-        samples: [],
         old_input_caps: nil,
-        new_output_caps: nil
+        new_output_caps: nil,
+        pad_to_track: %{},
+        next_track_id: 1,
+        pad_to_end_timestamp: %{},
+        samples: %{},
+        samples_total_duration: %{},
+        duration_resolution_queue: %{}
       })
 
     {:ok, state}
@@ -41,130 +51,169 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   @impl true
   def handle_demand(:output, _size, _unit, _ctx, state) do
-    {{:ok, demand: {:input, 1}}, state}
+    {pad, _elapsed_time} =
+      Enum.min_by(state.pad_to_end_timestamp, &Ratio.to_float(Bunch.value(&1)))
+
+    {{:ok, demand: {pad, 1}}, state}
   end
 
   @impl true
-  def handle_process(:input, sample, ctx, state) do
+  def handle_process(Pad.ref(:input, _id) = pad, sample, _ctx, state) do
     use Ratio, comparison: true
-    %{caps: caps} = ctx.pads.input
-    key_frame? = sample.metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
 
-    cond do
-      # if there are stale caps it means we need to generate a new segment
-      # with them and next forward current caps as their propagation has been postponed
-      key_frame? and state.old_input_caps != nil ->
-        %{new_output_caps: new_output_caps, old_input_caps: old_input_caps} = state
+    state =
+      if is_nil(state.duration_resolution_queue[pad]) do
+        put_in(state, [:duration_resolution_queue, pad], sample)
+      else
+        duration = sample.dts - state.pad_to_end_timestamp[pad]
+        prev_sample = state.duration_resolution_queue[pad]
+        prev_sample_metadata = Map.put(prev_sample.metadata, :duration, duration)
+        prev_sample = %Buffer{prev_sample | metadata: prev_sample_metadata}
 
-        {buffer, state} =
-          generate_segment(old_input_caps, %{dts: sample.dts, metadata: sample.metadata}, state)
+        put_in(state, [:pad_to_end_timestamp, pad], prev_sample_metadata.dts)
+        |> put_in([:duration_resolution_queue, pad], sample)
+        |> update_in([:samples, pad], &Qex.push(&1, prev_sample))
+        |> update_in([:samples_total_duration, pad], &(&1 + duration))
+      end
 
-        state = %{state | samples: [sample], old_input_caps: nil, new_output_caps: nil}
+    case maybe_get_segment?(state) do
+      {:ok, segment, state} ->
+        IO.inspect(segment, label: :dupa)
+        IO.inspect(state.samples, label: "left samples")
 
-        {{:ok, buffer: {:output, buffer}, caps: {:output, new_output_caps}, redemand: :output},
-         state}
+        segment
+        |> Map.values()
+        |> hd()
+        |> Enum.map(&Ratio.to_float(&1.metadata.duration))
+        |> Enum.sum()
+        |> IO.inspect(label: "total duration")
 
-      key_frame? and sample.dts - state.elapsed_time >= state.segment_duration ->
-        {buffer, state} =
-          generate_segment(caps, %{dts: sample.dts, metadata: sample.metadata}, state)
+        {{:ok, redemand: :output}, state}
 
-        state = %{state | samples: [sample]}
-        {{:ok, buffer: {:output, buffer}, redemand: :output}, state}
-
-      true ->
-        state = Map.update!(state, :samples, &[sample | &1])
+      {:error, :not_enough_data} ->
+        IO.puts("Not enough data for segment")
+        IO.inspect(state.segment_duration, label: "segment_duration")
         {{:ok, redemand: :output}, state}
     end
   end
 
   @impl true
-  def handle_caps(:input, %Membrane.MP4.Payload{} = caps, ctx, state) do
-    caps = %Membrane.CMAF.Track{
-      content_type:
-        case caps.content do
-          %AVC1{} -> :video
-          %AAC{} -> :audio
-        end,
-      header:
-        caps
-        |> Map.take([:timescale, :width, :height, :content])
-        |> Header.serialize()
-    }
+  def handle_pad_added(Pad.ref(:input, _id) = pad, _ctx, state) do
+    {track_id, state} = Map.get_and_update!(state, :next_track_id, &{&1, &1 + 1})
 
-    # returning new output caps action should be postponed so that
-    # the discontinuity event the action will trigger will come right after the last buffer representing old
-    # input caps is sent, therefore if there are cached samples we need to cache both caps:
-    # - old input caps - must be used to generate a segment from the cached samples, have to be cached as the next handle_process call will use new input caps
-    # - new output caps - must follow freshly generated segment from the old input caps
-    {caps, state} =
-      cond do
-        # cache caps only if there are cached samples
-        caps != ctx.pads.output.caps and state.samples != [] ->
-          {[], %{state | old_input_caps: ctx.pads.input.caps, new_output_caps: caps}}
-
-        caps != ctx.pads.output.caps ->
-          {[caps: {:output, caps}], state}
-
-        true ->
-          {[], state}
-      end
-
-    {{:ok, caps ++ [redemand: :output]}, state}
+    state
+    |> put_in([:pad_to_end_timestamp, pad], 0)
+    |> put_in([:pad_to_track, pad], track_id)
+    |> put_in([:samples, pad], Qex.new())
+    |> put_in([:samples_total_duration, pad], 0)
+    |> then(&{:ok, &1})
   end
 
   @impl true
-  def handle_end_of_stream(:input, ctx, state) do
-    last_dts = hd(state.samples).dts
+  def handle_pad_removed(Pad.ref(:input, _id) = pad, _ctx, state),
+    do:
+      state
+      |> Map.update!(:pads_id_mapping, &Map.delete(&1, pad))
+      |> Map.update!(:pad_to_end_timestamp, &Map.delete(&1, pad))
+      |> Map.update!(:samples, &Map.delete(&1, pad))
+      |> Map.update!(:samples_total_duration, &Map.delete(&1, pad))
+      |> then(&{:ok, &1})
 
-    {buffer, state} =
-      generate_segment(ctx.pads.input.caps, %{dts: last_dts, metadata: %{}}, state)
-
-    {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
-  end
-
-  defp generate_segment(caps, last_sample, state) do
-    use Ratio, comparison: true
-    %{timescale: timescale} = caps
-    samples = state.samples |> Enum.reverse([%{dts: last_sample.dts, payload: <<>>}])
-
-    samples_table =
-      samples
-      |> Enum.chunk_every(2, 1, :discard)
-      |> Enum.map(fn [sample, next_sample] ->
-        %{
-          sample_size: byte_size(sample.payload),
-          sample_flags: generate_sample_flags(sample.metadata),
-          sample_duration:
-            Helper.timescalify(
-              next_sample.dts - sample.dts,
-              timescale
-            )
-        }
+  @impl true
+  def handle_caps(pad, %Membrane.MP4.Payload{} = caps, ctx, state) do
+    state =
+      update_in(state, [:pad_to_track, pad], fn track_id ->
+        caps
+        |> Map.from_struct()
+        |> Map.take([:width, :height, :content, :timescale])
+        |> Map.put(:id, track_id)
+        |> Track.new()
       end)
 
-    samples_data = Enum.map_join(samples, & &1.payload)
+    header =
+      state.pad_to_track
+      |> Map.values()
+      |> Header.serialize()
 
-    first_sample = hd(samples)
-    duration = last_sample.dts - first_sample.dts
-    metadata = Map.put(first_sample.metadata, :duration, duration)
+    caps_content_type =
+      case caps.content do
+        %AVC1{} -> :video
+        %AAC{} -> :audio
+      end
 
-    payload =
-      Segment.serialize(%{
-        sequence_number: state.seq_num,
-        elapsed_time: Helper.timescalify(state.elapsed_time, timescale),
-        duration: Helper.timescalify(duration, timescale),
-        timescale: timescale,
-        samples_table: samples_table,
-        samples_data: samples_data
-      })
+    caps = %Membrane.CMAF.Track{
+      content_type:
+        if(Enum.count(state.pad_to_track) > 1, do: :muxed_av_stream, else: caps_content_type),
+      header: header
+    }
 
-    buffer = %Buffer{payload: payload, metadata: metadata}
+    # Send caps only if this is the final header
+    ctx.pads
+    |> Map.drop([:output, pad])
+    |> Enum.all?(&(&1.caps != nil))
+    |> then(&if(&1, do: {{:ok, caps: {:output, caps}}, state}, else: {:ok, state}))
+  end
 
-    state =
-      %{state | samples: [], elapsed_time: last_sample.dts}
-      |> Map.update!(:seq_num, &(&1 + 1))
+  @impl true
+  def handle_end_of_stream(Pad.ref(:input, _track_id) = pad, ctx, state) do
+    IO.puts("End of stream")
+    IO.inspect(ctx, label: "kurwa context")
+    sample = state.duration_resolution_queue[pad]
+    sample_metadata = Map.put(sample.metadata, :duration, Qex.last!(state.samples[pad]))
+    sample = %Buffer{sample | metadata: sample_metadata}
+    state = update_in(state, [:samples, pad], &Qex.push(&1, sample))
 
-    {buffer, state}
+    if ctx.pads
+       |> Map.delete(pad)
+       |> Map.values()
+       |> Enum.all?(&(&1.direction == :output or &1.end_of_stream?)) do
+      IO.puts("Attempting to collect the segment")
+
+      case maybe_get_segment?(state, [:empty_samples_buffer]) do
+        {:ok, segment, state} ->
+          IO.inspect(segment, label: :near_death_segment)
+          {:ok, state}
+
+        {:error, :not_enough_data} ->
+          raise("We should always be able to dump this segment")
+      end
+    else
+      IO.puts("No ja pierdole kurwa")
+      {:ok, state}
+    end
+  end
+
+  defp generate_segment(acc, state) do
+    use Ratio, comparison: true
+    # fill the tracks with generated samples
+    tracks =
+      acc
+      |> Enum.map(fn {pad, samples} ->
+        track = state.pad_to_track[pad]
+        samples = Enum.to_list(samples)
+
+        Enum.reduce(samples, track, fn {sample, track} ->
+          Track.store_sample(track, sample)
+        end)
+      end)
+
+    # FIXME: Fill it in
+    basic_offset = 0
+    # serialize chunks
+    chunk =
+      Enum.reduce(tracks, fn {track, acc} ->
+        acc <> Track.flush_chunk(track, basic_offset + byte_size(acc))
+      end)
+
+    mdat_box = MediaDataBox.assemble(chunk)
+    # FIXME: this is incorrect to...
+    movie_fragment_box =
+      state.pad_to_track |> Map.values() |> Enum.sort_by(& &1.id) |> MovieBox.assemble()
+
+    styp = <<>>
+
+    # FIXME: this is incorrect
+    [styp, movie_fragment_box, mdat_box] |> Enum.map_join(&Containter.serialize!/1)
   end
 
   defp generate_sample_flags(metadata) do
@@ -180,5 +229,58 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     <<0::4, is_leading::2, depends_on::2, is_depended_on::2, has_redundancy::2, padding_value::3,
       non_sync::1, degradation_priority::16>>
+  end
+
+  defp maybe_get_segment?(state, options \\ []) do
+    durations = state.samples_total_duration |> Map.map(fn _entry -> 0 end)
+    maybe_get_segment?(state, durations, %{}, options)
+  end
+
+  defp maybe_get_segment?(state, collected_duration, acc, options) do
+    use Ratio, comparison: true
+
+    segment_ready? =
+      if Enum.member?(options, :empty_samples_buffer) do
+        Map.values(state.samples_total_duration)
+        |> Enum.any?(&(&1 == 0))
+      else
+        Enum.all?(
+          collected_duration,
+          fn {key, duration} ->
+            duration >= state.segment_duration and
+              (Keyword.get(options, :keyframe_optional?, false) or
+                 match?(
+                   {:value, %Buffer{metadata: %{mp4_payload: %{key_frame?: true}}}},
+                   Qex.first(state.samples[key])
+                 ))
+          end
+        )
+      end
+
+    if segment_ready? do
+      IO.puts("Segment ready")
+      IO.inspect(collected_duration, label: "durations on segment ready")
+      IO.inspect(options, label: "options on segment ready")
+      {:ok, acc, state}
+    else
+      {pad, _total_duration} = Enum.min_by(collected_duration, &Bunch.value/1)
+
+      case Qex.pop(state.samples[pad]) do
+        {{:value, sample}, new_samples_queue} ->
+          acc = Map.get(acc, pad, Qex.new()) |> Qex.push(sample) |> then(&Map.put(acc, pad, &1))
+
+          state =
+            put_in(state, [:samples, pad], new_samples_queue)
+            |> update_in([:samples_total_duration, pad], &(&1 - sample.metadata.duration))
+
+          collected_duration =
+            Map.update!(collected_duration, pad, &(&1 + sample.metadata.duration))
+
+          maybe_get_segment?(state, collected_duration, acc, options)
+
+        {:empty, _t} ->
+          {:error, :not_enough_data}
+      end
+    end
   end
 end
