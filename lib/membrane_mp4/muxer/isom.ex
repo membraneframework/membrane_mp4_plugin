@@ -3,15 +3,6 @@ defmodule Membrane.MP4.Muxer.ISOM do
   Puts payloaded streams into an MPEG-4 container.
   """
 
-  # Due to the structure of MPEG-4 containers, it is not possible
-  # to send buffers with `mdat` box content right after they are
-  # processed — we need to know the size of this box up front.
-  # The current solution requires storing all incoming buffers
-  # in memory until the last track ends.
-  # Once some kind of seeking mechanism is implemented, it will
-  # be possible to send chunks of samples on demand, only
-  # correcting the mdat header after all media data has been sent.
-
   use Membrane.Filter
 
   alias Membrane.{Buffer, Time}
@@ -19,7 +10,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   @ftyp FileTypeBox.assemble("isom", ["isom", "iso2", "avc1", "mp41"])
   @ftyp_size @ftyp |> Container.serialize!() |> byte_size()
-  @mdat_data_offset 8
+  @mdat_header_size 8
 
   def_input_pad :input,
     demand_unit: :buffers,
@@ -57,10 +48,11 @@ defmodule Membrane.MP4.Muxer.ISOM do
       options
       |> Map.from_struct()
       |> Map.merge(%{
-        media_data: <<>>,
+        mdat_size: 0,
         next_track_id: 1,
         pad_order: [],
-        pad_to_track: %{}
+        pad_to_track: %{},
+        header_sent?: false
       })
 
     {:ok, state}
@@ -100,26 +92,36 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   @impl true
   def handle_process(Pad.ref(:input, pad_ref), buffer, _ctx, state) do
-    state =
+    {maybe_header, state} =
+      if not state.header_sent? do
+        header = [@ftyp, MediaDataBox.assemble(<<>>)] |> Enum.map_join(&Container.serialize!/1)
+        buffer_header = [buffer: {:output, %Buffer{payload: header}}]
+
+        {buffer_header, %{state | header_sent?: true}}
+      else
+        {[], state}
+      end
+
+    {maybe_buffer, state} =
       state
       |> update_in([:pad_to_track, pad_ref], &Track.store_sample(&1, buffer))
       |> maybe_flush_chunk(pad_ref)
 
-    {{:ok, redemand: :output}, state}
+    actions = maybe_header ++ maybe_buffer ++ [redemand: :output]
+
+    {{:ok, actions}, state}
   end
 
   @impl true
   def handle_end_of_stream(Pad.ref(:input, pad_ref), _ctx, state) do
-    state =
-      state
-      |> do_flush_chunk(pad_ref)
-      |> Map.update!(:pad_order, &List.delete(&1, pad_ref))
+    {maybe_buffer, state} = do_flush_chunk(state, pad_ref)
+    state = Map.update!(state, :pad_order, &List.delete(&1, pad_ref))
 
     if state.pad_order != [] do
-      {{:ok, redemand: :output}, state}
+      {{:ok, maybe_buffer ++ [redemand: :output]}, state}
     else
-      mp4 = serialize(state)
-      {{:ok, buffer: {:output, %Buffer{payload: mp4}}, end_of_stream: :output}, state}
+      actions = finalize_mp4(state)
+      {{:ok, maybe_buffer ++ actions ++ [end_of_stream: :output]}, state}
     end
   end
 
@@ -130,7 +132,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
     if Track.current_chunk_duration(track) >= state.chunk_duration do
       do_flush_chunk(state, pad_ref)
     else
-      state
+      {[], state}
     end
   end
 
@@ -140,23 +142,38 @@ defmodule Membrane.MP4.Muxer.ISOM do
       |> get_in([:pad_to_track, pad_ref])
       |> Track.flush_chunk(chunk_offset(state))
 
-    state
-    |> Map.update!(:media_data, &(&1 <> chunk))
-    |> put_in([:pad_to_track, pad_ref], track)
-    |> Map.update!(:pad_order, &shift_left/1)
+    state =
+      state
+      |> Map.update!(:mdat_size, &(&1 + byte_size(chunk)))
+      |> put_in([:pad_to_track, pad_ref], track)
+      |> Map.update!(:pad_order, &shift_left/1)
+
+    {[buffer: {:output, %Buffer{payload: chunk}}], state}
   end
 
-  defp serialize(state) do
-    media_data_box = state.media_data |> MediaDataBox.assemble()
-
+  defp finalize_mp4(state) do
     movie_box = state.pad_to_track |> Map.values() |> Enum.sort_by(& &1.id) |> MovieBox.assemble()
+    position = {:bof, @ftyp_size}
+    mdat_total_size = state.mdat_size + @mdat_header_size
 
     if state.fast_start do
-      [@ftyp, prepare_for_fast_start(movie_box), media_data_box]
+      moov = movie_box |> prepare_for_fast_start() |> Container.serialize!()
+
+      [
+        event: {:output, %Membrane.File.SeekEvent{position: position}},
+        buffer: {:output, %Buffer{payload: <<mdat_total_size::integer-size(4)-unit(8)>>}},
+        event: {:output, %Membrane.File.SeekEvent{insert?: true, position: position}},
+        buffer: {:output, %Buffer{payload: moov}}
+      ]
     else
-      [@ftyp, media_data_box, movie_box]
+      moov = Container.serialize!(movie_box)
+
+      [
+        buffer: {:output, %Buffer{payload: moov}},
+        event: {:output, %Membrane.File.SeekEvent{position: position}},
+        buffer: {:output, %Buffer{payload: <<mdat_total_size::integer-size(4)-unit(8)>>}}
+      ]
     end
-    |> Enum.map_join(&Container.serialize!/1)
   end
 
   defp prepare_for_fast_start(movie_box) do
@@ -184,8 +201,8 @@ defmodule Membrane.MP4.Muxer.ISOM do
     |> then(&[moov: %{children: &1, fields: %{}}])
   end
 
-  defp chunk_offset(%{media_data: media_data}),
-    do: @ftyp_size + @mdat_data_offset + byte_size(media_data)
+  defp chunk_offset(%{mdat_size: mdat_size}),
+    do: @ftyp_size + @mdat_header_size + mdat_size
 
   defp shift_left([]), do: []
 
