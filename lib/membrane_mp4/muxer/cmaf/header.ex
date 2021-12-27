@@ -4,15 +4,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Header do
 
   @ftyp FileTypeBox.assemble("iso5", ["iso6", "mp41"])
 
-  @spec serialize([
-          %Track{
-            timescale: integer,
-            width: :integer,
-            height: :integer,
-            content: struct,
-            id: non_neg_integer()
-          }
-        ]) :: binary
+  @spec serialize([Track.t()]) :: binary
   def serialize(tracks) do
     movie_extends = MovieBox.MovieExtendsBox.assemble(tracks)
     movie_box = MovieBox.assemble(tracks, movie_extends)

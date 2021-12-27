@@ -39,9 +39,8 @@ defmodule Membrane.MP4.Payloader.AAC do
 
   @impl true
   def handle_process(:input, buffer, _ctx, state) do
-    metadata = Map.put(buffer.metadata, :mp4_payload, %{key_frame?: true})
     # we set DTS=PTS, as ISO base media file format specification uses DTS for calculating deltas
-    buffer = %Buffer{buffer | metadata: metadata, dts: buffer.pts}
+    buffer = %Buffer{buffer | dts: buffer.pts}
     {{:ok, buffer: {:output, buffer}}, state}
   end
 
