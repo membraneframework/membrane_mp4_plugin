@@ -7,14 +7,13 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     with {:ok, segment_part_1, state} <- get_to_duration(state, state.segment_duration),
          {:ok, segment_part_2, state} <- get_to_next_keyframe(state) do
       segment =
-        Enum.map(segment_part_1, fn {key, value} ->
+        Map.new(segment_part_1, fn {key, value} ->
           part_2 =
             segment_part_2
             |> Map.get(key, [])
 
           {key, value ++ part_2}
         end)
-        |> Map.new()
 
       {:ok, segment, state}
     end
@@ -22,8 +21,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
   @spec clear_samples(map()) :: {:ok, map(), map()}
   def clear_samples(state) do
-    samples =
-      Enum.map(state.samples, fn {key, samples} -> {key, Enum.reverse(samples)} end) |> Map.new()
+    samples = Map.new(state.samples, fn {key, samples} -> {key, Enum.reverse(samples)} end)
 
     {:ok, samples, %{state | samples: %{}}}
   end
@@ -34,13 +32,12 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
       Map.update!(
         st,
         :samples,
-        &Map.new(Enum.map(&1, fn {key, sample} -> {key, Enum.reverse(sample)} end))
+        &Map.new(&1, fn {key, sample} -> {key, Enum.reverse(sample)} end)
       )
     end
 
     with {:ok, segment, state} <- get_to_next_keyframe(reverse_samples.(state)) do
-      segment =
-        Enum.map(segment, fn {key, sample} -> {key, Enum.reverse(sample)} end) |> Map.new()
+      segment = Map.new(segment, fn {key, sample} -> {key, Enum.reverse(sample)} end)
 
       {:ok, segment, reverse_samples.(state)}
     end
@@ -61,10 +58,9 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
         end)
 
       segment =
-        Enum.map(partial_segments, fn {:ok, {track, segment, _leftover}} ->
+        Map.new(partial_segments, fn {:ok, {track, segment, _leftover}} ->
           {track, Enum.reverse(segment)}
         end)
-        |> Enum.into(%{})
 
       {:ok, segment, state}
     end
