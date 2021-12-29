@@ -36,8 +36,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> Map.from_struct()
       |> Map.merge(%{
         seq_num: 0,
-        old_input_caps: nil,
-        new_output_caps: nil,
+        awaiting_caps: nil,
         pad_to_track: %{},
         next_track_id: 1,
         pad_to_end_timestamp: %{},
@@ -75,10 +74,29 @@ defmodule Membrane.MP4.Muxer.CMAF do
         |> update_in([:samples, pad], &[prev_sample | &1])
       end
 
-    case Segment.Helper.get_segment(state) do
+    state =
+      case state.awaiting_caps do
+        {{:update_with_next, ^pad}, caps} ->
+          duration = state.duration_resolution_queue[pad].dts - List.last(state.samples[pad]).dts
+          %{state | awaiting_caps: {duration, caps}}
+
+        _otherwise ->
+          state
+      end
+
+    {caps_action, segment} =
+      if is_nil(state.awaiting_caps) do
+        {[], Segment.Helper.get_segment(state, state.segment_duration)}
+      else
+        {duration, caps} = state.awaiting_caps
+        {[caps: {:output, caps}], Segment.Helper.get_discontinuity_segment(state, duration)}
+      end
+
+    case segment do
       {:ok, segment, state} ->
         {buffer, state} = generate_segment(segment, ctx, state)
-        {{:ok, buffer: {:output, buffer}, redemand: :output}, state}
+        actions = [buffer: {:output, buffer}] ++ caps_action ++ [redemand: :output]
+        {{:ok, actions}, state}
 
       {:error, :not_enough_data} ->
         {{:ok, redemand: :output}, state}
@@ -123,24 +141,18 @@ defmodule Membrane.MP4.Muxer.CMAF do
       end)
 
     if Map.drop(ctx.pads, [:output, pad]) |> Map.values() |> Enum.all?(&(&1.caps != nil)) do
-      header =
-        state.pad_to_track
-        |> Map.values()
-        |> Header.serialize()
+      caps = generate_caps(state)
 
-      caps_content_type =
-        case caps.content do
-          %AVC1{} -> :video
-          %AAC{} -> :audio
-        end
+      cond do
+        is_nil(ctx.pads.output.caps) ->
+          {{:ok, caps: {:output, caps}}, state}
 
-      caps = %Membrane.CMAF.Track{
-        content_type:
-          if(Enum.count(state.pad_to_track) > 1, do: :muxed_av_stream, else: caps_content_type),
-        header: header
-      }
+        caps != ctx.pads.output.caps ->
+          {:ok, %{state | awaiting_caps: {{:update_with_next, pad}, caps}}}
 
-      {{:ok, caps: {:output, caps}}, state}
+        true ->
+          {:ok, state}
+      end
     else
       {:ok, state}
     end
@@ -172,6 +184,24 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
       {{:ok, redemand: :output}, state}
     end
+  end
+
+  defp generate_caps(state) do
+    tracks = Map.values(state.pad_to_track)
+
+    header = Header.serialize(tracks)
+
+    content_type =
+      cond do
+        length(tracks) > 1 -> :multiplex
+        match?(%AAC{}, hd(tracks).content) -> :audio
+        match?(%AVC1{}, hd(tracks).content) -> :video
+      end
+
+    %Membrane.CMAF.Track{
+      content_type: content_type,
+      header: header
+    }
   end
 
   defp generate_segment(acc, ctx, state) do

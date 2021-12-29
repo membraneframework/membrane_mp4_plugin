@@ -2,9 +2,9 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   @moduledoc false
   use Bunch
 
-  @spec get_segment(map()) :: {:ok, map(), map()} | {:error, :not_enough_data}
-  def get_segment(state) do
-    with {:ok, segment_part_1, state} <- get_to_duration(state, state.segment_duration),
+  @spec get_segment(map(), non_neg_integer()) :: {:ok, map(), map()} | {:error, :not_enough_data}
+  def get_segment(state, duration) do
+    with {:ok, segment_part_1, state} <- get_to_duration(state, duration),
          {:ok, segment_part_2, state} <- get_to_next_keyframe(state) do
       segment =
         Map.new(segment_part_1, fn {key, value} ->
@@ -26,20 +26,11 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     {:ok, samples, %{state | samples: %{}}}
   end
 
-  @spec get_discontinuity_segment(map) :: {:error, :not_enough_data} | {:ok, map, map}
-  def get_discontinuity_segment(state) do
-    reverse_samples = fn st ->
-      Map.update!(
-        st,
-        :samples,
-        &Map.new(&1, fn {key, sample} -> {key, Enum.reverse(sample)} end)
-      )
-    end
-
-    with {:ok, segment, state} <- get_to_next_keyframe(reverse_samples.(state)) do
-      segment = Map.new(segment, fn {key, sample} -> {key, Enum.reverse(sample)} end)
-
-      {:ok, segment, reverse_samples.(state)}
+  @spec get_discontinuity_segment(map(), non_neg_integer()) ::
+          {:error, :not_enough_data} | {:ok, map, map}
+  def get_discontinuity_segment(state, duration) do
+    with {:ok, segment, state} <- get_segment(state, duration) do
+      {:ok, segment, %{state | awaiting_caps: nil}}
     end
   end
 
