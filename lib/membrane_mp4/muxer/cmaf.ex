@@ -42,7 +42,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
         pad_to_end_timestamp: %{},
         samples: %{},
         duration_resolution_queue: %{},
-        elapsed_time: 0
+        elapsed_time: %{}
       })
 
     {:ok, state}
@@ -111,6 +111,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     |> put_in([:pad_to_end_timestamp, pad], 0)
     |> put_in([:pad_to_track, pad], track_id)
     |> put_in([:samples, pad], [])
+    |> put_in([:elapsed_time, pad], 0)
     |> then(&{:ok, &1})
   end
 
@@ -236,9 +237,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
           |> Helper.timescalify(timescale)
 
         %{
+          pad: track,
           id: state.pad_to_track[track].id,
           sequence_number: state.seq_num,
-          elapsed_time: Helper.timescalify(state.elapsed_time, timescale) |> Ratio.trunc(),
+          elapsed_time: Helper.timescalify(state.elapsed_time[track], timescale) |> Ratio.trunc(),
           duration: duration,
           timescale: timescale,
           samples_table: samples_table,
@@ -252,15 +254,30 @@ defmodule Membrane.MP4.Muxer.CMAF do
       acc
       |> Map.values()
       |> Enum.map(&(Enum.map(&1, fn s -> Ratio.to_float(s.metadata.duration) end) |> Enum.sum()))
-      |> Enum.min()
+      |> Enum.max()
       |> floor()
 
     buffer = %Buffer{payload: payload, metadata: %{duration: duration}}
 
     state =
-      state
-      |> Map.update!(:elapsed_time, &(&1 + duration))
+      Enum.reduce(tracks_data, state, fn %{duration: duration, pad: pad, timescale: timescale},
+                                         state ->
+        update_in(
+          state,
+          [:elapsed_time, pad],
+          &(&1 + duration * Membrane.Time.second() / timescale)
+        )
+      end)
       |> Map.update!(:seq_num, &(&1 + 1))
+
+    state.elapsed_time
+    |> Map.map(fn {_key, value} -> Ratio.to_float(value) end)
+
+    tracks_data
+    |> Enum.map(fn %{duration: duration, timescale: timescale} ->
+      duration * Membrane.Time.second() / timescale
+    end)
+    |> Enum.map(&Ratio.to_float/1)
 
     {buffer, state}
   end

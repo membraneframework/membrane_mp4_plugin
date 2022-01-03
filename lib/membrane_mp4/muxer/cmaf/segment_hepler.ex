@@ -72,26 +72,29 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end
   end
 
-  defp get_to_next_keyframe(state) do
+  defp get_to_next_keyframe(state, last_target_pad \\ nil) do
     use Ratio, comparison: true
 
+    {target_pad, _samples} =
+      Enum.min_by(state.samples, fn {_track, samples} ->
+        case List.last(samples) do
+          nil -> :infinity
+          sample -> Ratio.to_float(sample.dts + sample.metadata.duration)
+        end
+      end)
+
     cond do
-      Enum.all?(state.samples, fn {_track, samples} -> starts_with_keyframe?(samples) end) ->
+      (target_pad != last_target_pad or Map.keys(state.samples) == [last_target_pad]) and
+          Enum.all?(state.samples, fn {_track, samples} -> starts_with_keyframe?(samples) end) ->
         {:ok, %{}, state}
 
       Enum.any?(state.samples, fn {_track, samples} -> samples == [] end) ->
         {:error, :not_enough_data}
 
       true ->
-        {target_pad, _samples} =
-          Enum.min_by(state.samples, fn {_track, samples} ->
-            sample = List.last(samples)
-            Ratio.to_float(sample.dts + sample.metadata.duration)
-          end)
-
         {sample, state} = get_and_update_in(state, [:samples, target_pad], &List.pop_at(&1, -1))
 
-        with {:ok, segment, state} <- get_to_next_keyframe(state) do
+        with {:ok, segment, state} <- get_to_next_keyframe(state, target_pad) do
           segment = Map.update(segment, target_pad, [sample], &[sample | &1])
           {:ok, segment, state}
         end

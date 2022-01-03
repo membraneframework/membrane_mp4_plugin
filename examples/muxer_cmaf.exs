@@ -1,13 +1,19 @@
-Mix.install([
-  :membrane_core,
-  {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand(), override: true},
-  :membrane_h264_ffmpeg_plugin,
-  :membrane_aac_plugin,
-  :membrane_file_plugin,
-  :membrane_http_adaptive_stream_plugin,
-  {:membrane_aac_format, "~> 0.6.0", override: true},
-  {:membrane_cmaf_format, "~> 0.4.0", override: true}
-])
+Mix.install(
+  [
+    :membrane_core,
+    {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand(), override: true},
+    :membrane_h264_ffmpeg_plugin,
+    {:membrane_aac_plugin, "~> 0.11.1"},
+    :membrane_file_plugin,
+    :membrane_hackney_plugin,
+    {:membrane_http_adaptive_stream_plugin,
+     path: __DIR__ |> Path.join("../../membrane_http_adaptive_stream_plugin") |> Path.expand(),
+     override: true},
+    {:membrane_aac_format, "~> 0.6.0", override: true},
+    {:membrane_cmaf_format, "~> 0.4.0", override: true}
+  ],
+  override: true
+)
 
 defmodule Example do
   use Membrane.Pipeline
@@ -15,15 +21,23 @@ defmodule Example do
   @impl true
   def handle_init(_options) do
     children = [
-      video_source: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
+      video_source: %Membrane.Hackney.Source{
+        location:
+          "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/big-buck-bunny/bun33s_720x480.h264",
+        hackney_opts: [follow_redirect: true]
+      },
       video_parser: %Membrane.H264.FFmpeg.Parser{
-        framerate: {30, 1},
+        framerate: {25, 1},
         alignment: :au,
         attach_nalus?: true
       },
       video_payloader: Membrane.MP4.Payloader.H264,
-      audio_source: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
-      audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
+      audio_source: %Membrane.Hackney.Source{
+        location:
+          "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/big-buck-bunny/bun33s.aac",
+        hackney_opts: [follow_redirect: true]
+      },
+      audio_parser: %Membrane.AAC.Parser{in_encapsulation: :ADTS, out_encapsulation: :none},
       audio_payloader: Membrane.MP4.Payloader.AAC,
       muxer: %Membrane.MP4.Muxer.CMAF{segment_duration: 2 |> Membrane.Time.seconds()},
       file_sink: %Membrane.HTTPAdaptiveStream.Sink{
