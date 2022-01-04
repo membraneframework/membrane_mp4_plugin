@@ -4,14 +4,11 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
   @spec get_segment(map(), non_neg_integer()) :: {:ok, map(), map()} | {:error, :not_enough_data}
   def get_segment(state, duration) do
-    with {:ok, segment_part_1, state} <- get_to_duration(state, duration),
-         {:ok, segment_part_2, state} <- get_to_next_keyframe(state) do
+    with {:ok, segment_part_1, state} <- collect_duration(state, duration),
+         {:ok, segment_part_2, state} <- collect_until_keyframes(state) do
       segment =
         Map.new(segment_part_1, fn {key, value} ->
-          part_2 =
-            segment_part_2
-            |> Map.get(key, [])
-
+          part_2 = Map.get(segment_part_2, key, [])
           {key, value ++ part_2}
         end)
 
@@ -19,8 +16,8 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end
   end
 
-  @spec clear_samples(map()) :: {:ok, map(), map()}
-  def clear_samples(state) do
+  @spec take_all_samples(map()) :: {:ok, map(), map()}
+  def take_all_samples(state) do
     samples = Map.new(state.samples, fn {key, samples} -> {key, Enum.reverse(samples)} end)
 
     {:ok, samples, %{state | samples: %{}}}
@@ -34,10 +31,18 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end
   end
 
-  defp get_to_duration(state, target_duration) do
+  defp collect_duration(state, target_duration) do
+    use Ratio
+
+    end_timestamp =
+      Enum.map(state.pad_to_track, fn {_key, track_data} ->
+        Ratio.to_float(track_data.elapsed_time + target_duration)
+      end)
+      |> Enum.max()
+
     partial_segments =
       for {track, samples} <- state.samples do
-        single_track_take_duration(track, samples, target_duration)
+        collect_from_track_to_timestamp(track, samples, end_timestamp)
       end
 
     if Enum.any?(partial_segments, &(&1 == {:error, :not_enough_data})) do
@@ -57,12 +62,12 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end
   end
 
-  defp single_track_take_duration(_track, [], _target_duration), do: {:error, :not_enough_data}
+  defp collect_from_track_to_timestamp(_track, [], _target_duration),
+    do: {:error, :not_enough_data}
 
-  defp single_track_take_duration(track, samples, target_duration) do
+  defp collect_from_track_to_timestamp(track, samples, desired_end) do
     use Ratio, comparison: true
 
-    desired_end = List.last(samples).dts + target_duration
     {leftover, segment} = Enum.split_while(samples, &(&1.dts > desired_end))
 
     if hd(segment).dts + hd(segment).metadata.duration >= desired_end do
@@ -72,7 +77,11 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end
   end
 
-  defp get_to_next_keyframe(state, last_target_pad \\ nil) do
+  # Finds the next keyframe that is in the same place on all pads. This would be significantly more readable in iterative form, but here we go:
+  # 1. Check if all tracks begin with keyframe. If that is the case, algorithm finishes
+  # 2. Select the track with the smallest dts at the beginning. Buffer exactly one sample until it doesn't have the smallest dts.
+  # 3. Go to step 1
+  defp collect_until_keyframes(state, last_target_pad \\ nil) do
     use Ratio, comparison: true
 
     {target_pad, _samples} =
@@ -94,7 +103,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
       true ->
         {sample, state} = get_and_update_in(state, [:samples, target_pad], &List.pop_at(&1, -1))
 
-        with {:ok, segment, state} <- get_to_next_keyframe(state, target_pad) do
+        with {:ok, segment, state} <- collect_until_keyframes(state, target_pad) do
           segment = Map.update(segment, target_pad, [sample], &[sample | &1])
           {:ok, segment, state}
         end

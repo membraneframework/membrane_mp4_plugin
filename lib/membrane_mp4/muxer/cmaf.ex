@@ -39,10 +39,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
         awaiting_caps: nil,
         pad_to_track: %{},
         next_track_id: 1,
-        # end_timestamp: %{},
         samples: %{}
-        # duration_resolution_queue: %{},
-        # elapsed_time: %{}
       })
 
     {:ok, state}
@@ -152,7 +149,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
        |> Map.drop([:output, pad])
        |> Map.values()
        |> Enum.all?(& &1.end_of_stream?) do
-      with {:ok, segment, state} <- Segment.Helper.clear_samples(state) do
+      with {:ok, segment, state} <- Segment.Helper.take_all_samples(state) do
         {buffer, state} = generate_segment(segment, ctx, state)
         {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
       else
@@ -228,14 +225,17 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     payload = Segment.serialize(tracks_data)
 
+    # Duration of the tracks will never be exactly the same. To minimize the error and avoid its propagation with time,
+    # duration of the segment is assumed to be the average of tracks' durations.
     duration =
       tracks_data
-      |> Enum.map(& &1.unscaled_duration)
-      |> Enum.max()
+      |> Enum.map(&Ratio.to_float(&1.unscaled_duration))
+      |> then(&(Enum.sum(&1) / length(&1)))
       |> floor()
 
     buffer = %Buffer{payload: payload, metadata: %{duration: duration}}
 
+    # Update elapsed time counters for each track
     state =
       Enum.reduce(tracks_data, state, fn %{unscaled_duration: duration, pad: pad}, state ->
         update_in(state, [:pad_to_track, pad, :elapsed_time], &(&1 + duration))
@@ -260,6 +260,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       non_sync::1, degradation_priority::16>>
   end
 
+  # Update the duration of the awaiting sample and insert the current sample into the queue
   defp process_duration_queue(state, pad, sample) do
     use Ratio
 
@@ -278,6 +279,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
+  # It is not possible to determine the duration of the segment that is connected with discontinuity before receiving the next sample.
+  # This function acts to update the information about the duration of the discontinuity segment that needs to be produced
   defp update_awaiting_caps(%{awaiting_caps: {{:update_with_next, pad}, caps}} = state, pad) do
     use Ratio
 
