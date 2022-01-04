@@ -4,7 +4,7 @@ Mix.install([
   :membrane_hackney_plugin,
   :membrane_h264_ffmpeg_plugin,
   :membrane_aac_plugin,
-  :membrane_file_plugin
+  {:membrane_file_plugin, github: "membraneframework/membrane_file_plugin"}
 ])
 
 defmodule Example do
