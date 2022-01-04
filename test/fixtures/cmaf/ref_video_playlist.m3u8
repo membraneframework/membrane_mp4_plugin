@@ -3,9 +3,9 @@
 #EXT-X-TARGETDURATION:9
 #EXT-X-MEDIA-SEQUENCE:0
 #EXT-X-DISCONTINUITY-SEQUENCE:0
-#EXT-X-MAP:URI="out_video_header.mp4"
+#EXT-X-MAP:URI="ref_video_header.mp4"
 #EXTINF:8.333333333,
-out_video_segment1.m4s
+ref_video_segment1.m4s
 #EXTINF:1.633333333,
-out_video_segment2.m4s
+ref_video_segment2.m4s
 #EXT-X-ENDLIST

@@ -23,12 +23,12 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_pipeline_playback_changed(pipeline, _, :playing)
 
     assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{header: header, content_type: :video})
-    assert_mp4_equal(header, "out_video_header.mp4")
+    assert_mp4_equal(header, "ref_video_header.mp4")
 
     1..2
     |> Enum.map(fn i ->
       assert_sink_buffer(pipeline, :sink, buffer)
-      assert_mp4_equal(buffer.payload, "out_video_segment#{i}.m4s")
+      assert_mp4_equal(buffer.payload, "ref_video_segment#{i}.m4s")
     end)
 
     assert_end_of_stream(pipeline, :sink)
@@ -52,12 +52,12 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_pipeline_playback_changed(pipeline, _, :playing)
 
     assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{header: header, content_type: :audio})
-    assert_mp4_equal(header, "out_audio_header.mp4")
+    assert_mp4_equal(header, "ref_audio_header.mp4")
 
     1..5
     |> Enum.map(fn i ->
       assert_sink_buffer(pipeline, :sink, buffer)
-      assert_mp4_equal(buffer.payload, "out_audio_segment#{i}.m4s")
+      assert_mp4_equal(buffer.payload, "ref_audio_segment#{i}.m4s")
     end)
 
     assert_end_of_stream(pipeline, :sink)

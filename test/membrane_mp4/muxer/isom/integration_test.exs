@@ -1,158 +1,155 @@
 defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
   use ExUnit.Case, async: true
   import Membrane.Testing.Assertions
-  alias Membrane.{Testing, Time}
-  alias Membrane.MP4.Container
+  alias Membrane.Time
+  alias Membrane.Testing.Pipeline
 
   # Fixtures used in muxer tests below were generated with `chunk_duration` option set to `Membrane.Time.seconds(1)`.
 
-  test "video" do
-    children = [
-      file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
-      parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
-      payloader: Membrane.MP4.Payloader.H264,
-      muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)},
-      sink: Membrane.Testing.Sink
-    ]
-
-    assert {:ok, pipeline} =
-             Testing.Pipeline.start_link(%Testing.Pipeline.Options{elements: children})
-
-    assert_pipeline_output_matches_fixture(pipeline, "out_video.mp4")
+  defp assert_files_equal(file_a, file_b) do
+    assert {:ok, a} = File.read(file_a)
+    assert {:ok, b} = File.read(file_b)
+    assert a == b
   end
 
-  test "audio" do
-    children = [
-      file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
-      parser: %Membrane.AAC.Parser{out_encapsulation: :none},
-      payloader: Membrane.MP4.Payloader.AAC,
-      muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)},
-      sink: Membrane.Testing.Sink
-    ]
+  defp out_path_for(filename), do: "/tmp/out_#{filename}.mp4"
+  defp ref_path_for(filename), do: "test/fixtures/isom/ref_#{filename}.mp4"
 
-    assert {:ok, pipeline} =
-             Testing.Pipeline.start_link(%Testing.Pipeline.Options{elements: children})
+  defp perform_test(pid, filename) do
+    out_path = out_path_for(filename)
+    ref_path = ref_path_for(filename)
 
-    assert_pipeline_output_matches_fixture(pipeline, "out_audio.mp4")
+    File.rm(out_path)
+    on_exit(fn -> File.rm(out_path) end)
+
+    assert Pipeline.play(pid) == :ok
+    assert_end_of_stream(pid, :sink, :input)
+    refute_sink_buffer(pid, :sink, _, 0)
+
+    assert :ok == Pipeline.stop_and_terminate(pid, blocking?: true)
+
+    assert_files_equal(out_path, ref_path)
   end
 
-  test "two tracks" do
-    children = [
-      video_file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
-      video_parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
-      video_payloader: Membrane.MP4.Payloader.H264,
-      audio_file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
-      audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
-      audio_payloader: Membrane.MP4.Payloader.AAC,
-      muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)},
-      sink: Membrane.Testing.Sink
-    ]
+  describe "Muxer.ISOM should mux" do
+    test "single H264 track" do
+      children = [
+        file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
+        parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
+        payloader: Membrane.MP4.Payloader.H264,
+        muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)},
+        sink: %Membrane.File.Sink{location: out_path_for("video")}
+      ]
 
-    import Membrane.ParentSpec
+      assert {:ok, pid} = Pipeline.start_link(%Pipeline.Options{elements: children})
 
-    links = [
-      link(:video_file)
-      |> to(:video_parser)
-      |> to(:video_payloader)
-      |> to(:muxer),
-      link(:audio_file)
-      |> to(:audio_parser)
-      |> to(:audio_payloader)
-      |> to(:muxer),
-      link(:muxer) |> to(:sink)
-    ]
+      perform_test(pid, "video")
+    end
 
-    assert {:ok, pipeline} =
-             Testing.Pipeline.start_link(%Testing.Pipeline.Options{
-               elements: children,
-               links: links
-             })
+    test "single AAC track" do
+      children = [
+        file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
+        parser: %Membrane.AAC.Parser{out_encapsulation: :none},
+        payloader: Membrane.MP4.Payloader.AAC,
+        muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)},
+        sink: %Membrane.File.Sink{location: out_path_for("audio")}
+      ]
 
-    assert_pipeline_output_matches_fixture(pipeline, "out_two_tracks.mp4")
+      assert {:ok, pid} = Pipeline.start_link(%Pipeline.Options{elements: children})
+
+      perform_test(pid, "audio")
+    end
+
+    test "two tracks" do
+      children = [
+        video_file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
+        video_parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
+        video_payloader: Membrane.MP4.Payloader.H264,
+        audio_file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
+        audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
+        audio_payloader: Membrane.MP4.Payloader.AAC,
+        muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)},
+        sink: %Membrane.File.Sink{location: out_path_for("two_tracks")}
+      ]
+
+      import Membrane.ParentSpec
+
+      links = [
+        link(:video_file)
+        |> to(:video_parser)
+        |> to(:video_payloader)
+        |> to(:muxer),
+        link(:audio_file)
+        |> to(:audio_parser)
+        |> to(:audio_payloader)
+        |> to(:muxer),
+        link(:muxer) |> to(:sink)
+      ]
+
+      assert {:ok, pid} = Pipeline.start_link(%Pipeline.Options{elements: children, links: links})
+
+      perform_test(pid, "two_tracks")
+    end
   end
 
-  test "video fast_start" do
-    children = [
-      file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
-      parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
-      payloader: Membrane.MP4.Payloader.H264,
-      muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true},
-      sink: Membrane.Testing.Sink
-    ]
+  describe "Muxer.ISOM with fast_start enabled should mux" do
+    test "single H264 track" do
+      children = [
+        file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
+        parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
+        payloader: Membrane.MP4.Payloader.H264,
+        muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true},
+        sink: %Membrane.File.Sink{location: out_path_for("video_fast_start")}
+      ]
 
-    assert {:ok, pipeline} =
-             Testing.Pipeline.start_link(%Testing.Pipeline.Options{elements: children})
+      assert {:ok, pid} = Pipeline.start_link(%Pipeline.Options{elements: children})
 
-    assert_pipeline_output_matches_fixture(pipeline, "out_video_fast_start.mp4")
-  end
+      perform_test(pid, "video_fast_start")
+    end
 
-  test "audio fast_start" do
-    children = [
-      file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
-      parser: %Membrane.AAC.Parser{out_encapsulation: :none},
-      payloader: Membrane.MP4.Payloader.AAC,
-      muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true},
-      sink: Membrane.Testing.Sink
-    ]
+    test "single AAC track" do
+      children = [
+        file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
+        parser: %Membrane.AAC.Parser{out_encapsulation: :none},
+        payloader: Membrane.MP4.Payloader.AAC,
+        muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true},
+        sink: %Membrane.File.Sink{location: out_path_for("audio_fast_start")}
+      ]
 
-    assert {:ok, pipeline} =
-             Testing.Pipeline.start_link(%Testing.Pipeline.Options{elements: children})
+      assert {:ok, pid} = Pipeline.start_link(%Pipeline.Options{elements: children})
 
-    assert_pipeline_output_matches_fixture(pipeline, "out_audio_fast_start.mp4")
-  end
+      perform_test(pid, "audio_fast_start")
+    end
 
-  test "two tracks fast_start" do
-    children = [
-      video_file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
-      video_parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
-      video_payloader: Membrane.MP4.Payloader.H264,
-      audio_file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
-      audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
-      audio_payloader: Membrane.MP4.Payloader.AAC,
-      muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true},
-      sink: Membrane.Testing.Sink
-    ]
+    test "two tracks" do
+      children = [
+        video_file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
+        video_parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
+        video_payloader: Membrane.MP4.Payloader.H264,
+        audio_file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
+        audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
+        audio_payloader: Membrane.MP4.Payloader.AAC,
+        muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true},
+        sink: %Membrane.File.Sink{location: out_path_for("two_tracks_fast_start")}
+      ]
 
-    import Membrane.ParentSpec
+      import Membrane.ParentSpec
 
-    links = [
-      link(:video_file)
-      |> to(:video_parser)
-      |> to(:video_payloader)
-      |> to(:muxer),
-      link(:audio_file)
-      |> to(:audio_parser)
-      |> to(:audio_payloader)
-      |> to(:muxer),
-      link(:muxer) |> to(:sink)
-    ]
+      links = [
+        link(:video_file)
+        |> to(:video_parser)
+        |> to(:video_payloader)
+        |> to(:muxer),
+        link(:audio_file)
+        |> to(:audio_parser)
+        |> to(:audio_payloader)
+        |> to(:muxer),
+        link(:muxer) |> to(:sink)
+      ]
 
-    assert {:ok, pipeline} =
-             Testing.Pipeline.start_link(%Testing.Pipeline.Options{
-               elements: children,
-               links: links
-             })
+      assert {:ok, pid} = Pipeline.start_link(%Pipeline.Options{elements: children, links: links})
 
-    :ok = Testing.Pipeline.play(pipeline)
-
-    assert_pipeline_output_matches_fixture(pipeline, "out_two_tracks_fast_start.mp4")
-  end
-
-  defp assert_pipeline_output_matches_fixture(pipeline, fixture_path) do
-    :ok = Testing.Pipeline.play(pipeline)
-    assert_pipeline_playback_changed(pipeline, _, :playing)
-
-    assert_sink_buffer(pipeline, :sink, %Membrane.Buffer{payload: mp4})
-    assert_mp4_equal(mp4, fixture_path)
-
-    assert_end_of_stream(pipeline, :sink)
-
-    :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
-  end
-
-  defp assert_mp4_equal(output, ref_file) do
-    ref_output = File.read!(Path.join("test/fixtures/isom", ref_file))
-    assert {ref_file, Container.parse!(output)} == {ref_file, Container.parse!(ref_output)}
-    assert {ref_file, output} == {ref_file, ref_output}
+      perform_test(pid, "two_tracks_fast_start")
+    end
   end
 end
