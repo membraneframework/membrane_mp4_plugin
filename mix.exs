@@ -49,7 +49,7 @@ defmodule Membrane.MP4.Plugin.MixProject do
   defp package do
     [
       maintainers: ["Membrane Team"],
-      licenses: ["Apache 2.0"],
+      licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @github_url,
         "Membrane Framework Homepage" => "https://membraneframework.org"
@@ -64,7 +64,8 @@ defmodule Membrane.MP4.Plugin.MixProject do
       {:membrane_cmaf_format, "~> 0.5.0"},
       {:membrane_aac_format, "~> 0.6.0"},
       {:membrane_h264_format, "~> 0.3"},
-      {:membrane_file_plugin, github: "membraneframework/membrane_file_plugin"},
+      {:membrane_file_plugin,
+       github: "membraneframework/membrane_file_plugin", branch: "fix-mockery-dependency"},
       {:membrane_h264_ffmpeg_plugin, "~> 0.16.1", only: :test},
       {:membrane_aac_plugin, "~> 0.11.0", only: :test},
       {:ex_doc, "~> 0.26", only: :dev, runtime: false},
