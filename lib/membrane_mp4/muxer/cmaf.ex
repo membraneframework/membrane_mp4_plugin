@@ -39,10 +39,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
         awaiting_caps: nil,
         pad_to_track: %{},
         next_track_id: 1,
-        pad_to_end_timestamp: %{},
-        samples: %{},
-        duration_resolution_queue: %{},
-        elapsed_time: %{}
+        # end_timestamp: %{},
+        samples: %{}
+        # duration_resolution_queue: %{},
+        # elapsed_time: %{}
       })
 
     {:ok, state}
@@ -51,7 +51,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
   @impl true
   def handle_demand(:output, _size, _unit, _ctx, state) do
     {pad, _elapsed_time} =
-      Enum.min_by(state.pad_to_end_timestamp, &Ratio.to_float(Bunch.value(&1)))
+      state.pad_to_track
+      |> Stream.map(fn {key, value} -> {key, value.end_timestamp} end)
+      |> Stream.reject(&is_nil(Bunch.value(&1)))
+      |> Enum.min_by(&Ratio.to_float(Bunch.value(&1)))
 
     {{:ok, demand: {pad, 1}}, state}
   end
@@ -61,28 +64,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
     use Ratio, comparison: true
 
     state =
-      if is_nil(state.duration_resolution_queue[pad]) do
-        put_in(state, [:duration_resolution_queue, pad], sample)
-      else
-        prev_sample = state.duration_resolution_queue[pad]
-        duration = Ratio.to_float(sample.dts - prev_sample.dts)
-        prev_sample_metadata = Map.put(prev_sample.metadata, :duration, duration)
-        prev_sample = %Buffer{prev_sample | metadata: prev_sample_metadata}
-
-        put_in(state, [:pad_to_end_timestamp, pad], prev_sample.dts)
-        |> put_in([:duration_resolution_queue, pad], sample)
-        |> update_in([:samples, pad], &[prev_sample | &1])
-      end
-
-    state =
-      case state.awaiting_caps do
-        {{:update_with_next, ^pad}, caps} ->
-          duration = state.duration_resolution_queue[pad].dts - List.last(state.samples[pad]).dts
-          %{state | awaiting_caps: {duration, caps}}
-
-        _otherwise ->
-          state
-      end
+      state
+      |> process_duration_queue(pad, sample)
+      |> update_awaiting_caps(pad)
 
     {caps_action, segment} =
       if is_nil(state.awaiting_caps) do
@@ -107,38 +91,32 @@ defmodule Membrane.MP4.Muxer.CMAF do
   def handle_pad_added(Pad.ref(:input, _id) = pad, _ctx, state) do
     {track_id, state} = Map.get_and_update!(state, :next_track_id, &{&1, &1 + 1})
 
+    track_data = %{
+      id: track_id,
+      track: nil,
+      elapsed_time: 0,
+      end_timestamp: 0,
+      duration_resolution_queue: nil
+    }
+
     state
-    |> put_in([:pad_to_end_timestamp, pad], 0)
-    |> put_in([:pad_to_track, pad], track_id)
+    |> put_in([:pad_to_track, pad], track_data)
     |> put_in([:samples, pad], [])
-    |> put_in([:elapsed_time, pad], 0)
     |> then(&{:ok, &1})
   end
-
-  @impl true
-  def handle_pad_removed(Pad.ref(:input, _id) = pad, _ctx, state),
-    do:
-      state
-      |> Map.update!(:pad_to_track, &Map.delete(&1, pad))
-      |> Map.update!(:pad_to_end_timestamp, &Map.delete(&1, pad))
-      |> Map.update!(:samples, &Map.delete(&1, pad))
-      |> then(&{:ok, &1})
 
   @impl true
   def handle_caps(pad, %Membrane.MP4.Payload{} = caps, ctx, state) do
     state =
       update_in(state, [:pad_to_track, pad], fn tr ->
-        track_id =
-          case tr do
-            %Track{} -> tr.id
-            _otherwise -> tr
-          end
+        track =
+          caps
+          |> Map.from_struct()
+          |> Map.take([:width, :height, :content, :timescale])
+          |> Map.put(:id, tr.id)
+          |> Track.new()
 
-        caps
-        |> Map.from_struct()
-        |> Map.take([:width, :height, :content, :timescale])
-        |> Map.put(:id, track_id)
-        |> Track.new()
+        %{tr | track: track}
       end)
 
     if Map.drop(ctx.pads, [:output, pad]) |> Map.values() |> Enum.all?(&(&1.caps != nil)) do
@@ -161,7 +139,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   @impl true
   def handle_end_of_stream(Pad.ref(:input, _track_id) = pad, ctx, state) do
-    sample = state.duration_resolution_queue[pad]
+    sample = state.pad_to_track[pad].duration_resolution_queue
 
     sample_metadata =
       Map.put(sample.metadata, :duration, hd(state.samples[pad]).metadata.duration)
@@ -171,9 +149,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
     state = update_in(state, [:samples, pad], &[sample | &1])
 
     if ctx.pads
-       |> Map.delete(pad)
+       |> Map.drop([:output, pad])
        |> Map.values()
-       |> Enum.all?(&(&1.direction == :output or &1.end_of_stream?)) do
+       |> Enum.all?(& &1.end_of_stream?) do
       with {:ok, segment, state} <- Segment.Helper.clear_samples(state) do
         {buffer, state} = generate_segment(segment, ctx, state)
         {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
@@ -181,14 +159,14 @@ defmodule Membrane.MP4.Muxer.CMAF do
         {:error, :not_enough_data} -> {{:ok, end_of_stream: :output}, state}
       end
     else
-      state = Map.update!(state, :pad_to_end_timestamp, &Map.delete(&1, pad))
+      state = put_in(state, [:pad_to_track, pad, :end_timestamp], nil)
 
       {{:ok, redemand: :output}, state}
     end
   end
 
   defp generate_caps(state) do
-    tracks = Map.values(state.pad_to_track)
+    tracks = Enum.map(state.pad_to_track, fn {_pad, track_data} -> track_data.track end)
 
     header = Header.serialize(tracks)
 
@@ -209,8 +187,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
     use Ratio, comparison: true
 
     tracks_data =
-      Enum.map(acc, fn {track, samples} ->
-        %{timescale: timescale} = ctx.pads[track].caps
+      Enum.map(acc, fn {pad, samples} ->
+        %{timescale: timescale} = ctx.pads[pad].caps
         first_sample = hd(samples)
         last_sample = List.last(samples)
         samples = Enum.to_list(samples)
@@ -232,16 +210,16 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
         samples_data = Enum.map_join(samples, & &1.payload)
 
-        duration =
-          (last_sample.dts - first_sample.dts + last_sample.metadata.duration)
-          |> Helper.timescalify(timescale)
+        duration = last_sample.dts - first_sample.dts + last_sample.metadata.duration
 
         %{
-          pad: track,
-          id: state.pad_to_track[track].id,
+          pad: pad,
+          id: state.pad_to_track[pad].id,
           sequence_number: state.seq_num,
-          elapsed_time: Helper.timescalify(state.elapsed_time[track], timescale) |> Ratio.trunc(),
-          duration: duration,
+          elapsed_time:
+            Helper.timescalify(state.pad_to_track[pad].elapsed_time, timescale) |> Ratio.trunc(),
+          unscaled_duration: duration,
+          duration: Helper.timescalify(duration, timescale),
           timescale: timescale,
           samples_table: samples_table,
           samples_data: samples_data
@@ -251,33 +229,18 @@ defmodule Membrane.MP4.Muxer.CMAF do
     payload = Segment.serialize(tracks_data)
 
     duration =
-      acc
-      |> Map.values()
-      |> Enum.map(&(Enum.map(&1, fn s -> Ratio.to_float(s.metadata.duration) end) |> Enum.sum()))
+      tracks_data
+      |> Enum.map(& &1.unscaled_duration)
       |> Enum.max()
       |> floor()
 
     buffer = %Buffer{payload: payload, metadata: %{duration: duration}}
 
     state =
-      Enum.reduce(tracks_data, state, fn %{duration: duration, pad: pad, timescale: timescale},
-                                         state ->
-        update_in(
-          state,
-          [:elapsed_time, pad],
-          &(&1 + duration * Membrane.Time.second() / timescale)
-        )
+      Enum.reduce(tracks_data, state, fn %{unscaled_duration: duration, pad: pad}, state ->
+        update_in(state, [:pad_to_track, pad, :elapsed_time], &(&1 + duration))
       end)
       |> Map.update!(:seq_num, &(&1 + 1))
-
-    state.elapsed_time
-    |> Map.map(fn {_key, value} -> Ratio.to_float(value) end)
-
-    tracks_data
-    |> Enum.map(fn %{duration: duration, timescale: timescale} ->
-      duration * Membrane.Time.second() / timescale
-    end)
-    |> Enum.map(&Ratio.to_float/1)
 
     {buffer, state}
   end
@@ -296,4 +259,33 @@ defmodule Membrane.MP4.Muxer.CMAF do
     <<0::4, is_leading::2, depends_on::2, is_depended_on::2, has_redundancy::2, padding_value::3,
       non_sync::1, degradation_priority::16>>
   end
+
+  defp process_duration_queue(state, pad, sample) do
+    use Ratio
+
+    prev_sample = state.pad_to_track[pad].duration_resolution_queue
+
+    if is_nil(prev_sample) do
+      put_in(state, [:pad_to_track, pad, :duration_resolution_queue], sample)
+    else
+      duration = Ratio.to_float(sample.dts - prev_sample.dts)
+      prev_sample_metadata = Map.put(prev_sample.metadata, :duration, duration)
+      prev_sample = %Buffer{prev_sample | metadata: prev_sample_metadata}
+
+      put_in(state, [:pad_to_track, pad, :end_timestamp], prev_sample.dts)
+      |> put_in([:pad_to_track, pad, :duration_resolution_queue], sample)
+      |> update_in([:samples, pad], &[prev_sample | &1])
+    end
+  end
+
+  defp update_awaiting_caps(%{awaiting_caps: {{:update_with_next, pad}, caps}} = state, pad) do
+    use Ratio
+
+    duration =
+      state.pad_to_track[pad].duration_resolution_queue.dts - List.last(state.samples[pad]).dts
+
+    %{state | awaiting_caps: {duration, caps}}
+  end
+
+  defp update_awaiting_caps(state, _pad), do: state
 end

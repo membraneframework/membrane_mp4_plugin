@@ -18,12 +18,18 @@ Mix.install(
 defmodule Example do
   use Membrane.Pipeline
 
+  @output_dir "hls_output"
+  @audio "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/big-buck-bunny/bun33s.aac"
+  @video "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/big-buck-bunny/bun33s_720x480.h264"
+
   @impl true
   def handle_init(_options) do
+    File.rm_rf(@output_dir)
+    File.mkdir!(@output_dir)
+
     children = [
       video_source: %Membrane.Hackney.Source{
-        location:
-          "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/big-buck-bunny/bun33s_720x480.h264",
+        location: @video,
         hackney_opts: [follow_redirect: true]
       },
       video_parser: %Membrane.H264.FFmpeg.Parser{
@@ -33,8 +39,7 @@ defmodule Example do
       },
       video_payloader: Membrane.MP4.Payloader.H264,
       audio_source: %Membrane.Hackney.Source{
-        location:
-          "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/big-buck-bunny/bun33s.aac",
+        location: @audio,
         hackney_opts: [follow_redirect: true]
       },
       audio_parser: %Membrane.AAC.Parser{in_encapsulation: :ADTS, out_encapsulation: :none},
@@ -46,7 +51,7 @@ defmodule Example do
         target_segment_duration: 2 |> Membrane.Time.seconds(),
         persist?: true,
         storage: %Membrane.HTTPAdaptiveStream.Storages.FileStorage{
-          directory: "hls_output"
+          directory: @output_dir
         }
       }
     ]
