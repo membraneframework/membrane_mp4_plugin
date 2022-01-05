@@ -169,7 +169,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     content_type =
       cond do
-        length(tracks) > 1 -> :multiplex
+        length(tracks) > 1 -> :muxed_audio_video
         match?(%AAC{}, hd(tracks).content) -> :audio
         match?(%AVC1{}, hd(tracks).content) -> :video
       end
