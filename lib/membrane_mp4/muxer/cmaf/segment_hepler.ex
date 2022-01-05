@@ -77,41 +77,62 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end
   end
 
-  # Finds the next keyframe that is in the same place on all pads. This would be significantly more readable in iterative form, but here we go:
+  # Collects the samples until there is a keyframe on all tracks.
   # 1. Check if all tracks begin with keyframe. If that is the case, algorithm finishes
-  # 2. Select the track with the smallest dts at the beginning. Buffer exactly one sample until it doesn't have the smallest dts.
+  # 2. Select the track with the smallest dts at the beginning. Collect samples until it doesn't have the smallest dts.
   # 3. Go to step 1
-  defp collect_until_keyframes(state, last_target_pad \\ nil) do
+  defp collect_until_keyframes(state) do
+    with {:ok, segment, state} <- do_collect_until_keyframes(reverse_samples(state), nil) do
+      {:ok, segment, reverse_samples(state)}
+    end
+  end
+
+  defp do_collect_until_keyframes(state, last_target_pad) do
     use Ratio, comparison: true
 
     {target_pad, _samples} =
       Enum.min_by(state.samples, fn {_track, samples} ->
-        case List.last(samples) do
-          nil -> :infinity
-          sample -> Ratio.to_float(sample.dts + sample.metadata.duration)
+        case samples do
+          [] -> :infinity
+          [sample | _rest] -> Ratio.to_float(sample.dts + sample.metadata.duration)
         end
       end)
 
-    cond do
-      (target_pad != last_target_pad or Map.keys(state.samples) == [last_target_pad]) and
-          Enum.all?(state.samples, fn {_track, samples} -> starts_with_keyframe?(samples) end) ->
-        {:ok, %{}, state}
+    # This holds true if and only if all tracks are balanced to begin with.
+    # Therefore, this algorithm will not destroy the balance of tracks, but it is not guaranteed to restore it
+    timestamps_balanced? =
+      target_pad != last_target_pad or Map.keys(state.samples) == [target_pad]
 
+    # Map.keys(state.samples) == [target_pad] or target_pad != last_target_pad
+
+    cond do
       Enum.any?(state.samples, fn {_track, samples} -> samples == [] end) ->
         {:error, :not_enough_data}
 
-      true ->
-        {sample, state} = get_and_update_in(state, [:samples, target_pad], &List.pop_at(&1, -1))
+      timestamps_balanced? and
+          Enum.all?(state.samples, fn {_track, samples} -> starts_with_keyframe?(samples) end) ->
+        {:ok, %{}, state}
 
-        with {:ok, segment, state} <- collect_until_keyframes(state, target_pad) do
+      true ->
+        {sample, state} = get_and_update_in(state, [:samples, target_pad], &List.pop_at(&1, 0))
+
+        with {:ok, segment, state} <- do_collect_until_keyframes(state, target_pad) do
           segment = Map.update(segment, target_pad, [sample], &[sample | &1])
           {:ok, segment, state}
         end
     end
   end
 
-  defp starts_with_keyframe?(target) do
-    last = List.last(target)
-    length(target) > 0 and Map.get(last.metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
-  end
+  defp starts_with_keyframe?([]), do: false
+
+  defp starts_with_keyframe?([target | _rest]),
+    do: Map.get(target.metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
+
+  defp reverse_samples(state),
+    do:
+      Map.update!(
+        state,
+        :samples,
+        &Map.new(&1, fn {key, samples} -> {key, Enum.reverse(samples)} end)
+      )
 end
