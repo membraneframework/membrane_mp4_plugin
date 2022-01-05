@@ -225,7 +225,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     payload = Segment.serialize(tracks_data)
 
-    # Duration of the tracks will never be exactly the same. To minimize the error and avoid its propagation with time,
+    # Duration of the tracks will never be exactly the same. To minimize the error and avoid its magnification over time,
     # duration of the segment is assumed to be the average of tracks' durations.
     duration =
       tracks_data

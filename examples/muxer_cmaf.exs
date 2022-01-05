@@ -45,7 +45,7 @@ defmodule Example do
       audio_parser: %Membrane.AAC.Parser{in_encapsulation: :ADTS, out_encapsulation: :none},
       audio_payloader: Membrane.MP4.Payloader.AAC,
       muxer: %Membrane.MP4.Muxer.CMAF{segment_duration: 2 |> Membrane.Time.seconds()},
-      file_sink: %Membrane.HTTPAdaptiveStream.Sink{
+      sink: %Membrane.HTTPAdaptiveStream.Sink{
         manifest_module: Membrane.HTTPAdaptiveStream.HLS,
         target_window_duration: 30 |> Membrane.Time.seconds(),
         target_segment_duration: 2 |> Membrane.Time.seconds(),
@@ -67,14 +67,15 @@ defmodule Example do
       |> to(:audio_payloader)
       |> via_in(Pad.ref(:input, :audio))
       |> to(:muxer),
-      link(:muxer) |> to(:file_sink)
+      link(:muxer) |> to(:sink)
     ]
 
     {{:ok, spec: %ParentSpec{children: children, links: links}}, %{}}
   end
 
+  # Rest of the module is only used for self-termination of the pipeline after processing finishes
   @impl true
-  def handle_element_end_of_stream({:file_sink, _}, _ctx, state) do
+  def handle_element_end_of_stream({:sink, _}, _ctx, state) do
     Membrane.Pipeline.stop_and_terminate(self())
     {:ok, state}
   end
@@ -84,13 +85,14 @@ defmodule Example do
   end
 end
 
-ref =
-  Example.start_link()
-  |> elem(1)
-  |> tap(&Membrane.Pipeline.play/1)
-  |> then(&Process.monitor/1)
+# Start the pipeline and activate it
+{:ok, pid} = Example.start_link()
+:ok = Example.play(pid)
 
+monitor_ref = Process.monitor(pid)
+
+# Wait for the pipeline to finish
 receive do
-  {:DOWN, ^ref, :process, _pid, _reason} ->
+  {:DOWN, ^monitor_ref, :process, _pid, _reason} ->
     :ok
 end
