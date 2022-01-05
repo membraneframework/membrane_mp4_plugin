@@ -10,7 +10,7 @@ Mix.install([
    override: true},
   {:membrane_aac_format, "~> 0.6.0", override: true},
   {:membrane_cmaf_format, "~> 0.4.0", override: true}
-], force: true)
+])
 
 defmodule Example do
   use Membrane.Pipeline
