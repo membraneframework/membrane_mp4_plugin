@@ -28,6 +28,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   def_options segment_duration: [
                 type: :time,
+                spec: Membrane.Time.t(),
                 default: 2 |> Time.seconds()
               ]
 
@@ -51,7 +52,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   @impl true
   def handle_pad_added(_pad, ctx, _state) when ctx.playback_state == :playing,
-    do: raise("New tracks can only be added to CMAF Muxer before transition to state: :playing")
+    do: raise("New tracks can be added to CMAF Muxer only before transition to state: :playing")
 
   @impl true
   def handle_pad_added(Pad.ref(:input, _id) = pad, _ctx, state) do
