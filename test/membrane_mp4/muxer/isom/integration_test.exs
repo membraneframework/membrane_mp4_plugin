@@ -146,7 +146,6 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
     assert_mp4_equal(mp4, fixture_path)
 
     assert_end_of_stream(pipeline, :sink)
-    refute_sink_buffer(pipeline, :sink, _, 0)
 
     :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
   end
