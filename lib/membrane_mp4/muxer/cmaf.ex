@@ -62,7 +62,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       track: nil,
       elapsed_time: 0,
       end_timestamp: 0,
-      duration_resolution_queue: nil
+      buffer_awaiting_duration: nil
     }
 
     state
@@ -147,7 +147,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   @impl true
   def handle_end_of_stream(Pad.ref(:input, _track_id) = pad, ctx, state) do
-    sample = state.pad_to_track_data[pad].duration_resolution_queue
+    sample = state.pad_to_track_data[pad].buffer_awaiting_duration
 
     sample_metadata =
       Map.put(sample.metadata, :duration, hd(state.samples[pad]).metadata.duration)
@@ -280,17 +280,17 @@ defmodule Membrane.MP4.Muxer.CMAF do
   defp process_duration_queue(state, pad, sample) do
     use Ratio
 
-    prev_sample = state.pad_to_track_data[pad].duration_resolution_queue
+    prev_sample = state.pad_to_track_data[pad].buffer_awaiting_duration
 
     if is_nil(prev_sample) do
-      put_in(state, [:pad_to_track_data, pad, :duration_resolution_queue], sample)
+      put_in(state, [:pad_to_track_data, pad, :buffer_awaiting_duration], sample)
     else
       duration = Ratio.to_float(sample.dts - prev_sample.dts)
       prev_sample_metadata = Map.put(prev_sample.metadata, :duration, duration)
       prev_sample = %Buffer{prev_sample | metadata: prev_sample_metadata}
 
       put_in(state, [:pad_to_track_data, pad, :end_timestamp], prev_sample.dts)
-      |> put_in([:pad_to_track_data, pad, :duration_resolution_queue], sample)
+      |> put_in([:pad_to_track_data, pad, :buffer_awaiting_duration], sample)
       |> update_in([:samples, pad], &[prev_sample | &1])
     end
   end
@@ -301,7 +301,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     use Ratio
 
     duration =
-      state.pad_to_track_data[pad].duration_resolution_queue.dts -
+      state.pad_to_track_data[pad].buffer_awaiting_duration.dts -
         List.last(state.samples[pad]).dts
 
     %{state | awaiting_caps: {duration, caps}}
