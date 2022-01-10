@@ -6,9 +6,7 @@ Mix.install([
   :membrane_hackney_plugin,
   {:membrane_http_adaptive_stream_plugin,
    github: "membraneframework/membrane_http_adaptive_stream_plugin",
-   branch: "MS-20-adapt-hls-sink-to-mux-audio-and-video"},
-  {:membrane_aac_format, "~> 0.6.0", override: true},
-  {:membrane_cmaf_format, "~> 0.4.0", override: true}
+   branch: "MS-20-adapt-hls-sink-to-mux-audio-and-video"}
 ])
 
 defmodule Example do
