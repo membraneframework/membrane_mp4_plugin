@@ -7,9 +7,9 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     with {:ok, segment_part_1, state} <- collect_duration(state, duration),
          {:ok, segment_part_2, state} <- collect_until_keyframes(state) do
       segment =
-        Map.new(segment_part_1, fn {key, value} ->
-          part_2 = Map.get(segment_part_2, key, [])
-          {key, value ++ part_2}
+        Map.new(segment_part_1, fn {pad, samples} ->
+          samples_part_2 = Map.get(segment_part_2, pad, [])
+          {pad, samples ++ samples_part_2}
         end)
 
       {:ok, segment, state}
@@ -31,6 +31,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end
   end
 
+  # Collects partial CMAF segment so that the length matches given duration
   defp collect_duration(state, target_duration) do
     use Ratio
 
@@ -68,10 +69,10 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   defp collect_from_track_to_timestamp(track, samples, desired_end) do
     use Ratio, comparison: true
 
-    {leftover, segment} = Enum.split_while(samples, &(&1.dts > desired_end))
+    {leftover, samples} = Enum.split_while(samples, &(&1.dts > desired_end))
 
-    if hd(segment).dts + hd(segment).metadata.duration >= desired_end do
-      {:ok, {track, segment, leftover}}
+    if hd(samples).dts + hd(samples).metadata.duration >= desired_end do
+      {:ok, {track, samples, leftover}}
     else
       {:error, :not_enough_data}
     end

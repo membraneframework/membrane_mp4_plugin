@@ -39,7 +39,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> Map.from_struct()
       |> Map.merge(%{
         seq_num: 0,
-        # Caps waiting to be send after receiving the next buffer. Holds the structure {caps_timestamp, caps}
+        # Caps waiting to be sent after receiving the next buffer. Holds the structure {caps_timestamp, caps}
         awaiting_caps: nil,
         pad_to_track_data: %{},
         # ID for the next input track
@@ -52,7 +52,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   @impl true
   def handle_pad_added(_pad, ctx, _state) when ctx.playback_state == :playing,
-    do: raise("New tracks can be added to CMAF Muxer only before transition to state: :playing")
+    do:
+      raise(
+        "New tracks can be added to #{inspect(__MODULE__)} only before transition to state: :playing"
+      )
 
   @impl true
   def handle_pad_added(Pad.ref(:input, _id) = pad, _ctx, state) do
@@ -97,11 +100,11 @@ defmodule Membrane.MP4.Muxer.CMAF do
         %{track_data | track: track}
       end)
 
-    has_all_caps? =
+    has_all_input_caps? =
       Map.drop(ctx.pads, [:output, pad]) |> Map.values() |> Enum.all?(&(&1.caps != nil))
 
-    if has_all_caps? do
-      caps = generate_caps(state)
+    if has_all_input_caps? do
+      caps = generate_output_caps(state)
 
       cond do
         is_nil(ctx.pads.output.caps) ->
@@ -124,7 +127,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     state =
       state
-      |> process_duration_queue(pad, sample)
+      |> process_buffer_awaiting_duration(pad, sample)
       |> update_awaiting_caps(pad)
 
     {caps_action, segment} =
@@ -174,7 +177,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
-  defp generate_caps(state) do
+  defp generate_output_caps(state) do
     tracks = Enum.map(state.pad_to_track_data, fn {_pad, track_data} -> track_data.track end)
 
     header = Header.serialize(tracks)
@@ -278,7 +281,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   # Update the duration of the awaiting sample and insert the current sample into the queue
-  defp process_duration_queue(state, pad, sample) do
+  defp process_buffer_awaiting_duration(state, pad, sample) do
     use Ratio
 
     prev_sample = state.pad_to_track_data[pad].buffer_awaiting_duration
