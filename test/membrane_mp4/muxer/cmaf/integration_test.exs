@@ -96,8 +96,10 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
     assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{
       header: header,
-      content_type: :muxed_audio_video
+      content_type: content_type
     })
+
+    assert MapSet.new(content_type) |> MapSet.equal?(MapSet.new([:audio, :video]))
 
     assert_mp4_equal(header, "muxed_audio_video/header.mp4")
 

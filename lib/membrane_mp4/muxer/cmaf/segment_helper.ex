@@ -35,7 +35,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     use Ratio
 
     end_timestamp =
-      Enum.map(state.pad_to_track, fn {_key, track_data} ->
+      Enum.map(state.pad_to_track_data, fn {_key, track_data} ->
         Ratio.to_float(track_data.elapsed_time + target_duration)
       end)
       |> Enum.max()
@@ -102,8 +102,6 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     # Therefore, this algorithm will not destroy the balance of tracks, but it is not guaranteed to restore it
     timestamps_balanced? =
       target_pad != last_target_pad or Map.keys(state.samples) == [target_pad]
-
-    # Map.keys(state.samples) == [target_pad] or target_pad != last_target_pad
 
     cond do
       Enum.any?(state.samples, fn {_track, samples} -> samples == [] end) ->

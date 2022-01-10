@@ -30,7 +30,7 @@ elixir examples/muxer_isom.exs
 You can use `MP4_OUTPUT_FILE` environment variable to set location of the output file (defaults to `example.mp4`).
 
 ### `Membrane.MP4.Muxer.CMAF`
-For an example of muxing streams into CMAF format, refer to [`examples/muxer_cmaf.exs`](examples/muxer_cmaf.exs). CMAF requires a special sink, regular `Membrane.File.Sink` will not work correctly. Currently, Membrane Framework has only one sink capable of saving a CMAF stream - `Membrane.HTTPAdaptiveStream.HLS`.
+For an example of muxing streams into CMAF format, refer to [`examples/muxer_cmaf.exs`](examples/muxer_cmaf.exs). CMAF requires a special sink, regular `Membrane.File.Sink` will not work correctly. Currently, Membrane Framework has only one sink capable of saving a CMAF stream - `Membrane.HTTPAdaptiveStream.Sink`.
 
 To run the example, use the following command:
 ```bash
