@@ -30,9 +30,21 @@ elixir examples/muxer_isom.exs
 You can use `MP4_OUTPUT_FILE` environment variable to set location of the output file (defaults to `example.mp4`).
 
 ### `Membrane.MP4.Muxer.CMAF`
-To use the output stream of the CMAF muxer, you need a sink that will dump it to a playlist in a proper format.
+For an example of muxing streams into CMAF format, refer to [`examples/muxer_cmaf.exs`](examples/muxer_cmaf.exs). CMAF requires a special sink, regular `Membrane.File.Sink` will not work correctly. Currently, Membrane Framework has only one sink capable of saving a CMAF stream - `Membrane.HTTPAdaptiveStream.Sink`.
 
-In [`membrane_http_adaptive_stream_plugin`](https://github.com/membraneframework/membrane_http_adaptive_stream_plugin) repository you can find an example that uses the CMAF muxer to create an HTTP Live Streaming playlist.
+To run the example, use the following command:
+```bash
+elixir examples/muxer_isom.exs
+```
+You can expect `hls_output` folder to appear and be filled with CMAF header and segments, as well as a HLS Playlist.
+To play the stream, you need to serve the contents of the output folder with some sort of HTTP Server. If you are looking for something quick and simple, you can use Python's SimpleHTTPServer:
+```bash
+cd hls_output && python -m SimpleHTTPServer 8000
+```
+HLS Stream can then be played with
+```bash
+ffplay http://localhost:8000/index.m3u8
+```
 
 ## Updating tests
 

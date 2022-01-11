@@ -11,10 +11,11 @@ defmodule Membrane.MP4.SegmentIndexBox do
   alias Membrane.MP4.Container
 
   @spec assemble(%{
-          elapsed_time: integer,
-          referenced_size: integer,
-          timescale: integer,
-          duration: integer
+          id: non_neg_integer(),
+          elapsed_time: non_neg_integer(),
+          referenced_size: non_neg_integer(),
+          timescale: non_neg_integer(),
+          duration: non_neg_integer()
         }) :: Container.t()
   def assemble(config) do
     [
@@ -25,7 +26,7 @@ defmodule Membrane.MP4.SegmentIndexBox do
           first_offset: 0,
           flags: 0,
           reference_count: 1,
-          reference_id: 1,
+          reference_id: config.id,
           reference_type: <<0::size(1)>>,
           referenced_size: config.referenced_size,
           sap_delta_time: 0,

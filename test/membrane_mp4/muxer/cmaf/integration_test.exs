@@ -32,7 +32,6 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     end)
 
     assert_end_of_stream(pipeline, :sink)
-    refute_sink_buffer(pipeline, :sink, _, 0)
 
     :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
   end
@@ -62,7 +61,53 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     end)
 
     assert_end_of_stream(pipeline, :sink)
-    refute_sink_buffer(pipeline, :sink, _, 0)
+
+    :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
+  end
+
+  test "muxed audio and video" do
+    import Membrane.ParentSpec
+
+    assert {:ok, pipeline} =
+             Testing.Pipeline.start_link(%Testing.Pipeline.Options{
+               elements: [
+                 audio_source: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
+                 video_source: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
+                 audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
+                 video_parser: %Membrane.H264.FFmpeg.Parser{
+                   framerate: {30, 1},
+                   attach_nalus?: true
+                 },
+                 audio_payloader: Membrane.MP4.Payloader.AAC,
+                 video_payloader: Membrane.MP4.Payloader.H264,
+                 cmaf: %Membrane.MP4.Muxer.CMAF{segment_duration: Membrane.Time.seconds(2)},
+                 sink: Membrane.Testing.Sink
+               ],
+               links: [
+                 link(:video_source) |> to(:video_parser) |> to(:video_payloader) |> to(:cmaf),
+                 link(:audio_source) |> to(:audio_parser) |> to(:audio_payloader) |> to(:cmaf),
+                 link(:cmaf) |> to(:sink)
+               ]
+             })
+
+    :ok = Testing.Pipeline.play(pipeline)
+
+    assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{
+      header: header,
+      content_type: content_type
+    })
+
+    assert MapSet.new(content_type) |> MapSet.equal?(MapSet.new([:audio, :video]))
+
+    assert_mp4_equal(header, "muxed_audio_video/header.mp4")
+
+    1..2
+    |> Enum.map(fn i ->
+      assert_sink_buffer(pipeline, :sink, buffer)
+      assert_mp4_equal(buffer.payload, "muxed_audio_video/segment_#{i}.m4s")
+    end)
+
+    assert_end_of_stream(pipeline, :sink)
 
     :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
   end

@@ -66,7 +66,7 @@ defmodule Membrane.MP4.MovieFragmentBox do
                   default_sample_flags: 0,
                   default_sample_size: 0,
                   flags: 0b100000000000111000,
-                  track_id: 1,
+                  track_id: config.id,
                   version: 0
                 }
               },
