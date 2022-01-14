@@ -51,8 +51,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
         mdat_size: 0,
         next_track_id: 1,
         pad_order: [],
-        pad_to_track: %{},
-        header_sent?: false
+        pad_to_track: %{}
       })
 
     {:ok, state}
@@ -84,6 +83,14 @@ defmodule Membrane.MP4.Muxer.ISOM do
   end
 
   @impl true
+  def handle_prepared_to_playing(_ctx, state) do
+    # dummy mdat header will be overwritten in `finalize_mp4/1`, when media data size is known
+    header = [@ftyp, MediaDataBox.assemble(<<>>)] |> Enum.map_join(&Container.serialize!/1)
+
+    {{:ok, buffer: {:output, %Buffer{payload: header}}}, state}
+  end
+
+  @impl true
   def handle_demand(:output, _size, :buffers, _ctx, state) do
     next_ref = hd(state.pad_order)
 
@@ -92,16 +99,12 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   @impl true
   def handle_process(Pad.ref(:input, pad_ref), buffer, _ctx, state) do
-    {maybe_header, state} = maybe_send_header(state)
-
     {maybe_buffer, state} =
       state
       |> update_in([:pad_to_track, pad_ref], &Track.store_sample(&1, buffer))
       |> maybe_flush_chunk(pad_ref)
 
-    actions = maybe_header ++ maybe_buffer ++ [redemand: :output]
-
-    {{:ok, actions}, state}
+    {{:ok, maybe_buffer ++ [redemand: :output]}, state}
   end
 
   @impl true
@@ -116,15 +119,6 @@ defmodule Membrane.MP4.Muxer.ISOM do
       {{:ok, buffer ++ actions ++ [end_of_stream: :output]}, state}
     end
   end
-
-  defp maybe_send_header(%{header_sent?: false} = state) do
-    # incomplete mdat header will be overwritten in `finalize_mp4/1`, when media data size is known
-    header = [@ftyp, MediaDataBox.assemble(<<>>)] |> Enum.map_join(&Container.serialize!/1)
-
-    {[buffer: {:output, %Buffer{payload: header}}], %{state | header_sent?: true}}
-  end
-
-  defp maybe_send_header(state), do: {[], state}
 
   defp maybe_flush_chunk(state, pad_ref) do
     use Ratio, comparison: true
@@ -154,26 +148,26 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   defp finalize_mp4(state) do
     movie_box = state.pad_to_track |> Map.values() |> Enum.sort_by(& &1.id) |> MovieBox.assemble()
-    mdat_position = {:bof, @ftyp_size}
+    after_ftyp = {:bof, @ftyp_size}
     mdat_total_size = @mdat_header_size + state.mdat_size
+
+    update_mdat_actions = [
+      event: {:output, %File.SeekEvent{position: after_ftyp}},
+      buffer: {:output, %Buffer{payload: <<mdat_total_size::integer-size(4)-unit(8)>>}}
+    ]
 
     if state.fast_start do
       moov = movie_box |> prepare_for_fast_start() |> Container.serialize!()
 
-      [
-        event: {:output, %File.SeekEvent{position: mdat_position}},
-        buffer: {:output, %Buffer{payload: <<mdat_total_size::integer-size(4)-unit(8)>>}},
-        event: {:output, %File.SeekEvent{insert?: true, position: mdat_position}},
-        buffer: {:output, %Buffer{payload: moov}}
-      ]
+      update_mdat_actions ++
+        [
+          event: {:output, %File.SeekEvent{position: after_ftyp, insert?: true}},
+          buffer: {:output, %Buffer{payload: moov}}
+        ]
     else
       moov = Container.serialize!(movie_box)
 
-      [
-        buffer: {:output, %Buffer{payload: moov}},
-        event: {:output, %File.SeekEvent{position: mdat_position}},
-        buffer: {:output, %Buffer{payload: <<mdat_total_size::integer-size(4)-unit(8)>>}}
-      ]
+      [buffer: {:output, %Buffer{payload: moov}}] ++ update_mdat_actions
     end
   end
 
