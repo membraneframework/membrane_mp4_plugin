@@ -24,7 +24,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
 
     assert Pipeline.play(pid) == :ok
     assert_end_of_stream(pid, :sink, :input)
-    refute_sink_buffer(pid, :sink, _, 0)
+    refute_sink_buffer(pid, :sink, _buffer, 0)
 
     assert :ok == Pipeline.stop_and_terminate(pid, blocking?: true)
 

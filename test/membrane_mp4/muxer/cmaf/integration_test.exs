@@ -20,7 +20,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
              Testing.Pipeline.start_link(%Testing.Pipeline.Options{elements: children})
 
     :ok = Testing.Pipeline.play(pipeline)
-    assert_pipeline_playback_changed(pipeline, _, :playing)
+    assert_pipeline_playback_changed(pipeline, _previous_state, :playing)
 
     assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{header: header, content_type: :video})
     assert_mp4_equal(header, "ref_video_header.mp4")
@@ -32,6 +32,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     end)
 
     assert_end_of_stream(pipeline, :sink)
+    refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
     :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
   end
@@ -49,7 +50,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
              Testing.Pipeline.start_link(%Testing.Pipeline.Options{elements: children})
 
     :ok = Testing.Pipeline.play(pipeline)
-    assert_pipeline_playback_changed(pipeline, _, :playing)
+    assert_pipeline_playback_changed(pipeline, _previous_state, :playing)
 
     assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{header: header, content_type: :audio})
     assert_mp4_equal(header, "ref_audio_header.mp4")
@@ -61,6 +62,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     end)
 
     assert_end_of_stream(pipeline, :sink)
+    refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
     :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
   end
@@ -108,6 +110,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     end)
 
     assert_end_of_stream(pipeline, :sink)
+    refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
     :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
   end
