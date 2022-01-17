@@ -2,7 +2,6 @@ defmodule Membrane.MP4.Muxer.ISOM do
   @moduledoc """
   Puts payloaded streams into an MPEG-4 container.
   """
-
   use Membrane.Filter
 
   alias Membrane.{Buffer, File, Time}
