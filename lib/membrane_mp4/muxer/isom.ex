@@ -139,7 +139,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
     state =
       state
-      |> Map.update!(:mdat_size, &(&1 + byte_size(chunk)))
+      |> Map.put(:mdat_size, state.mdat_size + byte_size(chunk))
       |> put_in([:pad_to_track, pad_ref], track)
       |> Map.update!(:pad_order, &shift_left/1)
 
@@ -153,7 +153,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
     update_mdat_actions = [
       event: {:output, %File.SeekEvent{position: after_ftyp}},
-      buffer: {:output, %Buffer{payload: <<mdat_total_size::integer-size(4)-unit(8)>>}}
+      buffer: {:output, %Buffer{payload: <<mdat_total_size::32>>}}
     ]
 
     if state.fast_start do
