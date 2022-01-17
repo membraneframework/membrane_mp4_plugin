@@ -86,7 +86,7 @@ defmodule Membrane.MP4.Payloader.H264 do
   end
 
   defp generate_avcc(pps, sps) do
-    <<_idc_and_type, profile, compatibility, level, _::binary>> = hd(sps)
+    <<_idc_and_type, profile, compatibility, level, _rest::binary>> = hd(sps)
 
     <<1, profile, compatibility, level, 0b111111::6, @nalu_length_size - 1::2-integer, 0b111::3,
       length(sps)::5-integer, encode_parameter_sets(sps)::binary, length(pps)::8-integer,
