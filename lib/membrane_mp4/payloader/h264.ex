@@ -33,14 +33,18 @@ defmodule Membrane.MP4.Payloader.H264 do
     nalus =
       Enum.map(nalus, &Map.put(&1, :payload, :binary.part(buffer.payload, &1.unprefixed_poslen)))
 
-    grouped_nalus = Enum.group_by(nalus, & &1.metadata.h264.type)
+    # Given that the buffer has :au alignment, we don't need to consider the entire buffer - parameter sets should be at the very beginning
+    grouped_nalus =
+      nalus
+      |> Enum.take_while(&(&1.metadata.h264.type in [:sei, :sps, :pps]))
+      |> Enum.map(&{&1.metadata.h264.type, &1.payload})
 
-    pps = Map.get(grouped_nalus, :pps, state.pps)
-    sps = Map.get(grouped_nalus, :sps, state.sps)
+    pps = Keyword.get_values(grouped_nalus, :pps)
+    sps = Keyword.get_values(grouped_nalus, :sps)
 
     {caps, state} =
-      if pps != state.pps or sps != state.sps do
-        {[caps: {:output, generate_caps(ctx.pads.input.caps, nalus)}],
+      if (pps != [] and pps != state.pps) or (sps != [] and sps != state.sps) do
+        {[caps: {:output, generate_caps(ctx.pads.input.caps, pps, sps)}],
          %{state | pps: pps, sps: sps}}
       else
         {[], state}
@@ -70,19 +74,18 @@ defmodule Membrane.MP4.Payloader.H264 do
     |> pop_in([:h264, :nalus])
   end
 
-  defp generate_caps(input_caps, nalus) do
+  defp generate_caps(input_caps, pps, sps) do
     {timescale, _frame_duration} = input_caps.framerate
 
     %Membrane.MP4.Payload{
       timescale: timescale * 1024,
       width: input_caps.width,
       height: input_caps.height,
-      content: %AVC1{avcc: generate_avcc(nalus)}
+      content: %AVC1{avcc: generate_avcc(pps, sps)}
     }
   end
 
-  defp generate_avcc(nalus) do
-    %{sps: sps, pps: pps} = Enum.group_by(nalus, & &1.metadata.h264.type, & &1.payload)
+  defp generate_avcc(pps, sps) do
     <<_idc_and_type, profile, compatibility, level, _rest::binary>> = hd(sps)
 
     <<1, profile, compatibility, level, 0b111111::6, @nalu_length_size - 1::2-integer, 0b111::3,
