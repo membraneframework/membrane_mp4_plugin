@@ -12,15 +12,15 @@ The package can be installed by adding `membrane_mp4_plugin` to your list of dep
 ```elixir
 defp deps do
 [
-    {:membrane_mp4_plugin, "~> 0.11.0"}
+    {:membrane_mp4_plugin, "~> 0.12.0"}
 ]
 end
 ```
 
 ## Usage
 ### `Membrane.MP4.Muxer.ISOM`
-For an example of muxing streams to a regular MP4 file, refer to 
-[`examples/muxer_isom.exs`](examples/muxer_isom.exs).
+ISOM muxer requires a sink that can handle `Membrane.File.SeekEvent`, e.g. `Membrane.File.Sink`.
+For an example of muxing streams to a regular MP4 file, refer to [`examples/muxer_isom.exs`](examples/muxer_isom.exs).
 
 To run the example, you can use the following command:
  ```bash
