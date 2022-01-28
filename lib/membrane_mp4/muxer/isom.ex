@@ -74,14 +74,20 @@ defmodule Membrane.MP4.Muxer.ISOM do
   end
 
   @impl true
-  def handle_caps(Pad.ref(:input, pad_ref), %Membrane.MP4.Payload{} = caps, _ctx, state) do
+  def handle_caps(Pad.ref(:input, pad_ref) = pad, %Membrane.MP4.Payload{} = caps, ctx, state) do
     state =
-      update_in(state, [:pad_to_track, pad_ref], fn track_id ->
-        caps
-        |> Map.take([:width, :height, :content, :timescale])
-        |> Map.put(:id, track_id)
-        |> Track.new()
-      end)
+      if is_nil(ctx.pads[pad].caps) do
+        update_in(state, [:pad_to_track, pad_ref], fn track_id ->
+          caps
+          |> Map.take([:width, :height, :content, :timescale])
+          |> Map.put(:id, track_id)
+          |> Track.new()
+        end)
+      else
+        state
+      end
+
+    {:ok, state}
 
     {:ok, state}
   end
