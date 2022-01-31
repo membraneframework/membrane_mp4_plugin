@@ -11,6 +11,7 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
   """
   alias Membrane.MP4.{Container, Helper, Track}
   alias Membrane.MP4.Payload.{AAC, AVC1}
+  alias Membrane.Opus
 
   defguardp is_audio(track) when {track.height, track.width} == {0, 0}
 
@@ -269,6 +270,31 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
           packet_size: 0,
           sample_size: 16,
           sample_rate: {aac.sample_rate, 0}
+        }
+      }
+    ]
+  end
+
+  defp sample_description(%{content: %Opus{} = opus}) do
+    [
+      Opus: %{
+        children: %{
+          dOps: %{
+            fields: %{
+              version: 0,
+              output_channel_count: opus.channels,
+              pre_skip: 413,
+              input_sample_rate: 0,
+              output_gain: 0,
+              channel_mapping_family: 0
+            }
+          }
+        },
+        fields: %{
+          data_reference_index: 0,
+          channel_count: 1,
+          sample_size: 16,
+          sample_rate: Bitwise.bsl(48_000, 16)
         }
       }
     ]

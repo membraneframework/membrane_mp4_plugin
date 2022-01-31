@@ -88,8 +88,6 @@ defmodule Membrane.MP4.Muxer.ISOM do
       end
 
     {:ok, state}
-
-    {:ok, state}
   end
 
   @impl true
