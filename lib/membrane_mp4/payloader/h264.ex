@@ -16,9 +16,14 @@ defmodule Membrane.MP4.Payloader.H264 do
 
   def_output_pad :output, caps: Membrane.MP4.Payload
 
+  def_options parameters_in_band?: [
+                spec: boolean(),
+                default: false
+              ]
+
   @impl true
-  def handle_init(_options) do
-    {:ok, %{sps: nil, pps: nil}}
+  def handle_init(%__MODULE__{} = options) do
+    {:ok, %{sps: nil, pps: nil, parameters_in_band?: options.parameters_in_band?}}
   end
 
   @impl true
@@ -50,7 +55,13 @@ defmodule Membrane.MP4.Payloader.H264 do
         {[], state}
       end
 
-    payload = nalus |> Enum.map_join(&process_nalu/1)
+    payload =
+      nalus
+      |> Enum.reject(
+        &(not state.parameters_in_band? and &1.metadata.h264.type in [:aud, :sps, :pps])
+      )
+      |> Enum.map_join(&process_nalu/1)
+
     buffer = %Buffer{buffer | payload: payload, metadata: metadata}
     {{:ok, caps ++ [buffer: {:output, buffer}, redemand: :output]}, state}
   end
@@ -58,10 +69,6 @@ defmodule Membrane.MP4.Payloader.H264 do
   @impl true
   def handle_caps(:input, _caps, _ctx, state) do
     {:ok, state}
-  end
-
-  defp process_nalu(%{metadata: %{h264: %{type: type}}}) when type in [:aud, :sps, :pps] do
-    <<>>
   end
 
   defp process_nalu(%{payload: payload}) do
