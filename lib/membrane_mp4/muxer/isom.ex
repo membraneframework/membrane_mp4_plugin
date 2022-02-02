@@ -75,19 +75,22 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   @impl true
   def handle_caps(Pad.ref(:input, pad_ref) = pad, %Membrane.MP4.Payload{} = caps, ctx, state) do
-    state =
-      if is_nil(ctx.pads[pad].caps) do
+    cond do
+      is_nil(ctx.pads[pad].caps) ->
         update_in(state, [:pad_to_track, pad_ref], fn track_id ->
           caps
           |> Map.take([:width, :height, :content, :timescale])
           |> Map.put(:id, track_id)
           |> Track.new()
         end)
-      else
-        state
-      end
 
-    {:ok, state}
+      ctx.pads[pad].caps.content.inband_parameters? || ctx.pads[pad].caps == caps ->
+        state
+
+      true ->
+        raise("ISOM Muxer doesn't support variable parameters")
+    end
+    |> then(&{:ok, &1})
   end
 
   @impl true

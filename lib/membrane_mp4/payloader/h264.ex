@@ -9,6 +9,7 @@ defmodule Membrane.MP4.Payloader.H264 do
   alias Membrane.MP4.Payload.AVC1
 
   @nalu_length_size 4
+  @parameter_nalus MapSet.new([:sps, :pps, :aus])
 
   def_input_pad :input,
     demand_unit: :buffers,
@@ -18,7 +19,13 @@ defmodule Membrane.MP4.Payloader.H264 do
 
   def_options parameters_in_band?: [
                 spec: boolean(),
-                default: false
+                default: false,
+                description: """
+                Determines whether the parameter type nalus will be removed from the stream.
+                Inband parameters seem to be legal with MP4, but some players don't respond kindly to them, so use at your own risk.
+
+                NALUs currently considered to be parameters: #{Enum.map_join(@parameter_nalus, ",", &inspect/1)}
+                """
               ]
 
   @impl true
@@ -49,18 +56,18 @@ defmodule Membrane.MP4.Payloader.H264 do
 
     {caps, state} =
       if (pps != [] and pps != state.pps) or (sps != [] and sps != state.sps) do
-        {[caps: {:output, generate_caps(ctx.pads.input.caps, pps, sps)}],
-         %{state | pps: pps, sps: sps}}
+        {[
+           caps:
+             {:output, generate_caps(ctx.pads.input.caps, pps, sps, state.parameters_in_band?)}
+         ], %{state | pps: pps, sps: sps}}
       else
         {[], state}
       end
 
     payload =
       nalus
-      |> Enum.reject(
-        &(not state.parameters_in_band? and &1.metadata.h264.type in [:aud, :sps, :pps])
-      )
-      |> Enum.map_join(&process_nalu/1)
+      |> maybe_remove_parameter_nalus(state)
+      |> Enum.map_join(&to_length_prefixed/1)
 
     buffer = %Buffer{buffer | payload: payload, metadata: metadata}
     {{:ok, caps ++ [buffer: {:output, buffer}, redemand: :output]}, state}
@@ -71,7 +78,13 @@ defmodule Membrane.MP4.Payloader.H264 do
     {:ok, state}
   end
 
-  defp process_nalu(%{payload: payload}) do
+  defp maybe_remove_parameter_nalus(nalus, %{parameters_in_band?: false}) do
+    Enum.reject(nalus, &MapSet.member?(@parameter_nalus, &1.metadata.h264.type))
+  end
+
+  defp maybe_remove_parameter_nalus(nalus, _state), do: nalus
+
+  defp to_length_prefixed(%{payload: payload}) do
     <<byte_size(payload)::integer-size(@nalu_length_size)-unit(8), payload::binary>>
   end
 
@@ -81,14 +94,14 @@ defmodule Membrane.MP4.Payloader.H264 do
     |> pop_in([:h264, :nalus])
   end
 
-  defp generate_caps(input_caps, pps, sps) do
+  defp generate_caps(input_caps, pps, sps, inband_parameters?) do
     {timescale, _frame_duration} = input_caps.framerate
 
     %Membrane.MP4.Payload{
       timescale: timescale * 1024,
       width: input_caps.width,
       height: input_caps.height,
-      content: %AVC1{avcc: generate_avcc(pps, sps)}
+      content: %AVC1{avcc: generate_avcc(pps, sps), inband_parameters?: inband_parameters?}
     }
   end
 
