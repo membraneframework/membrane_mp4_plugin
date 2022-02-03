@@ -152,4 +152,36 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       perform_test(pid, "two_tracks_fast_start")
     end
   end
+
+  describe "When fed a variable parameter h264 stream, Muxer.ISOM should" do
+    test "raise when caps inband_parameters are not used" do
+      children = [
+        file: %Membrane.File.Source{location: "test/fixtures/in_video_vp.h264"},
+        parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
+        payloader: Membrane.MP4.Payloader.H264,
+        muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true},
+        sink: %Membrane.File.Sink{location: "/dev/null"}
+      ]
+
+      assert {:ok, pid} = Pipeline.start(%Pipeline.Options{elements: children})
+      monitor_ref = Process.monitor(pid)
+      assert :ok = Pipeline.play(pid)
+
+      assert_receive {:DOWN, ^monitor_ref, :process, _object, _reason}, 1_000
+    end
+
+    test "be able to mux when inband_parameters are used" do
+      children = [
+        file: %Membrane.File.Source{location: "test/fixtures/in_video_vp.h264"},
+        parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
+        payloader: %Membrane.MP4.Payloader.H264{parameters_in_band?: true},
+        muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true},
+        sink: %Membrane.File.Sink{location: out_path_for("h264_variable_parameters")}
+      ]
+
+      assert {:ok, pid} = Pipeline.start(%Pipeline.Options{elements: children})
+
+      perform_test(pid, "h264_variable_parameters")
+    end
+  end
 end
