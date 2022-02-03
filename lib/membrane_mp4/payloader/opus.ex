@@ -9,7 +9,7 @@ defmodule Membrane.MP4.Payloader.Opus do
 
   def_input_pad :input,
     availability: :always,
-    caps: Opus,
+    caps: {Opus, self_delimiting?: false},
     demand_unit: :buffers
 
   def_output_pad :output,
