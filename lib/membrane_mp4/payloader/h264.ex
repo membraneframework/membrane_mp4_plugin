@@ -95,10 +95,14 @@ defmodule Membrane.MP4.Payloader.H264 do
   end
 
   defp generate_caps(input_caps, pps, sps, inband_parameters?) do
-    {timescale, _frame_duration} = input_caps.framerate
+    timescale =
+      case input_caps.framerate do
+        {0, _denominator} -> 30 * 1024
+        {nominator, _denominator} -> nominator * 1024
+      end
 
     %Membrane.MP4.Payload{
-      timescale: timescale * 1024,
+      timescale: timescale,
       width: input_caps.width,
       height: input_caps.height,
       content: %AVC1{avcc: generate_avcc(pps, sps), inband_parameters?: inband_parameters?}
