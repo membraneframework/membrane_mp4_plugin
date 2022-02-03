@@ -292,7 +292,7 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
         },
         fields: %{
           data_reference_index: 0,
-          channel_count: 1,
+          channel_count: opus.channels,
           sample_size: 16,
           sample_rate: Bitwise.bsl(48_000, 16)
         }
