@@ -69,7 +69,13 @@ defmodule Membrane.MP4.Payloader.H264 do
       |> maybe_remove_parameter_nalus(state)
       |> Enum.map_join(&to_length_prefixed/1)
 
-    buffer = %Buffer{buffer | payload: payload, metadata: metadata}
+    buffer = %Buffer{
+      buffer
+      | payload: payload,
+        metadata: metadata,
+        dts: Buffer.get_dts_or_pts(buffer)
+    }
+
     {{:ok, caps ++ [buffer: {:output, buffer}, redemand: :output]}, state}
   end
 
