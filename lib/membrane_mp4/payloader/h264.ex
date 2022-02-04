@@ -73,6 +73,8 @@ defmodule Membrane.MP4.Payloader.H264 do
       buffer
       | payload: payload,
         metadata: metadata,
+        # In case dts is not set, use pts instead
+        # This is the case for H264 originated from eg. RTP Streams
         dts: Buffer.get_dts_or_pts(buffer)
     }
 
