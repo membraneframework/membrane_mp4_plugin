@@ -167,7 +167,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       monitor_ref = Process.monitor(pid)
       assert :ok = Pipeline.play(pid)
 
-      assert_receive {:DOWN, ^monitor_ref, :process, _object, _reason}, 1_000
+      assert_receive {:DOWN, ^monitor_ref, :process, ^pid, {:shutdown, :child_crash}}, 1_000
     end
 
     test "be able to mux when inband_parameters are used" do

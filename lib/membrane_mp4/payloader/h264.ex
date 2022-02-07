@@ -24,7 +24,7 @@ defmodule Membrane.MP4.Payloader.H264 do
                 Determines whether the parameter type nalus will be removed from the stream.
                 Inband parameters seem to be legal with MP4, but some players don't respond kindly to them, so use at your own risk.
 
-                NALUs currently considered to be parameters: #{Enum.map_join(@parameter_nalus, ",", &inspect/1)}
+                NALUs currently considered to be parameters: #{Enum.map_join(@parameter_nalus, ", ", &inspect/1)}.
                 """
               ]
 
