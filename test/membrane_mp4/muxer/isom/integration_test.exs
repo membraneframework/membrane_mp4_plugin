@@ -60,6 +60,20 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       perform_test(pid, "audio")
     end
 
+    test "single OPUS track" do
+      children = [
+        file: %Membrane.File.Source{location: "test/fixtures/in_audio.opus"},
+        parser: %Membrane.Opus.Parser{input_delimitted?: true, delimitation: :undelimit},
+        payloader: Membrane.MP4.Payloader.Opus,
+        muxer: Membrane.MP4.Muxer.ISOM,
+        sink: %Membrane.File.Sink{location: out_path_for("opus")}
+      ]
+
+      assert {:ok, pid} = Pipeline.start_link(%Pipeline.Options{elements: children})
+
+      perform_test(pid, "opus")
+    end
+
     test "two tracks" do
       children = [
         video_file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
