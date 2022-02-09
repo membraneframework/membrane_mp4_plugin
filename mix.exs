@@ -60,8 +60,7 @@ defmodule Membrane.MP4.Plugin.MixProject do
   defp deps do
     [
       {:membrane_core, "~> 0.8.0"},
-      {:membrane_mp4_format,
-       github: "membraneframework/membrane_mp4_format", branch: "inband-parameters"},
+      {:membrane_mp4_format, "~> 0.5.0"},
       {:membrane_cmaf_format, "~> 0.5.0"},
       {:membrane_aac_format, "~> 0.6.0"},
       {:membrane_h264_format, "~> 0.3"},
