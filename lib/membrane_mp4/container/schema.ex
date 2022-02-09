@@ -196,6 +196,31 @@ defmodule Membrane.MP4.Container.Schema do
                                     elementary_stream_descriptor: :bin
                                   ]
                             ]
+                          ],
+                          Opus: [
+                            version: 0,
+                            fields: [
+                              reserved: <<0::6*8>>,
+                              data_reference_index: :uint16,
+                              reserved: <<0::2*32>>,
+                              channel_count: :uint16,
+                              sample_size: :uint16,
+                              # pre_defined
+                              reserved: <<0::16>>,
+                              reserved: <<0::16>>,
+                              sample_rate: :uint32
+                            ],
+                            dOps: [
+                              version: 0,
+                              fields: [
+                                version: :uint8,
+                                output_channel_count: :uint8,
+                                pre_skip: :uint16,
+                                input_sample_rate: :uint32,
+                                output_gain: :int16,
+                                channel_mapping_family: :uint8
+                              ]
+                            ]
                           ]
                         ],
                         stts: [

@@ -60,13 +60,15 @@ defmodule Membrane.MP4.Plugin.MixProject do
   defp deps do
     [
       {:membrane_core, "~> 0.8.0"},
-      {:membrane_mp4_format, "~> 0.4.0"},
+      {:membrane_mp4_format, "~> 0.5.0"},
       {:membrane_cmaf_format, "~> 0.5.0"},
       {:membrane_aac_format, "~> 0.6.0"},
       {:membrane_h264_format, "~> 0.3"},
+      {:membrane_opus_format, "~> 0.3.0"},
       {:membrane_file_plugin, "~> 0.8.0"},
       {:membrane_h264_ffmpeg_plugin, "~> 0.16.1", only: :test},
       {:membrane_aac_plugin, "~> 0.11.0", only: :test},
+      {:membrane_opus_plugin, "~> 0.10.0", only: :test},
       {:ex_doc, "~> 0.26", only: :dev, runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
       {:credo, "~> 1.6", only: [:dev, :test], runtime: false}

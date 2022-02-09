@@ -74,16 +74,28 @@ defmodule Membrane.MP4.Muxer.ISOM do
   end
 
   @impl true
-  def handle_caps(Pad.ref(:input, pad_ref), %Membrane.MP4.Payload{} = caps, _ctx, state) do
-    state =
-      update_in(state, [:pad_to_track, pad_ref], fn track_id ->
-        caps
-        |> Map.take([:width, :height, :content, :timescale])
-        |> Map.put(:id, track_id)
-        |> Track.new()
-      end)
+  def handle_caps(Pad.ref(:input, pad_ref) = pad, %Membrane.MP4.Payload{} = caps, ctx, state) do
+    cond do
+      # Handle receiving very first caps on the given pad
+      is_nil(ctx.pads[pad].caps) ->
+        update_in(state, [:pad_to_track, pad_ref], fn track_id ->
+          caps
+          |> Map.take([:width, :height, :content, :timescale])
+          |> Map.put(:id, track_id)
+          |> Track.new()
+        end)
 
-    {:ok, state}
+      # Handle receiving all but first caps on the given pad when
+      # inband_parameters? are allowed or caps are duplicated - ignore
+      Map.get(ctx.pads[pad].caps.content, :inband_parameters?, false) ||
+          ctx.pads[pad].caps == caps ->
+        state
+
+      # otherwise we can assume that output will be corrupted
+      true ->
+        raise("ISOM Muxer doesn't support variable parameters")
+    end
+    |> then(&{:ok, &1})
   end
 
   @impl true
