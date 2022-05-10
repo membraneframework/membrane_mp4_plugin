@@ -9,7 +9,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
   """
   use Membrane.Filter
 
-  alias Membrane.{Buffer, File, Time}
+  alias Membrane.{Buffer, File, MP4, RemoteStream, Time}
   alias Membrane.MP4.{Container, FileTypeBox, MediaDataBox, MovieBox, Track}
 
   @ftyp FileTypeBox.assemble("isom", ["isom", "iso2", "avc1", "mp41"])
@@ -21,7 +21,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
     caps: Membrane.MP4.Payload,
     availability: :on_request
 
-  def_output_pad :output, caps: :buffers
+  def_output_pad :output, caps: {RemoteStream, type: :bytestream, content_format: MP4}
 
   def_options fast_start: [
                 spec: boolean(),
@@ -103,7 +103,12 @@ defmodule Membrane.MP4.Muxer.ISOM do
     # dummy mdat header will be overwritten in `finalize_mp4/1`, when media data size is known
     header = [@ftyp, MediaDataBox.assemble(<<>>)] |> Enum.map_join(&Container.serialize!/1)
 
-    {{:ok, buffer: {:output, %Buffer{payload: header}}}, state}
+    actions = [
+      caps: {:output, %RemoteStream{content_format: MP4}},
+      buffer: {:output, %Buffer{payload: header}}
+    ]
+
+    {{:ok, actions}, state}
   end
 
   @impl true

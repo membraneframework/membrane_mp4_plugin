@@ -59,17 +59,20 @@ defmodule Membrane.MP4.Plugin.MixProject do
 
   defp deps do
     [
-      {:membrane_core, "~> 0.8.0"},
-      {:membrane_mp4_format, "~> 0.5.0"},
-      {:membrane_cmaf_format, "~> 0.5.0"},
-      {:membrane_aac_format, "~> 0.6.0"},
+      {:membrane_core, "~> 0.10.0"},
+      # {:membrane_mp4_format, "~> 0.6.0"},
+      {:membrane_mp4_format, github: "membraneframework/membrane_mp4_format", branch: "mp4"},
+      {:membrane_cmaf_format, "~> 0.6.0"},
+      {:membrane_aac_format, "~> 0.7.0"},
       {:membrane_h264_format, "~> 0.3"},
       {:membrane_opus_format, "~> 0.3.0"},
-      {:membrane_file_plugin, "~> 0.8.0"},
-      {:membrane_h264_ffmpeg_plugin, "~> 0.16.1", only: :test},
-      {:membrane_aac_plugin, "~> 0.11.0", only: :test},
-      {:membrane_opus_plugin, "~> 0.10.0", only: :test},
-      {:ex_doc, "~> 0.26", only: :dev, runtime: false},
+      {:membrane_file_plugin, "~> 0.12.0"},
+      {:membrane_h264_ffmpeg_plugin, "~> 0.20.0", only: :test},
+      {:membrane_aac_plugin, "~> 0.12.0", only: :test},
+      # {:membrane_opus_plugin, "~> 0.13.0", only: :test},
+      {:membrane_opus_plugin,
+       github: "membraneframework/membrane_opus_plugin", branch: "fix-parser-caps", only: :test},
+      {:ex_doc, "~> 0.28", only: :dev, runtime: false},
       {:dialyxir, "~> 1.1", only: :dev, runtime: false},
       {:credo, "~> 1.6", only: [:dev, :test], runtime: false}
     ]
