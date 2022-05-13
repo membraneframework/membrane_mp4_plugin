@@ -9,7 +9,6 @@ defmodule Membrane.MP4.Payloader.H264 do
   alias Membrane.MP4.Payload.AVC1
 
   @nalu_length_size 4
-  @parameter_nalus MapSet.new([:sps, :pps, :aus])
 
   def_input_pad :input,
     demand_unit: :buffers,
@@ -24,7 +23,7 @@ defmodule Membrane.MP4.Payloader.H264 do
                 Determines whether the parameter type nalus will be removed from the stream.
                 Inband parameters seem to be legal with MP4, but some players don't respond kindly to them, so use at your own risk.
 
-                NALUs currently considered to be parameters: #{Enum.map_join(@parameter_nalus, ", ", &inspect/1)}.
+                NALUs currently considered to be parameters: sps, pps, aus.
                 """
               ]
 
@@ -87,7 +86,7 @@ defmodule Membrane.MP4.Payloader.H264 do
   end
 
   defp maybe_remove_parameter_nalus(nalus, %{parameters_in_band?: false}) do
-    Enum.reject(nalus, &MapSet.member?(@parameter_nalus, &1.metadata.h264.type))
+    Enum.reject(nalus, &MapSet.member?(MapSet.new([:sps, :pps, :aus]), &1.metadata.h264.type))
   end
 
   defp maybe_remove_parameter_nalus(nalus, _state), do: nalus

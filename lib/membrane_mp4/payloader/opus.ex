@@ -4,7 +4,7 @@ defmodule Membrane.MP4.Payloader.Opus do
   """
   use Membrane.Filter
 
-  alias Membrane.{Opus, Buffer}
+  alias Membrane.{Buffer, Opus}
   alias Membrane.MP4.Payload
 
   def_input_pad :input,

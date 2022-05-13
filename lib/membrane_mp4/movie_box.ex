@@ -17,8 +17,8 @@ defmodule Membrane.MP4.MovieBox do
   For more information about movie box and its contents, refer to documentation of
   `#{inspect(__MODULE__)}` submodules or to [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html).
   """
-  alias Membrane.MP4.{Container, Track}
   alias __MODULE__.TrackBox
+  alias Membrane.MP4.{Container, Track}
 
   @movie_timescale 1000
 
