@@ -17,7 +17,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   alias __MODULE__.{Header, Segment}
   alias Membrane.{Buffer, Time}
   alias Membrane.MP4.Payload.{AAC, AVC1}
-  alias Membrane.MP4.{Track, Helper}
+  alias Membrane.MP4.{Helper, Track}
 
   def_input_pad :input,
     availability: :on_request,

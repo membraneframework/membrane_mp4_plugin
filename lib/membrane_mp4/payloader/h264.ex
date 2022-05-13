@@ -9,7 +9,7 @@ defmodule Membrane.MP4.Payloader.H264 do
   alias Membrane.MP4.Payload.AVC1
 
   @nalu_length_size 4
-  @parameter_nalus MapSet.new([:sps, :pps, :aus])
+  @parameter_nalus [:sps, :pps, :aus]
 
   def_input_pad :input,
     demand_unit: :buffers,
@@ -87,7 +87,7 @@ defmodule Membrane.MP4.Payloader.H264 do
   end
 
   defp maybe_remove_parameter_nalus(nalus, %{parameters_in_band?: false}) do
-    Enum.reject(nalus, &MapSet.member?(@parameter_nalus, &1.metadata.h264.type))
+    Enum.reject(nalus, &(&1.metadata.h264.type in @parameter_nalus))
   end
 
   defp maybe_remove_parameter_nalus(nalus, _state), do: nalus

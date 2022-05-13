@@ -2,7 +2,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   use ExUnit.Case, async: true
   import Membrane.Testing.Assertions
   alias Membrane.MP4.Container
-  alias Membrane.Testing
+  alias Membrane.{ParentSpec, Testing}
 
   # Fixtures used in CMAF tests below were generated using `membrane_http_adaptive_stream_plugin`
   # with `muxer_segment_duration` option set to `Membrane.Time.seconds(2)`.
@@ -16,10 +16,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       sink: Membrane.Testing.Sink
     ]
 
-    assert {:ok, pipeline} =
-             Testing.Pipeline.start_link(%Testing.Pipeline.Options{elements: children})
-
-    :ok = Testing.Pipeline.play(pipeline)
+    assert {:ok, pipeline} = Testing.Pipeline.start_link(links: ParentSpec.link_linear(children))
     assert_pipeline_playback_changed(pipeline, _previous_state, :playing)
 
     assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{header: header, content_type: :video})
@@ -34,7 +31,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
   end
 
   test "audio" do
@@ -46,10 +43,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       sink: Membrane.Testing.Sink
     ]
 
-    assert {:ok, pipeline} =
-             Testing.Pipeline.start_link(%Testing.Pipeline.Options{elements: children})
-
-    :ok = Testing.Pipeline.play(pipeline)
+    assert {:ok, pipeline} = Testing.Pipeline.start_link(links: ParentSpec.link_linear(children))
     assert_pipeline_playback_changed(pipeline, _previous_state, :playing)
 
     assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{header: header, content_type: :audio})
@@ -64,15 +58,15 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
   end
 
   test "muxed audio and video" do
     import Membrane.ParentSpec
 
     assert {:ok, pipeline} =
-             Testing.Pipeline.start_link(%Testing.Pipeline.Options{
-               elements: [
+             Testing.Pipeline.start_link(
+               children: [
                  audio_source: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
                  video_source: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
                  audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
@@ -90,9 +84,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
                  link(:audio_source) |> to(:audio_parser) |> to(:audio_payloader) |> to(:cmaf),
                  link(:cmaf) |> to(:sink)
                ]
-             })
-
-    :ok = Testing.Pipeline.play(pipeline)
+             )
 
     assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{
       header: header,
@@ -112,7 +104,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.stop_and_terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
   end
 
   defp assert_mp4_equal(output, ref_file) do

@@ -6,8 +6,8 @@ defmodule Membrane.MP4.Track do
   to build a sample table of a regular MP4 container. Samples that were stored
   can be flushed later in form of chunks.
   """
-  alias Membrane.MP4.Helper
   alias __MODULE__.SampleTable
+  alias Membrane.MP4.Helper
 
   @type t :: %__MODULE__{
           id: pos_integer,
