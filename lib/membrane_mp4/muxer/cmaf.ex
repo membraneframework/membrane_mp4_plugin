@@ -44,7 +44,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
         pad_to_track_data: %{},
         # ID for the next input track
         next_track_id: 1,
-        samples: %{}
+        samples: %{},
+        last_pts: 0,
+        last_dts: 0
       })
 
     {:ok, state}
@@ -124,6 +126,16 @@ defmodule Membrane.MP4.Muxer.CMAF do
   @impl true
   def handle_process(Pad.ref(:input, _id) = pad, sample, ctx, state) do
     use Ratio, comparison: true
+
+    if state.last_pts > sample.pts do
+      Membrane.Logger.warn("PTS are out of order. Current PTS: #{sample.pts} Previous PTS: #{state.last_pts}")
+    end
+
+    if state.last_dts > sample.dts do
+      Membrane.Logger.warn("DTS are out of order. Current DTS: #{sample.dts} Previous DTS: #{state.last_dts}")
+    end
+
+    state = %{state | last_pts: sample.pts, last_dts: sample.dts}
 
     state =
       state
