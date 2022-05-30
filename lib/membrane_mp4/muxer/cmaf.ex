@@ -129,17 +129,21 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     if state.last_pts > sample.pts do
       Membrane.Logger.warn(
-        "PTS are out of order. Current PTS: #{sample.pts} Previous PTS: #{state.last_pts}"
+        "PTS are out of order. This can happen due to B-frames in h264 stream. Current PTS: #{sample.pts} Highest PTS: #{state.last_pts}"
       )
     end
 
     if state.last_dts > sample.dts do
       Membrane.Logger.warn(
-        "DTS are out of order. Current DTS: #{sample.dts} Previous DTS: #{state.last_dts}"
+        "DTS are out of order. Current DTS: #{sample.dts} Highest DTS: #{state.last_dts}"
       )
     end
 
-    state = %{state | last_pts: sample.pts, last_dts: sample.dts}
+    state = %{
+      state
+      | last_pts: max(sample.pts, state.last_pts),
+        last_dts: max(state.last_dts, sample.dts)
+    }
 
     state =
       state
