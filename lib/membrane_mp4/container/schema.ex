@@ -391,9 +391,9 @@ defmodule Membrane.MP4.Container.Schema do
                              [
                                sample_duration: :uint32,
                                sample_size: :uint32,
-                               sample_flags: :bin32
+                               sample_flags: :bin32,
                                # TODO: handle sample offset, include basing on flags once conditional fields are supported
-                               # sample_offset: :uint32
+                               sample_offset: :uint32
                              ]}
                         ]
                   ]
