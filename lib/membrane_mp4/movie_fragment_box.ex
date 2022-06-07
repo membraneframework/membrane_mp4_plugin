@@ -29,7 +29,7 @@ defmodule Membrane.MP4.MovieFragmentBox do
     sample_duration: 0x100,
     sample_size: 0x200,
     sample_flags: 0x400,
-    sample_composition_time_offsets_present: 0x800
+    sample_composition_time_offsets_present: 0x000
   }
   @mdat_data_offset 8
 
