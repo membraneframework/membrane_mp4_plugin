@@ -30,6 +30,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
                 type: :time,
                 spec: Membrane.Time.t(),
                 default: 2 |> Time.seconds()
+              ],
+              sample_composition_time_offsets_present: [
+                type: :boolean,
+                default: false
               ]
 
   @impl true
@@ -241,7 +245,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
           duration: Helper.timescalify(duration, timescale),
           timescale: timescale,
           samples_table: samples_table,
-          samples_data: samples_data
+          samples_data: samples_data,
+          sample_composition_time_offsets_present: state.sample_composition_time_offsets_present
         }
       end)
 
