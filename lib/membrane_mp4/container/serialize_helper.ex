@@ -88,7 +88,7 @@ defmodule Membrane.MP4.Container.SerializeHelper do
              {{:ok, data}, storage}
 
            {name, type}, storage ->
-             with {:ok, term} <- Map.fetch(term, name),
+             with term <- Map.get(term, name),
                   {:ok, data, storage} <- serialize_field(term, type, storage) do
                {{:ok, data}, storage}
              else
@@ -138,6 +138,7 @@ defmodule Membrane.MP4.Container.SerializeHelper do
            end
          end) do
       {{:ok, results}, storage} -> {:ok, results, storage}
+      {{:error, context}, _storage} -> {:error, context}
     end
   end
 

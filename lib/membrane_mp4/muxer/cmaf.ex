@@ -224,9 +224,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
                   sample.metadata.duration,
                   timescale
                 )
-                |> Ratio.trunc(),
-              sample_offset:
-                Ratio.floor(Ratio.to_float(sample.pts - sample.dts) / Ratio.to_float(timescale))
+                |> Ratio.trunc()
             }
           end)
 
