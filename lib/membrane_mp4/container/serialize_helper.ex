@@ -11,8 +11,11 @@ defmodule Membrane.MP4.Container.SerializeHelper do
   @box_size_size 4
   @box_header_size @box_name_size + @box_size_size
 
-  @spec serialize_boxes(Container.t(), Schema.t(), any()) ::
-          {:error, Container.serialize_error_context_t()} | {:ok, binary, any()}
+  @type storage_t() :: %{atom() => integer()}
+
+  @spec serialize_boxes(Container.t(), Schema.t(), storage_t()) ::
+          {{:error, Container.serialize_error_context_t()}, storage_t()}
+          | {{:ok, binary}, storage_t()}
   def serialize_boxes(mp4, schema, storage) do
     with {{:ok, data}, storage} <-
            Bunch.Enum.try_map_reduce(mp4, storage, fn {box_name, box}, storage ->
