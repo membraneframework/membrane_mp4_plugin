@@ -84,8 +84,8 @@ defmodule Membrane.MP4.Container do
   @spec serialize(t, Schema.t()) :: {:ok, binary} | {:error, serialize_error_context_t}
   def serialize(mp4, schema) do
     case SerializeHelper.serialize_boxes(mp4, schema, %{}) do
-      {:ok, result, _storage} -> {:ok, result}
-      error -> error
+      {{:ok, result}, _storage} -> {:ok, result}
+      {{:error, context}, _storage} -> {:error, context}
     end
   end
 
@@ -103,10 +103,10 @@ defmodule Membrane.MP4.Container do
   @spec serialize!(t, Schema.t()) :: binary
   def serialize!(mp4, schema) do
     case SerializeHelper.serialize_boxes(mp4, schema, %{}) do
-      {:ok, data, _storage} ->
+      {{:ok, data}, _storage} ->
         data
 
-      {:error, context} ->
+      {{:error, context}, _storage} ->
         box = Keyword.get_values(context, :box)
 
         raise """
