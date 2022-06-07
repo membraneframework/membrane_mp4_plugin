@@ -33,7 +33,7 @@ defmodule Membrane.MP4.Container.Schema.Parser do
 
   defp parse_field({:reserved, _reserved} = field), do: field
 
-  defp parse_field({name, type}) when is_atom(type) and is_atom(type) do
+  defp parse_field({name, type}) when is_atom(type) do
     type =
       case Atom.to_string(type) do
         "int" <> s ->

@@ -9,6 +9,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   If a stream contains non-key frames (like H264 P or B frames), they should be marked
   with a `mp4_payload: %{key_frame?: false}` metadata entry.
+
+  If your stream contains B-frames, make sure to set the `support_b_frames: true` option, since an additional information about
+  a PTS/DTS offset needs to be put in the container.
   """
   use Membrane.Filter
 
