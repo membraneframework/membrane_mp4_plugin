@@ -49,7 +49,7 @@ defmodule Membrane.MP4.MovieFragmentBox do
       })
 
     config =
-      if Map.get(config, :sample_composition_time_offsets_present, false) == true do
+      if Map.get(config, :support_b_frames, false) == true do
         Map.put(config, :sample_composition_time_offsets_present, 0x800)
       else
         Map.put(config, :sample_composition_time_offsets_present, 0x000)

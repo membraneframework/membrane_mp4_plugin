@@ -31,7 +31,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
                 spec: Membrane.Time.t(),
                 default: 2 |> Time.seconds()
               ],
-              sample_composition_time_offsets_present: [
+              support_b_frames: [
                 type: :boolean,
                 default: false
               ]
@@ -224,7 +224,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
                   sample.metadata.duration,
                   timescale
                 )
-                |> Ratio.trunc()
+                |> Ratio.trunc(),
+              sample_offset:
+                Ratio.floor(Ratio.to_float(sample.pts - sample.dts) / Ratio.to_float(timescale))
             }
           end)
 
@@ -244,7 +246,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
           timescale: timescale,
           samples_table: samples_table,
           samples_data: samples_data,
-          sample_composition_time_offsets_present: state.sample_composition_time_offsets_present
+          support_b_frames: state.support_b_frames
         }
       end)
 
