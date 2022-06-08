@@ -38,7 +38,7 @@ defmodule Membrane.MP4.MovieFragmentBox do
           timescale: integer,
           duration: integer,
           samples_table: [%{sample_size: integer, sample_flags: integer}],
-          sample_composition_time_offsets_present: true | false
+          support_b_frames: boolean()
         }) :: Container.t()
   def assemble(config) do
     config =
@@ -49,7 +49,7 @@ defmodule Membrane.MP4.MovieFragmentBox do
       })
 
     config =
-      if Map.get(config, :support_b_frames, false) == true do
+      if config.support_b_frames do
         Map.put(config, :sample_composition_time_offsets_present, 0x800)
       else
         Map.put(config, :sample_composition_time_offsets_present, 0x000)
