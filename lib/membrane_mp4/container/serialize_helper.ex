@@ -82,9 +82,9 @@ defmodule Membrane.MP4.Container.SerializeHelper do
 
   defp serialize_field(term, {type, when: condition}, context) do
     {flag, key} = condition
-    context_object = Map.get(context, key)
+    context_object = Map.get(context, key, 0)
 
-    if context_object != nil and (flag &&& context_object) == flag do
+    if (flag &&& context_object) == flag do
       serialize_field(term, type, context)
     else
       {{:ok, <<>>}, context}
