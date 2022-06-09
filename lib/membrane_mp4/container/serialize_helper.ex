@@ -11,39 +11,39 @@ defmodule Membrane.MP4.Container.SerializeHelper do
   @box_size_size 4
   @box_header_size @box_name_size + @box_size_size
 
-  @type storage_t() :: %{atom() => integer()}
+  @type context_t() :: %{atom() => integer()}
 
-  @spec serialize_boxes(Container.t(), Schema.t(), storage_t()) ::
-          {{:error, Container.serialize_error_context_t()}, storage_t()}
-          | {{:ok, binary}, storage_t()}
-  def serialize_boxes(mp4, schema, storage) do
-    with {{:ok, data}, storage} <-
-           Bunch.Enum.try_map_reduce(mp4, storage, fn {box_name, box}, storage ->
-             serialize_box(box_name, box, Map.fetch(schema, box_name), storage)
+  @spec serialize_boxes(Container.t(), Schema.t(), context_t()) ::
+          {{:error, Container.serialize_error_context_t()}, context_t()}
+          | {{:ok, binary}, context_t()}
+  def serialize_boxes(mp4, schema, context) do
+    with {{:ok, data}, context} <-
+           Bunch.Enum.try_map_reduce(mp4, context, fn {box_name, box}, context ->
+             serialize_box(box_name, box, Map.fetch(schema, box_name), context)
            end) do
-      {{:ok, IO.iodata_to_binary(data)}, storage}
+      {{:ok, IO.iodata_to_binary(data)}, context}
     end
   end
 
-  defp serialize_box(box_name, %{content: content}, _schema, storage) do
+  defp serialize_box(box_name, %{content: content}, _schema, context) do
     header = serialize_header(box_name, byte_size(content))
-    {{:ok, [header, content]}, storage}
+    {{:ok, [header, content]}, context}
   end
 
-  defp serialize_box(box_name, box, {:ok, schema}, storage) do
-    with {{:ok, fields}, storage} <-
-           serialize_fields(Map.get(box, :fields, %{}), schema.fields, storage),
-         {{:ok, children}, storage} <-
-           serialize_boxes(Map.get(box, :children, %{}), schema.children, storage) do
+  defp serialize_box(box_name, box, {:ok, schema}, context) do
+    with {{:ok, fields}, context} <-
+           serialize_fields(Map.get(box, :fields, %{}), schema.fields, context),
+         {{:ok, children}, context} <-
+           serialize_boxes(Map.get(box, :children, %{}), schema.children, context) do
       header = serialize_header(box_name, byte_size(fields) + byte_size(children))
-      {{:ok, [header, fields, children]}, storage}
+      {{:ok, [header, fields, children]}, context}
     else
-      {{:error, context}, storage} -> {{:error, [box: box_name] ++ context}, storage}
+      {{:error, error_context}, context} -> {{:error, [box: box_name] ++ error_context}, context}
     end
   end
 
-  defp serialize_box(box_name, _box, :error, storage) do
-    {{:error, unknown_box: box_name}, storage}
+  defp serialize_box(box_name, _box, :error, context) do
+    {{:error, unknown_box: box_name}, context}
   end
 
   defp serialize_header(name, content_size) do
@@ -55,81 +55,92 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     Atom.to_string(name) |> String.pad_trailing(@box_name_size, [" "])
   end
 
-  defp serialize_fields(term, fields, storage) do
-    with {{:ok, data}, storage} <- serialize_field(term, fields, storage) do
+  defp serialize_fields(term, fields, context) do
+    with {{:ok, data}, context} <- serialize_field(term, fields, context) do
       data
       |> List.flatten()
       |> Enum.reduce(<<>>, &<<&2::bitstring, &1::bitstring>>)
-      ~> {{:ok, &1}, storage}
+      ~> {{:ok, &1}, context}
     end
   end
 
-  defp serialize_field(term, {type, store: storage_name}, storage) do
-    storage = Map.put(storage, storage_name, term)
-    serialize_field(term, type, storage)
-  end
-
-  defp serialize_field(term, {type, when: condition}, storage) do
+  defp serialize_field(term, {type, store: context_name, when: condition}, context) do
     {flag, key} = condition
-    storage_object = Map.get(storage, key)
+    context_object = Map.get(context, key)
 
-    if storage_object != nil and (flag &&& storage_object) == flag do
-      serialize_field(term, type, storage)
+    if context_object != nil and (flag &&& context_object) == flag do
+      serialize_field(term, {type, store: context_name}, context)
     else
-      {{:ok, <<>>}, storage}
+      {{:ok, <<>>}, context}
     end
   end
 
-  defp serialize_field(term, subfields, storage) when is_list(subfields) and is_map(term) do
-    Bunch.Enum.try_map_reduce(subfields, storage, fn
-      {:reserved, data}, storage ->
-        {{:ok, data}, storage}
+  defp serialize_field(term, {type, store: context_name}, context) do
+    context = Map.put(context, context_name, term)
+    serialize_field(term, type, context)
+  end
 
-      {name, type}, storage ->
+  defp serialize_field(term, {type, when: condition}, context) do
+    {flag, key} = condition
+    context_object = Map.get(context, key)
+
+    if context_object != nil and (flag &&& context_object) == flag do
+      serialize_field(term, type, context)
+    else
+      {{:ok, <<>>}, context}
+    end
+  end
+
+  defp serialize_field(term, subfields, context) when is_list(subfields) and is_map(term) do
+    Bunch.Enum.try_map_reduce(subfields, context, fn
+      {:reserved, data}, context ->
+        {{:ok, data}, context}
+
+      {name, type}, context ->
         with term <- Map.get(term, name),
-             {{:ok, data}, storage} <- serialize_field(term, type, storage) do
-          {{:ok, data}, storage}
+             {{:ok, data}, context} <- serialize_field(term, type, context) do
+          {{:ok, data}, context}
         else
-          {{:error, context}, storage} ->
-            {{:error, [field: name] ++ context}, storage}
+          {{:error, error_context}, context} ->
+            {{:error, [field: name] ++ error_context}, context}
         end
     end)
   end
 
-  defp serialize_field(term, {:int, size}, storage) when is_integer(term) do
-    {{:ok, <<term::signed-integer-size(size)>>}, storage}
+  defp serialize_field(term, {:int, size}, context) when is_integer(term) do
+    {{:ok, <<term::signed-integer-size(size)>>}, context}
   end
 
-  defp serialize_field(term, {:uint, size}, storage) when is_integer(term) do
-    {{:ok, <<term::integer-size(size)>>}, storage}
+  defp serialize_field(term, {:uint, size}, context) when is_integer(term) do
+    {{:ok, <<term::integer-size(size)>>}, context}
   end
 
-  defp serialize_field({int, frac}, {:fp, int_size, frac_size}, storage)
+  defp serialize_field({int, frac}, {:fp, int_size, frac_size}, context)
        when is_integer(int) and is_integer(frac) do
-    {{:ok, <<int::integer-size(int_size), frac::integer-size(frac_size)>>}, storage}
+    {{:ok, <<int::integer-size(int_size), frac::integer-size(frac_size)>>}, context}
   end
 
-  defp serialize_field(term, :bin, storage) when is_bitstring(term) do
-    {{:ok, term}, storage}
+  defp serialize_field(term, :bin, context) when is_bitstring(term) do
+    {{:ok, term}, context}
   end
 
-  defp serialize_field(term, {type, size}, storage)
+  defp serialize_field(term, {type, size}, context)
        when type in [:bin, :str] and is_bitstring(term) and bit_size(term) == size do
-    {{:ok, term}, storage}
+    {{:ok, term}, context}
   end
 
-  defp serialize_field(term, :str, storage) when is_binary(term) do
-    {{:ok, term <> "\0"}, storage}
+  defp serialize_field(term, :str, context) when is_binary(term) do
+    {{:ok, term <> "\0"}, context}
   end
 
-  defp serialize_field(term, {:list, type}, storage) when is_list(term) do
-    Bunch.Enum.try_map_reduce(term, storage, fn term, storage ->
-      case serialize_field(term, type, storage) do
-        {{:ok, term}, storage} -> {{:ok, term}, storage}
-        {{:error, context}, storage} -> {{:error, context}, storage}
+  defp serialize_field(term, {:list, type}, context) when is_list(term) do
+    Bunch.Enum.try_map_reduce(term, context, fn term, context ->
+      case serialize_field(term, type, context) do
+        {{:ok, term}, context} -> {{:ok, term}, context}
+        {{:error, error_context}, context} -> {{:error, error_context}, context}
       end
     end)
   end
 
-  defp serialize_field(_term, _type, storage), do: {{:error, []}, storage}
+  defp serialize_field(_term, _type, context), do: {{:error, []}, context}
 end

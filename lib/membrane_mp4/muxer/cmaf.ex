@@ -230,8 +230,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
                   timescale
                 )
                 |> Ratio.trunc(),
-              sample_offset:
-                Ratio.floor(Ratio.to_float(sample.pts - sample.dts) / Ratio.to_float(timescale))
+              sample_offset: Ratio.floor((sample.pts - sample.dts) / timescale)
             }
           end)
 
