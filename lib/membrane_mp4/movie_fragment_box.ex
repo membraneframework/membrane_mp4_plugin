@@ -38,7 +38,7 @@ defmodule Membrane.MP4.MovieFragmentBox do
           elapsed_time: integer,
           timescale: integer,
           duration: integer,
-          samples_table: [%{sample_size: integer, sample_flags: integer}],
+          samples_table: [%{sample_size: integer, sample_flags: integer}]
         }) :: Container.t()
   def assemble(config) do
     config =

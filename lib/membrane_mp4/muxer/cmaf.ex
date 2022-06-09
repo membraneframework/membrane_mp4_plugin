@@ -241,7 +241,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
           duration: Helper.timescalify(duration, timescale),
           timescale: timescale,
           samples_table: samples_table,
-          samples_data: samples_data,
+          samples_data: samples_data
         }
       end)
 
