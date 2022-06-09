@@ -10,8 +10,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
   If a stream contains non-key frames (like H264 P or B frames), they should be marked
   with a `mp4_payload: %{key_frame?: false}` metadata entry.
 
-  If your stream contains B-frames, make sure the `:support_b_frames` option is set to `true`, since an additional information about
-  a PTS/DTS offset needs to be put in the container.
   """
   use Membrane.Filter
 
@@ -33,12 +31,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
                 type: :time,
                 spec: Membrane.Time.t(),
                 default: 2 |> Time.seconds()
-              ],
-              support_b_frames: [
-                type: :boolean,
-                default: true,
-                description:
-                  "If true, the samples will contain an additional sample_offset field, which indicates an offset between PTS and DTS of the sample. Defaults to true."
               ]
 
   @impl true
@@ -250,7 +242,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
           timescale: timescale,
           samples_table: samples_table,
           samples_data: samples_data,
-          support_b_frames: state.support_b_frames
         }
       end)
 

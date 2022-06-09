@@ -28,7 +28,8 @@ defmodule Membrane.MP4.MovieFragmentBox do
     data_offset: 1,
     sample_duration: 0x100,
     sample_size: 0x200,
-    sample_flags: 0x400
+    sample_flags: 0x400,
+    sample_composition_time_offsets_present: 0x800
   }
   @mdat_data_offset 8
 
@@ -38,7 +39,6 @@ defmodule Membrane.MP4.MovieFragmentBox do
           timescale: integer,
           duration: integer,
           samples_table: [%{sample_size: integer, sample_flags: integer}],
-          support_b_frames: boolean()
         }) :: Container.t()
   def assemble(config) do
     config =
@@ -47,13 +47,6 @@ defmodule Membrane.MP4.MovieFragmentBox do
         sample_count: length(config.samples_table),
         data_offset: 0
       })
-
-    config =
-      if config.support_b_frames do
-        Map.put(config, :sample_composition_time_offsets_present, 0x800)
-      else
-        Map.put(config, :sample_composition_time_offsets_present, 0x000)
-      end
 
     moof_size = moof(config) |> Container.serialize!() |> byte_size()
 
@@ -98,7 +91,7 @@ defmodule Membrane.MP4.MovieFragmentBox do
                   flags:
                     @trun_flags.data_offset + @trun_flags.sample_duration +
                       @trun_flags.sample_size + @trun_flags.sample_flags +
-                      config.sample_composition_time_offsets_present,
+                      @trun_flags.sample_composition_time_offsets_present,
                   sample_count: config.sample_count,
                   samples: config.samples_table,
                   version: 0
