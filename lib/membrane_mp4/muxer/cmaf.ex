@@ -9,6 +9,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   If a stream contains non-key frames (like H264 P or B frames), they should be marked
   with a `mp4_payload: %{key_frame?: false}` metadata entry.
+
   """
   use Membrane.Filter
 
@@ -220,7 +221,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
                   sample.metadata.duration,
                   timescale
                 )
-                |> Ratio.trunc()
+                |> Ratio.trunc(),
+              sample_offset: Ratio.floor((sample.pts - sample.dts) / timescale)
             }
           end)
 

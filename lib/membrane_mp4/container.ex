@@ -36,7 +36,10 @@ defmodule Membrane.MP4.Container do
   """
   @spec parse(binary, Schema.t()) :: {:ok, t} | {:error, parse_error_context_t}
   def parse(data, schema) do
-    ParseHelper.parse_boxes(data, schema, [])
+    case ParseHelper.parse_boxes(data, schema, %{}, []) do
+      {:ok, result, _storage} -> {:ok, result}
+      error -> error
+    end
   end
 
   @doc """
@@ -52,8 +55,8 @@ defmodule Membrane.MP4.Container do
   """
   @spec parse!(binary, Schema.t()) :: t
   def parse!(data, schema) do
-    case ParseHelper.parse_boxes(data, schema, []) do
-      {:ok, mp4} ->
+    case ParseHelper.parse_boxes(data, schema, %{}, []) do
+      {:ok, mp4, _storage} ->
         mp4
 
       {:error, context} ->
@@ -80,7 +83,10 @@ defmodule Membrane.MP4.Container do
   """
   @spec serialize(t, Schema.t()) :: {:ok, binary} | {:error, serialize_error_context_t}
   def serialize(mp4, schema) do
-    SerializeHelper.serialize_boxes(mp4, schema)
+    case SerializeHelper.serialize_boxes(mp4, schema, %{}) do
+      {{:ok, result}, _storage} -> {:ok, result}
+      {{:error, context}, _storage} -> {:error, context}
+    end
   end
 
   @doc """
@@ -96,11 +102,11 @@ defmodule Membrane.MP4.Container do
   """
   @spec serialize!(t, Schema.t()) :: binary
   def serialize!(mp4, schema) do
-    case SerializeHelper.serialize_boxes(mp4, schema) do
-      {:ok, data} ->
+    case SerializeHelper.serialize_boxes(mp4, schema, %{}) do
+      {{:ok, data}, _storage} ->
         data
 
-      {:error, context} ->
+      {{:error, context}, _storage} ->
         box = Keyword.get_values(context, :box)
 
         raise """

@@ -24,7 +24,13 @@ defmodule Membrane.MP4.MovieFragmentBox do
   """
   alias Membrane.MP4.Container
 
-  @trun_flags %{data_offset: 1, sample_duration: 0x100, sample_size: 0x200, sample_flags: 0x400}
+  @trun_flags %{
+    data_offset: 1,
+    sample_duration: 0x100,
+    sample_size: 0x200,
+    sample_flags: 0x400,
+    sample_composition_time_offsets_present: 0x800
+  }
   @mdat_data_offset 8
 
   @spec assemble(%{
@@ -84,7 +90,8 @@ defmodule Membrane.MP4.MovieFragmentBox do
                   data_offset: config.data_offset,
                   flags:
                     @trun_flags.data_offset + @trun_flags.sample_duration +
-                      @trun_flags.sample_size + @trun_flags.sample_flags,
+                      @trun_flags.sample_size + @trun_flags.sample_flags +
+                      @trun_flags.sample_composition_time_offsets_present,
                   sample_count: config.sample_count,
                   samples: config.samples_table,
                   version: 0

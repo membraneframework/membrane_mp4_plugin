@@ -62,6 +62,25 @@ defmodule Membrane.MP4.Container.Schema.Parser do
     {name, type}
   end
 
+  defp parse_field({name, {type, store: context_name, when: {flag, context_name}}})
+       when is_atom(name) do
+    {name, type} = parse_field({name, type})
+    type = {type, store: context_name, when: {flag, context_name}}
+    {name, type}
+  end
+
+  defp parse_field({name, {type, store: context_name}}) when is_atom(name) do
+    {name, type} = parse_field({name, type})
+    type = {type, store: context_name}
+    {name, type}
+  end
+
+  defp parse_field({name, {type, when: {flag, context_name}}}) when is_atom(name) do
+    {name, type} = parse_field({name, type})
+    type = {type, when: {flag, context_name}}
+    {name, type}
+  end
+
   defp parse_field({name, {:list, type}}) do
     {name, type} = parse_field({name, type})
     {name, {:list, type}}

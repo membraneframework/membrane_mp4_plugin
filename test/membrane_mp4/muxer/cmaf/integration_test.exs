@@ -12,7 +12,9 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       file: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
       parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
       payloader: Membrane.MP4.Payloader.H264,
-      cmaf: %Membrane.MP4.Muxer.CMAF{segment_duration: Membrane.Time.seconds(2)},
+      cmaf: %Membrane.MP4.Muxer.CMAF{
+        segment_duration: Membrane.Time.seconds(2)
+      },
       sink: Membrane.Testing.Sink
     ]
 
@@ -39,7 +41,9 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
       parser: %Membrane.AAC.Parser{out_encapsulation: :none},
       payloader: Membrane.MP4.Payloader.AAC,
-      cmaf: %Membrane.MP4.Muxer.CMAF{segment_duration: Membrane.Time.seconds(2)},
+      cmaf: %Membrane.MP4.Muxer.CMAF{
+        segment_duration: Membrane.Time.seconds(2)
+      },
       sink: Membrane.Testing.Sink
     ]
 
@@ -76,7 +80,9 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
                  },
                  audio_payloader: Membrane.MP4.Payloader.AAC,
                  video_payloader: Membrane.MP4.Payloader.H264,
-                 cmaf: %Membrane.MP4.Muxer.CMAF{segment_duration: Membrane.Time.seconds(2)},
+                 cmaf: %Membrane.MP4.Muxer.CMAF{
+                   segment_duration: Membrane.Time.seconds(2)
+                 },
                  sink: Membrane.Testing.Sink
                ],
                links: [
