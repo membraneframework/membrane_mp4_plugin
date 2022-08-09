@@ -7,9 +7,17 @@ defmodule Membrane.MP4.Muxer.CMAF do
   Given that all input streams need to have a keyframe at the beginning of each CMAF Segment, it is recommended
   that all input streams are renditions of the same content.
 
+  The muxer also supports creation of partial segments that do not begin with a key frame
+  when the `partial_segment_duration` is specified (for best results when multiplied by an integer
+  it should sum to segment duration). The muxer tries to create many partial segments to fulfill the
+  regular segment duration, in case of the last partial segment matching the duration window it can
+  gather more samples so that the next segment begins with a key frame. The output buffers
+  have `partial_segment?` flag indicating that the muxer produces partial segments and also `independent`
+  flag suggesting that the buffer starts with a key frame.
+
+
   If a stream contains non-key frames (like H264 P or B frames), they should be marked
   with a `mp4_payload: %{key_frame?: false}` metadata entry.
-
   """
   use Membrane.Filter
 
@@ -28,9 +36,14 @@ defmodule Membrane.MP4.Muxer.CMAF do
   def_output_pad :output, caps: Membrane.CMAF.Track
 
   def_options segment_duration: [
-                type: :time,
                 spec: Membrane.Time.t(),
                 default: 2 |> Time.seconds()
+              ],
+              partial_segment_duration: [
+                spec: Membrane.Time.t() | nil,
+                default: nil,
+                description:
+                  "The duration of partial segments, when set to nil the muxer assumes it should not produce partial segments"
               ]
 
   @impl true
@@ -67,7 +80,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
       track: nil,
       elapsed_time: 0,
       end_timestamp: 0,
-      buffer_awaiting_duration: nil
+      buffer_awaiting_duration: nil,
+      partial_segments_duration: Membrane.Time.seconds(0)
     }
 
     state
@@ -133,7 +147,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     {caps_action, segment} =
       if is_nil(state.awaiting_caps) do
-        {[], Segment.Helper.get_segment(state, state.segment_duration)}
+        {[],
+         Segment.Helper.get_segment(
+           state,
+           state.segment_duration,
+           state.partial_segment_duration
+         )}
       else
         {duration, caps} = state.awaiting_caps
         {[caps: {:output, caps}], Segment.Helper.get_discontinuity_segment(state, duration)}
@@ -255,7 +274,20 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> then(&(Enum.sum(&1) / length(&1)))
       |> floor()
 
-    buffer = %Buffer{payload: payload, metadata: %{duration: duration}}
+    # there can be a lot of different tracks inside the segment, but if any of them starts with a key frame
+    # it means that we have an independent segment
+    independent =
+      Enum.any?(acc, fn {_pad, samples} ->
+        hd(samples).metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, false)
+      end)
+
+    metadata = %{
+      duration: duration,
+      partial_segment?: state.partial_segment_duration != nil,
+      independent?: independent
+    }
+
+    buffer = %Buffer{payload: payload, metadata: metadata}
 
     # Update elapsed time counters for each track
     state =

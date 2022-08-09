@@ -2,10 +2,12 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   @moduledoc false
   use Bunch
 
-  @spec get_segment(map(), non_neg_integer()) :: {:ok, map(), map()} | {:error, :not_enough_data}
-  def get_segment(state, duration) do
-    with {:ok, segment_part_1, state} <- collect_duration(state, duration),
-         {:ok, segment_part_2, state} <- collect_until_keyframes(state) do
+  @spec get_segment(map(), non_neg_integer(), non_neg_integer() | nil) ::
+          {:ok, map(), map()} | {:error, :not_enough_data}
+  def get_segment(state, duration, partial_duration \\ nil) do
+    with {:ok, segment_part_1, state} <- collect_duration(state, partial_duration || duration),
+         {:ok, segment_part_2, state} <-
+           collect_until_keyframes(state, duration, partial_duration) do
       segment =
         Map.new(segment_part_1, fn {pad, samples} ->
           samples_part_2 = Map.get(segment_part_2, pad, [])
@@ -50,8 +52,15 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
       {:error, :not_enough_data}
     else
       state =
-        Enum.reduce(partial_segments, state, fn {:ok, {track, _segment, leftover}}, state ->
-          put_in(state, [:samples, track], leftover)
+        Enum.reduce(partial_segments, state, fn {:ok, {track, segment, leftover}}, state ->
+          durations =
+            Enum.reduce(segment, 0, fn sample, durations ->
+              durations + sample.metadata.duration
+            end)
+
+          state
+          |> put_in([:samples, track], leftover)
+          |> update_in([:pad_to_track_data, track, :partial_segments_duration], &(&1 + durations))
         end)
 
       segment =
@@ -69,7 +78,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   defp collect_from_track_to_timestamp(track, samples, desired_end) do
     use Ratio, comparison: true
 
-    {leftover, samples} = Enum.split_while(samples, &(&1.dts > desired_end))
+    {leftover, samples} = Enum.split_while(samples, &(&1.dts >= desired_end))
 
     if hd(samples).dts + hd(samples).metadata.duration >= desired_end do
       {:ok, {track, samples, leftover}}
@@ -82,9 +91,49 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   # 1. Check if all tracks begin with keyframe. If that is the case, algorithm finishes
   # 2. Select the track with the smallest dts at the beginning. Collect samples until it doesn't have the smallest dts.
   # 3. Go to step 1
-  defp collect_until_keyframes(state) do
+  defp collect_until_keyframes(state, _duration, nil) do
     with {:ok, segment, state} <- do_collect_until_keyframes(reverse_samples(state), nil) do
       {:ok, segment, reverse_samples(state)}
+    end
+  end
+
+  defp collect_until_keyframes(state, duration, _partial_duration) do
+    %{partial_segments_duration: partial_segments_duration} =
+      state.pad_to_track_data
+      |> Map.values()
+      |> Enum.max_by(& &1.partial_segments_duration)
+
+    reset_partial_durations = fn state ->
+      state
+      |> Map.update!(:pad_to_track_data, fn entries ->
+        entries
+        |> Map.new(fn {pad, data} -> {pad, Map.replace(data, :partial_segments_duration, 0)} end)
+      end)
+    end
+
+    cond do
+      # in case we reached the desired segment duration and we are allowed
+      # to finalize the segment but only if the next sample is a key frame
+      duration - partial_segments_duration <= 0 and
+          Enum.any?(state.samples, fn {_track, samples} ->
+            samples |> List.last([]) |> starts_with_keyframe?()
+          end) ->
+        {:ok, %{}, reset_partial_durations.(state)}
+
+      # partial durations exceeded the target segment duration, seek for keyframe
+      duration - partial_segments_duration <= 0 ->
+        state
+        |> collect_until_keyframes(duration, nil)
+        |> case do
+          {:ok, segment, state} ->
+            {:ok, segment, reset_partial_durations.(state)}
+
+          other ->
+            other
+        end
+
+      true ->
+        {:ok, %{}, state}
     end
   end
 
@@ -126,6 +175,9 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
   defp starts_with_keyframe?([target | _rest]),
     do: Map.get(target.metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
+
+  defp starts_with_keyframe?(%Membrane.Buffer{metadata: metadata}),
+    do: Map.get(metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
 
   defp reverse_samples(state),
     do:
