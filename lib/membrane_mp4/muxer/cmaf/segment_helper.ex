@@ -35,7 +35,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
   # Collects partial CMAF segment so that the length matches given duration
   defp collect_duration(state, target_duration) do
-    use Ratio
+    use Ratio, comparison: true
 
     end_timestamp =
       Enum.map(state.pad_to_track_data, fn {_key, track_data} ->
@@ -80,7 +80,11 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
     {leftover, samples} = Enum.split_while(samples, &(&1.dts >= desired_end))
 
-    if hd(samples).dts + hd(samples).metadata.duration >= desired_end do
+    # desired_end is a float, operate on floats to avoid marginal errors such as
+    # having a really low floating point error preventing from creating a sample
+    total_duration = Ratio.to_float(hd(samples).dts + hd(samples).metadata.duration)
+
+    if total_duration >= desired_end do
       {:ok, {track, samples, leftover}}
     else
       {:error, :not_enough_data}
@@ -98,6 +102,8 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   end
 
   defp collect_until_keyframes(state, duration, _partial_duration) do
+    use Ratio, comparison: true
+
     %{partial_segments_duration: partial_segments_duration} =
       state.pad_to_track_data
       |> Map.values()
@@ -111,17 +117,19 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
       end)
     end
 
+    diff = duration - partial_segments_duration
+
     cond do
       # in case we reached the desired segment duration and we are allowed
       # to finalize the segment but only if the next sample is a key frame
-      duration - partial_segments_duration <= 0 and
+      diff <= 0 and
           Enum.any?(state.samples, fn {_track, samples} ->
             samples |> List.last([]) |> starts_with_keyframe?()
           end) ->
         {:ok, %{}, reset_partial_durations.(state)}
 
       # partial durations exceeded the target segment duration, seek for keyframe
-      duration - partial_segments_duration <= 0 ->
+      diff <= 0 ->
         state
         |> collect_until_keyframes(duration, nil)
         |> case do
