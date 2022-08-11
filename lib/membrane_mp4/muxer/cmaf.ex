@@ -278,7 +278,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     # it means that we have an independent segment
     independent =
       Enum.any?(acc, fn {_pad, samples} ->
-        hd(samples).metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, false)
+        hd(samples).metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
       end)
 
     metadata = %{
