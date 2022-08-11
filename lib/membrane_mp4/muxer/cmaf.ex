@@ -223,7 +223,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
     use Ratio, comparison: true
 
     tracks_data =
-      Enum.map(acc, fn {pad, samples} ->
+      acc
+      |> Enum.filter(fn {_pad, samples} -> not Enum.empty?(samples) end)
+      |> Enum.map(fn {pad, samples} ->
         %{timescale: timescale} = ctx.pads[pad].caps
         first_sample = hd(samples)
         last_sample = List.last(samples)
