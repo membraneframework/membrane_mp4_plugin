@@ -171,29 +171,42 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   @impl true
   def handle_end_of_stream(Pad.ref(:input, _track_id) = pad, ctx, state) do
-    sample = state.pad_to_track_data[pad].buffer_awaiting_duration
-
-    sample_metadata =
-      Map.put(sample.metadata, :duration, hd(state.samples[pad]).metadata.duration)
-
-    sample = %Buffer{sample | metadata: sample_metadata}
-
-    state = update_in(state, [:samples, pad], &[sample | &1])
+    pad_samples = state.samples[pad]
 
     processing_finished? =
-      ctx.pads |> Map.drop([:output, pad]) |> Map.values() |> Enum.all?(& &1.end_of_stream?)
+      ctx.pads
+      |> Map.drop([:output, pad])
+      |> Map.values()
+      |> Enum.all?(& &1.end_of_stream?)
 
-    if processing_finished? do
-      with {:ok, segment, state} <- Segment.Helper.take_all_samples(state) do
-        {buffer, state} = generate_segment(segment, ctx, state)
-        {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
+    if not Enum.empty?(pad_samples) do
+      sample = state.pad_to_track_data[pad].buffer_awaiting_duration
+
+      sample_metadata =
+        Map.put(sample.metadata, :duration, hd(pad_samples).metadata.duration)
+
+      sample = %Buffer{sample | metadata: sample_metadata}
+
+      state = update_in(state, [:samples, pad], &[sample | &1])
+
+      if processing_finished? do
+        with {:ok, segment, state} <- Segment.Helper.take_all_samples(state) do
+          {buffer, state} = generate_segment(segment, ctx, state)
+          {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
+        else
+          {:error, :not_enough_data} -> {{:ok, end_of_stream: :output}, state}
+        end
       else
-        {:error, :not_enough_data} -> {{:ok, end_of_stream: :output}, state}
+        state = put_in(state, [:pad_to_track_data, pad, :end_timestamp], nil)
+
+        {{:ok, redemand: :output}, state}
       end
     else
-      state = put_in(state, [:pad_to_track_data, pad, :end_timestamp], nil)
-
-      {{:ok, redemand: :output}, state}
+      if processing_finished? do
+        {{:ok, end_of_stream: :output}}
+      else
+        {{:ok, redemand: :output}, state}
+      end
     end
   end
 
