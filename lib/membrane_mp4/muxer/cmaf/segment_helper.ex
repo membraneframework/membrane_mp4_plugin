@@ -123,7 +123,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
       # in case we reached the desired segment duration and we are allowed
       # to finalize the segment but only if the next sample is a key frame
       diff <= 0 and
-          Enum.any?(state.samples, fn {_track, samples} ->
+          Enum.all?(state.samples, fn {_track, samples} ->
             samples |> List.last([]) |> starts_with_keyframe?()
           end) ->
         {:ok, %{}, reset_partial_durations.(state)}
