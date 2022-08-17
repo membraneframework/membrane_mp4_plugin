@@ -180,33 +180,36 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> Enum.all?(& &1.end_of_stream?)
 
     if not Enum.empty?(pad_samples) do
-      sample = state.pad_to_track_data[pad].buffer_awaiting_duration
-
-      sample_metadata =
-        Map.put(sample.metadata, :duration, hd(pad_samples).metadata.duration)
-
-      sample = %Buffer{sample | metadata: sample_metadata}
-
-      state = update_in(state, [:samples, pad], &[sample | &1])
-
-      if processing_finished? do
-        with {:ok, segment, state} <- Segment.Helper.take_all_samples(state) do
-          {buffer, state} = generate_segment(segment, ctx, state)
-          {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
-        else
-          {:error, :not_enough_data} -> {{:ok, end_of_stream: :output}, state}
-        end
-      else
-        state = put_in(state, [:pad_to_track_data, pad, :end_timestamp], nil)
-
-        {{:ok, redemand: :output}, state}
-      end
+      generate_end_of_stream_segment(processing_finished?, pad_samples, pad, ctx, state)
     else
       if processing_finished? do
         {{:ok, end_of_stream: :output}}
       else
         {{:ok, redemand: :output}, state}
       end
+    end
+  end
+
+  defp generate_end_of_stream_segment(processing_finished?, pad_samples, pad, ctx, state) do
+    sample = state.pad_to_track_data[pad].buffer_awaiting_duration
+
+    sample_metadata = Map.put(sample.metadata, :duration, hd(pad_samples).metadata.duration)
+
+    sample = %Buffer{sample | metadata: sample_metadata}
+
+    state = update_in(state, [:samples, pad], &[sample | &1])
+
+    if processing_finished? do
+      with {:ok, segment, state} <- Segment.Helper.take_all_samples(state) do
+        {buffer, state} = generate_segment(segment, ctx, state)
+        {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
+      else
+        {:error, :not_enough_data} -> {{:ok, end_of_stream: :output}, state}
+      end
+    else
+      state = put_in(state, [:pad_to_track_data, pad, :end_timestamp], nil)
+
+      {{:ok, redemand: :output}, state}
     end
   end
 
@@ -298,7 +301,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     metadata = %{
       duration: duration,
-      partial_segment?: state.partial_segment_duration != nil,
       independent?: independent
     }
 
