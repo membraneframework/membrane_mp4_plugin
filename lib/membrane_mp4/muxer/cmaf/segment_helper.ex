@@ -109,14 +109,6 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
       |> Map.values()
       |> Enum.max_by(& &1.partial_segments_duration)
 
-    reset_partial_durations = fn state ->
-      state
-      |> Map.update!(:pad_to_track_data, fn entries ->
-        entries
-        |> Map.new(fn {pad, data} -> {pad, Map.replace(data, :partial_segments_duration, 0)} end)
-      end)
-    end
-
     diff = duration - partial_segments_duration
 
     cond do
@@ -126,7 +118,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
           Enum.all?(state.samples, fn {_track, samples} ->
             samples |> List.last([]) |> starts_with_keyframe?()
           end) ->
-        {:ok, %{}, reset_partial_durations.(state)}
+        {:ok, %{}, reset_partial_durations(state)}
 
       # partial durations exceeded the target segment duration, seek for keyframe
       diff <= 0 ->
@@ -134,7 +126,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
         |> collect_until_keyframes(duration, nil)
         |> case do
           {:ok, segment, state} ->
-            {:ok, segment, reset_partial_durations.(state)}
+            {:ok, segment, reset_partial_durations(state)}
 
           other ->
             other
@@ -177,6 +169,14 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
           {:ok, segment, state}
         end
     end
+  end
+
+  defp reset_partial_durations(state) do
+    state
+    |> Map.update!(:pad_to_track_data, fn entries ->
+      entries
+      |> Map.new(fn {pad, data} -> {pad, Map.replace(data, :partial_segments_duration, 0)} end)
+    end)
   end
 
   defp starts_with_keyframe?([]), do: false

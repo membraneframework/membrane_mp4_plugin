@@ -179,14 +179,14 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> Map.values()
       |> Enum.all?(& &1.end_of_stream?)
 
-    if not Enum.empty?(pad_samples) do
-      generate_end_of_stream_segment(processing_finished?, pad_samples, pad, ctx, state)
-    else
+    if Enum.empty?(pad_samples) do
       if processing_finished? do
         {{:ok, end_of_stream: :output}}
       else
         {{:ok, redemand: :output}, state}
       end
+    else
+      generate_end_of_stream_segment(processing_finished?, pad_samples, pad, ctx, state)
     end
   end
 
