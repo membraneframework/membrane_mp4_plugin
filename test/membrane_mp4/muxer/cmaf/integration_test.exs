@@ -1,7 +1,11 @@
 defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   use ExUnit.Case, async: true
+
   import Membrane.Testing.Assertions
+
+  alias Membrane.Time
   alias Membrane.MP4.Container
+  alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange
   alias Membrane.{ParentSpec, Testing}
 
   # Fixtures used in CMAF tests below were generated using `membrane_http_adaptive_stream_plugin`
@@ -53,7 +57,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
                  audio_payloader: Membrane.MP4.Payloader.AAC,
                  video_payloader: Membrane.MP4.Payloader.H264,
                  cmaf: %Membrane.MP4.Muxer.CMAF{
-                   segment_duration: Membrane.Time.seconds(2)
+                   segment_duration_range: SegmentDurationRange.new(Time.seconds(2))
                  },
                  sink: Membrane.Testing.Sink
                ],
@@ -87,7 +91,10 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
   test "video partial segments" do
     assert {:ok, pipeline} =
-             prepare_pipeline(:video, segment_duration: 2_000, partial_segment_duration: 500)
+             prepare_pipeline(:video,
+               duration_range: new_duration_range(1500, 2000),
+               partial_duration_range: new_duration_range(250, 500)
+             )
 
     0..7
     |> Enum.map(fn i ->
@@ -109,7 +116,10 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
   test "audio partial segments" do
     assert {:ok, pipeline} =
-             prepare_pipeline(:audio, segment_duration: 2_000, partial_segment_duration: 500)
+             prepare_pipeline(:audio,
+               duration_range: new_duration_range(1500, 2000),
+               partial_duration_range: new_duration_range(250, 500)
+             )
 
     0..19
     |> Enum.map(fn _i ->
@@ -131,34 +141,45 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     # with partial segment duration being 750ms we should be able to create 1 regular partial segments
     # while the second one will last a little bit longer until reaching the keyframe after 2s of the video
     assert {:ok, pipeline} =
-             prepare_pipeline(:video, segment_duration: 1500, partial_segment_duration: 750)
+             prepare_pipeline(:video,
+               duration_range: new_duration_range(1500, 2000),
+               partial_duration_range: new_duration_range(250, 500)
+             )
 
     # the video has 10 seconds where second keyframe appears after 8 seconds
 
     # part1
     assert_sink_buffer(pipeline, :sink, buffer)
     assert buffer.metadata.independent?
-    assert buffer.metadata.duration <= Membrane.Time.milliseconds(800)
+    assert buffer.metadata.duration <= Membrane.Time.milliseconds(600)
 
-    # part2
-    assert_sink_buffer(pipeline, :sink, buffer)
-    refute buffer.metadata.independent?
-    assert buffer.metadata.duration >= Membrane.Time.milliseconds(7_000)
+    # partial segments for the following 8 seconds without a keyframe
+    for _ <- 1..15 do
+      assert_sink_buffer(pipeline, :sink, buffer)
+      refute buffer.metadata.independent?
+      assert buffer.metadata.duration <= Membrane.Time.milliseconds(600)
+    end
 
-    # part3
+    # independent part wth a keyframe
     assert_sink_buffer(pipeline, :sink, buffer)
     assert buffer.metadata.independent?
-    assert buffer.metadata.duration <= Membrane.Time.milliseconds(800)
 
-    # part4
-    assert_sink_buffer(pipeline, :sink, buffer)
-    refute buffer.metadata.independent?
+    assert buffer.metadata.duration <= Membrane.Time.milliseconds(600) and
+             buffer.metadata.duration >= Membrane.Time.milliseconds(500)
+
+    for _ <- 1..3 do
+      assert_sink_buffer(pipeline, :sink, buffer)
+      refute buffer.metadata.independent?
+    end
 
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
     :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
   end
+
+  defp new_duration_range(min, target \\ nil),
+    do: SegmentDurationRange.new(Time.milliseconds(min), Time.milliseconds(target || min))
 
   defp prepare_pipeline(type, opts \\ []) when type in [:audio, :video] do
     file =
@@ -183,20 +204,16 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
         :video -> Membrane.MP4.Payloader.H264
       end
 
-    segment_duration = Keyword.get(opts, :segment_duration, 2_000)
-    partial_segment_duration = Keyword.get(opts, :partial_segment_duration, nil)
+    duration_range = Keyword.get(opts, :duration_range, new_duration_range(1500, 2000))
+    partial_duration_range = Keyword.get(opts, :partial_duration_range, nil)
 
     children = [
       file: %Membrane.File.Source{location: file},
       parser: parser,
       payloader: payloader,
       cmaf: %Membrane.MP4.Muxer.CMAF{
-        segment_duration: Membrane.Time.milliseconds(segment_duration),
-        partial_segment_duration:
-          if(partial_segment_duration,
-            do: Membrane.Time.milliseconds(partial_segment_duration),
-            else: nil
-          )
+        segment_duration_range: duration_range,
+        partial_segment_duration_range: partial_duration_range
       },
       sink: Membrane.Testing.Sink
     ]

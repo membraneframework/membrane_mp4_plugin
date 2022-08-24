@@ -2,50 +2,114 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   @moduledoc false
   use Bunch
 
-  @spec get_segment(map(), non_neg_integer(), non_neg_integer() | nil) ::
-          {:ok, map(), map()} | {:error, :not_enough_data}
-  def get_segment(state, duration, partial_duration \\ nil) do
-    with {:ok, segment_part_1, state} <- collect_duration(state, partial_duration || duration),
-         {:ok, segment_part_2, state} <-
-           collect_until_keyframes(state, duration, partial_duration) do
-      segment =
-        Map.new(segment_part_1, fn {pad, samples} ->
-          samples_part_2 = Map.get(segment_part_2, pad, [])
-          {pad, samples ++ samples_part_2}
-        end)
+  alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange
 
+  @eps 1.0e-6
+
+  @type segment_t :: %{
+          (pad :: any()) => [Membrane.Buffer.t()]
+        }
+
+  @type segment_result_t ::
+          {:ok, segment :: segment_t(), state :: map()} | {:error, :not_enough_data}
+
+  @spec get_segment(map(), SegmentDurationRange.t()) :: segment_result_t()
+  def get_segment(state, duration_range) do
+    {min_end_timestamp, _target_end_timestamp} = calculate_end_timestamps(state, duration_range)
+
+    with {:ok, min_segment, state} <- collect_minimum_duration(state, min_end_timestamp),
+         {:ok, target_segment, state} <-
+           collect_until_keyframes(state) do
+      segment = merge_segments(min_segment, target_segment)
       {:ok, segment, state}
     end
   end
 
-  @spec take_all_samples(map()) :: {:ok, map(), map()}
-  def take_all_samples(state) do
-    samples = Map.new(state.samples, fn {key, samples} -> {key, Enum.reverse(samples)} end)
+  @spec get_partial_segment(map(), SegmentDurationRange.t(), SegmentDurationRange.t()) ::
+          segment_result_t()
+  def get_partial_segment(state, duration_range, partial_duration_range) do
+    partial_segments_duration =
+      state.pad_to_track_data
+      |> Enum.map(fn {_key, data} -> data.partial_segments_duration end)
+      |> Enum.max()
 
-    {:ok, samples, %{state | samples: %{}}}
-  end
+    cond do
+      # there duration will be less than minimum, collect full partial segment
+      partial_segments_duration + partial_duration_range.target - duration_range.min - @eps < 0 ->
+        {_min_end_timestamp, target_end_timestamp} =
+          calculate_end_timestamps(state, partial_duration_range)
 
-  @spec get_discontinuity_segment(map(), non_neg_integer()) ::
-          {:error, :not_enough_data} | {:ok, map, map}
-  def get_discontinuity_segment(state, duration) do
-    with {:ok, segment, state} <- get_segment(state, duration) do
-      {:ok, segment, %{state | awaiting_caps: nil}}
+        collect_minimum_duration(state, target_end_timestamp)
+
+      # the partial segment will be the first to exceed the minimum full segment duration,
+      # collect up to the min segment duration and then lookup further partial segments and try to look for key frames
+      # partial_segments_duration <= duration_range.min and
+      #     partial_segments_duration + partial_duration_range.min >= duration_range.min ->
+      partial_segments_duration - duration_range.min - @eps < 0 ->
+        min_duration =
+          max(duration_range.min - partial_segments_duration, partial_duration_range.min)
+
+        remaining_duration = partial_duration_range.target - min_duration
+
+        # if the remaining duration is not relevant then just skip it
+        durations =
+          if remaining_duration > 0.1 * min_duration do
+            [
+              min_duration,
+              min_duration + remaining_duration,
+              min_duration + remaining_duration + partial_duration_range.min
+            ]
+          else
+            [min_duration]
+          end
+
+        maybe_collect_partial_segment_until_keyframe(state, durations)
+
+      # there is enough duration to finish a partial segment,
+      # try to assemble at least the target duration while still looking for key frames
+      # to finish the segment quicker
+      partial_segments_duration - duration_range.min + @eps >= 0 ->
+        %SegmentDurationRange{min: min, target: target} = partial_duration_range
+
+        maybe_collect_partial_segment_until_keyframe(state, [min, target, min + target])
+
+      true ->
+        raise "Invalid durations of all partial segments"
     end
   end
 
-  # Collects partial CMAF segment so that the length matches given duration
-  defp collect_duration(state, target_duration) do
-    use Ratio, comparison: true
+  defp maybe_collect_partial_segment_until_keyframe(state, []) do
+    {:ok, %{}, state}
+  end
 
-    end_timestamp =
-      Enum.map(state.pad_to_track_data, fn {_key, track_data} ->
-        Ratio.to_float(track_data.elapsed_time + target_duration)
-      end)
-      |> Enum.max()
+  defp maybe_collect_partial_segment_until_keyframe(state, [duration | durations]) do
+    {end_timestamp, _timestamp} =
+      calculate_end_timestamps(state, SegmentDurationRange.new(duration))
 
+    with {:ok, partial_segment1, state1} <- collect_minimum_duration(state, end_timestamp),
+         {:ok, partial_segment2, state2} <-
+           maybe_collect_partial_segment_until_keyframe(state1, durations) do
+      if has_keyframe(partial_segment2) do
+        {:ok, partial_segment3, state3} = collect_until_keyframes(state1)
+
+        {:ok, merge_segments(partial_segment1, partial_segment3), reset_partial_durations(state3)}
+      else
+        # the last duration is a lookahead so don't merge it
+        case durations do
+          [_single_duration] ->
+            {:ok, partial_segment1, state1}
+
+          _other ->
+            {:ok, merge_segments(partial_segment1, partial_segment2), state2}
+        end
+      end
+    end
+  end
+
+  defp collect_minimum_duration(state, min_end_timestamp) do
     partial_segments =
       for {track, samples} <- state.samples do
-        collect_from_track_to_timestamp(track, samples, end_timestamp)
+        collect_from_track_to_timestamp(track, samples, min_end_timestamp)
       end
 
     if Enum.any?(partial_segments, &(&1 == {:error, :not_enough_data})) do
@@ -53,14 +117,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     else
       state =
         Enum.reduce(partial_segments, state, fn {:ok, {track, segment, leftover}}, state ->
-          durations =
-            Enum.reduce(segment, 0, fn sample, durations ->
-              durations + sample.metadata.duration
-            end)
-
-          state
-          |> put_in([:samples, track], leftover)
-          |> update_in([:pad_to_track_data, track, :partial_segments_duration], &(&1 + durations))
+          update_track(track, segment, leftover, state)
         end)
 
       segment =
@@ -72,22 +129,69 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end
   end
 
+  defp calculate_end_timestamps(state, duration_range) do
+    elapsed_time =
+      Enum.map(state.pad_to_track_data, fn {_key, track_data} ->
+        Ratio.to_float(track_data.elapsed_time)
+      end)
+      |> Enum.max()
+
+    {elapsed_time + duration_range.min, elapsed_time + duration_range.target}
+  end
+
+  defp merge_segments(segment1, segment2) do
+    Map.new(segment1, fn {pad, samples} ->
+      samples2 = Map.get(segment2, pad, [])
+      {pad, samples ++ samples2}
+    end)
+  end
+
+  @spec take_all_samples(map()) :: {:ok, map(), map()}
+  def take_all_samples(state) do
+    samples = Map.new(state.samples, fn {key, samples} -> {key, Enum.reverse(samples)} end)
+
+    {:ok, samples, %{state | samples: %{}}}
+  end
+
+  @spec get_discontinuity_segment(map(), Membrane.Time.t()) :: segment_result_t()
+  def get_discontinuity_segment(state, duration) do
+    with {:ok, segment, state} <- get_segment(state, SegmentDurationRange.new(duration)) do
+      {:ok, segment, %{state | awaiting_caps: nil}}
+    end
+  end
+
+  defp update_track(track, segment, leftover, state) do
+    durations =
+      Enum.reduce(segment, 0, fn sample, durations ->
+        durations + sample.metadata.duration
+      end)
+
+    state
+    |> put_in([:samples, track], leftover)
+    |> update_in([:pad_to_track_data, track, :partial_segments_duration], &(&1 + durations))
+  end
+
+  defp has_keyframe(segment) do
+    map_size(segment) > 0 and
+      Enum.all?(segment, fn {_track, samples} ->
+        Enum.any?(samples, &is_key_frame/1)
+      end)
+  end
+
   defp collect_from_track_to_timestamp(_track, [], _target_duration),
     do: {:error, :not_enough_data}
 
   defp collect_from_track_to_timestamp(track, samples, desired_end) do
     use Ratio, comparison: true
 
-    {leftover, samples} = Enum.split_while(samples, &(&1.dts >= desired_end))
+    {leftover, samples} = Enum.split_while(samples, &(&1.dts > desired_end))
 
-    # desired_end is a float, operate on floats to avoid marginal errors such as
-    # having a really low floating point error preventing from creating a sample
-    total_duration = Ratio.to_float(hd(samples).dts + hd(samples).metadata.duration)
-
-    if total_duration >= desired_end do
+    with [sample | _rest] <- samples,
+         true <- sample.dts + sample.metadata.duration >= desired_end do
       {:ok, {track, samples, leftover}}
     else
-      {:error, :not_enough_data}
+      _other ->
+        {:error, :not_enough_data}
     end
   end
 
@@ -95,45 +199,9 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   # 1. Check if all tracks begin with keyframe. If that is the case, algorithm finishes
   # 2. Select the track with the smallest dts at the beginning. Collect samples until it doesn't have the smallest dts.
   # 3. Go to step 1
-  defp collect_until_keyframes(state, _duration, nil) do
+  defp collect_until_keyframes(state) do
     with {:ok, segment, state} <- do_collect_until_keyframes(reverse_samples(state), nil) do
       {:ok, segment, reverse_samples(state)}
-    end
-  end
-
-  defp collect_until_keyframes(state, duration, _partial_duration) do
-    use Ratio, comparison: true
-
-    %{partial_segments_duration: partial_segments_duration} =
-      state.pad_to_track_data
-      |> Map.values()
-      |> Enum.max_by(& &1.partial_segments_duration)
-
-    diff = duration - partial_segments_duration
-
-    cond do
-      # in case we reached the desired segment duration and we are allowed
-      # to finalize the segment but only if the next sample is a key frame
-      diff <= 0 and
-          Enum.all?(state.samples, fn {_track, samples} ->
-            samples |> List.last([]) |> starts_with_keyframe?()
-          end) ->
-        {:ok, %{}, reset_partial_durations(state)}
-
-      # partial durations exceeded the target segment duration, seek for keyframe
-      diff <= 0 ->
-        state
-        |> collect_until_keyframes(duration, nil)
-        |> case do
-          {:ok, segment, state} ->
-            {:ok, segment, reset_partial_durations(state)}
-
-          other ->
-            other
-        end
-
-      true ->
-        {:ok, %{}, state}
     end
   end
 
@@ -179,13 +247,17 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end)
   end
 
+  @compile {:inline, is_key_frame: 1}
+  defp is_key_frame(%{metadata: metadata}),
+    do: Map.get(metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
+
   defp starts_with_keyframe?([]), do: false
 
   defp starts_with_keyframe?([target | _rest]),
-    do: Map.get(target.metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
+    do: is_key_frame(target)
 
-  defp starts_with_keyframe?(%Membrane.Buffer{metadata: metadata}),
-    do: Map.get(metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
+  defp starts_with_keyframe?(_other),
+    do: false
 
   defp reverse_samples(state),
     do:

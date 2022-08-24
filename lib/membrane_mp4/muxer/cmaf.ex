@@ -8,13 +8,11 @@ defmodule Membrane.MP4.Muxer.CMAF do
   that all input streams are renditions of the same content.
 
   The muxer also supports creation of partial segments that do not begin with a key frame
-  when the `partial_segment_duration` is specified (for best results when multiplied by an integer
-  it should sum to segment duration). The muxer tries to create many partial segments to fulfill the
-  regular segment duration, in case of the last partial segment matching the duration window it can
-  gather more samples so that the next segment begins with a key frame. The output buffers
-  have `partial_segment?` flag indicating that the muxer produces partial segments and also `independent`
-  flag suggesting that the buffer starts with a key frame.
-
+  when the `partial_segment_duration_range` is specified (for best results when multiplied by an integer
+  it should sum to segment duration). The muxer tries to create many partial segments to match the
+  regular segment target duration. When reaching the regular segment's target duration the muxer tries to perform lookaheads
+  of the samples to either create a shorter/longer partial segment so that a new segment can be started beginning
+  with a keyframe.
 
   If a stream contains non-key frames (like H264 P or B frames), they should be marked
   with a `mp4_payload: %{key_frame?: false}` metadata entry.
@@ -23,7 +21,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   require Membrane.Logger
 
-  alias __MODULE__.{Header, Segment}
+  alias __MODULE__.{Header, Segment, SegmentDurationRange}
   alias Membrane.{Buffer, Time}
   alias Membrane.MP4.Payload.{AAC, AVC1}
   alias Membrane.MP4.{Helper, Track}
@@ -35,15 +33,15 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   def_output_pad :output, caps: Membrane.CMAF.Track
 
-  def_options segment_duration: [
-                spec: Membrane.Time.t(),
-                default: 2 |> Time.seconds()
+  def_options segment_duration_range: [
+                spec: SegmentDurationRange.t(),
+                default: SegmentDurationRange.new(Time.seconds(2), Time.seconds(2))
               ],
-              partial_segment_duration: [
-                spec: Membrane.Time.t() | nil,
+              partial_segment_duration_range: [
+                spec: SegmentDurationRange.t() | nil,
                 default: nil,
                 description:
-                  "The duration of partial segments, when set to nil the muxer assumes it should not produce partial segments"
+                  "The duration range of partial segments, when set to nil the muxer assumes it should not produce partial segments"
               ]
 
   @impl true
@@ -145,18 +143,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> process_buffer_awaiting_duration(pad, sample)
       |> update_awaiting_caps(pad)
 
-    {caps_action, segment} =
-      if is_nil(state.awaiting_caps) do
-        {[],
-         Segment.Helper.get_segment(
-           state,
-           state.segment_duration,
-           state.partial_segment_duration
-         )}
-      else
-        {duration, caps} = state.awaiting_caps
-        {[caps: {:output, caps}], Segment.Helper.get_discontinuity_segment(state, duration)}
-      end
+    {caps_action, segment} = collect_segment_samples(state)
 
     case segment do
       {:ok, segment, state} ->
@@ -167,6 +154,31 @@ defmodule Membrane.MP4.Muxer.CMAF do
       {:error, :not_enough_data} ->
         {{:ok, redemand: :output}, state}
     end
+  end
+
+  defp collect_segment_samples(%{awaiting_caps: nil} = state) do
+    %{
+      partial_segment_duration_range: partial_range,
+      segment_duration_range: range
+    } = state
+
+    segment =
+      if is_nil(partial_range) do
+        Segment.Helper.get_segment(state, range)
+      else
+        Segment.Helper.get_partial_segment(
+          state,
+          range,
+          partial_range
+        )
+      end
+
+    {[], segment}
+  end
+
+  defp collect_segment_samples(%{awaiting_caps: {duration, caps}} = state) do
+    segment = Segment.Helper.get_discontinuity_segment(state, duration)
+    {[caps: {:output, caps}], segment}
   end
 
   @impl true
