@@ -32,6 +32,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     1..5
     |> Enum.map(fn i ->
       assert_sink_buffer(pipeline, :sink, buffer)
+
       assert_mp4_equal(buffer.payload, "ref_audio_segment#{i}.m4s")
     end)
 
@@ -96,17 +97,21 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
                partial_duration_range: new_duration_range(250, 500)
              )
 
-    0..7
-    |> Enum.map(fn i ->
-      assert_sink_buffer(pipeline, :sink, buffer)
+    independent_buffers =
+      1..20
+      |> Enum.reduce(0, fn _i, acc ->
+        assert_sink_buffer(pipeline, :sink, buffer)
 
-      # every 4 partial segments we should get an independent one
-      if rem(i, 4) == 0 do
-        assert buffer.metadata.independent?
-      else
-        refute buffer.metadata.independent?
-      end
-    end)
+        assert buffer.metadata.duration < Membrane.Time.milliseconds(600)
+
+        if buffer.metadata.independent? do
+          acc + 1
+        else
+          acc
+        end
+      end)
+
+    assert independent_buffers == 2
 
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
@@ -121,7 +126,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
                partial_duration_range: new_duration_range(250, 500)
              )
 
-    0..19
+    0..22
     |> Enum.map(fn _i ->
       assert_sink_buffer(pipeline, :sink, buffer)
 
@@ -178,8 +183,8 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
   end
 
-  defp new_duration_range(min, target \\ nil),
-    do: SegmentDurationRange.new(Time.milliseconds(min), Time.milliseconds(target || min))
+  defp new_duration_range(min, target),
+    do: SegmentDurationRange.new(Time.milliseconds(min), Time.milliseconds(target))
 
   defp prepare_pipeline(type, opts \\ []) when type in [:audio, :video] do
     file =
@@ -204,7 +209,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
         :video -> Membrane.MP4.Payloader.H264
       end
 
-    duration_range = Keyword.get(opts, :duration_range, new_duration_range(1500, 2000))
+    duration_range = Keyword.get(opts, :duration_range, new_duration_range(2000, 2000))
     partial_duration_range = Keyword.get(opts, :partial_duration_range, nil)
 
     children = [
