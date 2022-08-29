@@ -43,8 +43,6 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
       # the partial segment will be the first to exceed the minimum full segment duration,
       # collect up to the min segment duration and then lookup further partial segments and try to look for key frames
-      # partial_segments_duration <= duration_range.min and
-      #     partial_segments_duration + partial_duration_range.min >= duration_range.min ->
       partial_segments_duration - duration_range.min - @eps < 0 ->
         min_duration =
           max(duration_range.min - partial_segments_duration, partial_duration_range.min)
@@ -95,12 +93,10 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
         {:ok, merge_segments(partial_segment1, partial_segment3), reset_partial_durations(state3)}
       else
         # the last duration is a lookahead so don't merge it
-        case durations do
-          [_single_duration] ->
-            {:ok, partial_segment1, state1}
-
-          _other ->
-            {:ok, merge_segments(partial_segment1, partial_segment2), state2}
+        if length(durations) == 1 do
+          {:ok, partial_segment1, state1}
+        else
+          {:ok, merge_segments(partial_segment1, partial_segment2), state2}
         end
       end
     end
@@ -200,26 +196,39 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   # 2. Select the track with the smallest dts at the beginning. Collect samples until it doesn't have the smallest dts.
   # 3. Go to step 1
   defp collect_until_keyframes(state) do
-    with {:ok, segment, state} <- do_collect_until_keyframes(reverse_samples(state), nil) do
+    with {:ok, segment, state} <- do_collect_until_keyframes(reverse_samples(state)) do
       {:ok, segment, reverse_samples(state)}
     end
   end
 
-  defp do_collect_until_keyframes(state, last_target_pad) do
+  defp do_collect_until_keyframes(state) do
     use Ratio, comparison: true
 
     {target_pad, _samples} =
       Enum.min_by(state.samples, fn {_track, samples} ->
         case samples do
-          [] -> :infinity
-          [sample | _rest] -> Ratio.to_float(sample.dts + sample.metadata.duration)
+          [] ->
+            :infinity
+
+          # we don't want to include the sample's duration in the calculation as it may
+          # cause false detection of the keyframes
+          [sample | _rest] ->
+            Ratio.to_float(sample.dts)
         end
       end)
 
-    # This holds true if and only if all tracks are balanced to begin with.
-    # Therefore, this algorithm will not destroy the balance of tracks, but it is not guaranteed to restore it
+    # if samples' dts differ between each other with at most of 1 sample duration
+    # then the timestamps are balanced
     timestamps_balanced? =
-      target_pad != last_target_pad or Map.keys(state.samples) == [target_pad]
+      state.samples
+      |> Enum.map(fn {_track, samples} ->
+        case samples do
+          [] -> nil
+          [sample | _rest] -> {sample.dts, sample.metadata.duration}
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> check_timestamps_balanced()
 
     cond do
       Enum.any?(state.samples, fn {_track, samples} -> samples == [] end) ->
@@ -232,12 +241,30 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
       true ->
         {sample, state} = get_and_update_in(state, [:samples, target_pad], &List.pop_at(&1, 0))
 
-        with {:ok, segment, state} <- do_collect_until_keyframes(state, target_pad) do
+        with {:ok, segment, state} <- do_collect_until_keyframes(state) do
           segment = Map.update(segment, target_pad, [sample], &[sample | &1])
           {:ok, segment, state}
         end
     end
   end
+
+  defp check_timestamps_balanced([first, second | rest]) do
+    {dts1, duration1} = first
+    {dts2, duration2} = second
+
+    max_duration =
+      if Ratio.gt?(duration1, duration2) do
+        duration1
+      else
+        duration2
+      end
+
+    balanced? = Ratio.lte?(Ratio.abs(Ratio.sub(dts1, dts2)), max_duration)
+
+    balanced? and check_timestamps_balanced([second | rest])
+  end
+
+  defp check_timestamps_balanced(_timestamps), do: true
 
   defp reset_partial_durations(state) do
     state
