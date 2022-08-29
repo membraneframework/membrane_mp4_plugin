@@ -8,11 +8,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
   that all input streams are renditions of the same content.
 
   The muxer also supports creation of partial segments that do not begin with a key frame
-  when the `partial_segment_duration_range` is specified (for best results when multiplied by an integer
-  it should sum to segment duration). The muxer tries to create many partial segments to match the
-  regular segment target duration. When reaching the regular segment's target duration the muxer tries to perform lookaheads
-  of the samples to either create a shorter/longer partial segment so that a new segment can be started beginning
-  with a keyframe.
+  when the `partial_segment_duration_range` is specified. The muxer tries to create many partial
+  segments to match the regular segment target duration. When reaching the regular segment's
+  target duration the muxer tries to perform lookaheads of the samples to either create
+  a shorter/longer partial segment so that a new segment can be started (beginning with a keyframe).
 
   If a stream contains non-key frames (like H264 P or B frames), they should be marked
   with a `mp4_payload: %{key_frame?: false}` metadata entry.
@@ -304,8 +303,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> then(&(Enum.sum(&1) / length(&1)))
       |> floor()
 
-    # there can be a lot of different tracks inside the segment, but if any of them starts with a key frame
-    # it means that we have an independent segment
     independent =
       Enum.all?(acc, fn {_pad, samples} ->
         hd(samples).metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)

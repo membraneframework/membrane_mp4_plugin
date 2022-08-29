@@ -3,10 +3,9 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
   import Membrane.Testing.Assertions
 
-  alias Membrane.Time
   alias Membrane.MP4.Container
   alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange
-  alias Membrane.{ParentSpec, Testing}
+  alias Membrane.{ParentSpec, Testing, Time}
 
   # Fixtures used in CMAF tests below were generated using `membrane_http_adaptive_stream_plugin`
   # with `muxer_segment_duration` option set to `Membrane.Time.seconds(2)`.
