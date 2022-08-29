@@ -192,7 +192,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     if Enum.empty?(pad_samples) do
       if processing_finished? do
-        {{:ok, end_of_stream: :output}}
+        {{:ok, end_of_stream: :output}, state}
       else
         {{:ok, redemand: :output}, state}
       end
@@ -305,7 +305,13 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     independent =
       Enum.all?(acc, fn {_pad, samples} ->
-        hd(samples).metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
+        case samples do
+          [sample | _samples] ->
+            sample.metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
+
+          [] ->
+            false
+        end
       end)
 
     metadata = %{
