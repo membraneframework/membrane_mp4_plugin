@@ -15,7 +15,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
   @spec get_segment(map(), SegmentDurationRange.t()) :: segment_result_t()
   def get_segment(state, duration_range) do
-    {min_end_timestamp, _target_end_timestamp} = calculate_end_timestamps(state, duration_range)
+    min_end_timestamp = calculate_end_timestamps(state, duration_range.min)
 
     with {:ok, min_segment, state} <- collect_minimum_duration(state, min_end_timestamp),
          {:ok, target_segment, state} <-
@@ -36,8 +36,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     cond do
       # there duration will be less than minimum, collect full partial segment
       partial_segments_duration + partial_duration_range.target - duration_range.min - @eps < 0 ->
-        {_min_end_timestamp, target_end_timestamp} =
-          calculate_end_timestamps(state, partial_duration_range)
+        target_end_timestamp = calculate_end_timestamps(state, partial_duration_range.target)
 
         collect_minimum_duration(state, target_end_timestamp)
 
@@ -81,8 +80,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   end
 
   defp maybe_collect_partial_segment_until_keyframe(state, [duration | durations]) do
-    {end_timestamp, _timestamp} =
-      calculate_end_timestamps(state, SegmentDurationRange.new(duration))
+    end_timestamp = calculate_end_timestamps(state, duration)
 
     with {:ok, partial_segment1, state1} <- collect_minimum_duration(state, end_timestamp),
          {:ok, partial_segment2, state2} <-
@@ -125,14 +123,14 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end
   end
 
-  defp calculate_end_timestamps(state, duration_range) do
+  defp calculate_end_timestamps(state, duration) do
     elapsed_time =
       Enum.map(state.pad_to_track_data, fn {_key, track_data} ->
         Ratio.to_float(track_data.elapsed_time)
       end)
       |> Enum.max()
 
-    {elapsed_time + duration_range.min, elapsed_time + duration_range.target}
+    elapsed_time + duration
   end
 
   defp merge_segments(segment1, segment2) do
@@ -210,8 +208,6 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
           [] ->
             :infinity
 
-          # we don't want to include the sample's duration in the calculation as it may
-          # cause false detection of the keyframes
           [sample | _rest] ->
             Ratio.to_float(sample.dts)
         end
@@ -227,7 +223,6 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
           [sample | _rest] -> {sample.dts, sample.metadata.duration}
         end
       end)
-      |> Enum.reject(&is_nil/1)
       |> check_timestamps_balanced()
 
     cond do
@@ -249,19 +244,24 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   end
 
   defp check_timestamps_balanced([first, second | rest]) do
-    {dts1, duration1} = first
-    {dts2, duration2} = second
+    with {dts1, duration1} <- first,
+         {dts2, duration2} <- second do
+      max_duration =
+        if Ratio.gt?(duration1, duration2) do
+          duration1
+        else
+          duration2
+        end
 
-    max_duration =
-      if Ratio.gt?(duration1, duration2) do
-        duration1
-      else
-        duration2
-      end
+      balanced? = Ratio.lte?(Ratio.abs(Ratio.sub(dts1, dts2)), max_duration)
 
-    balanced? = Ratio.lte?(Ratio.abs(Ratio.sub(dts1, dts2)), max_duration)
-
-    balanced? and check_timestamps_balanced([second | rest])
+      balanced? and check_timestamps_balanced([second | rest])
+    else
+      _other ->
+        # if either first or second are nils then we can't know
+        # if timestamps are balanced
+        false
+    end
   end
 
   defp check_timestamps_balanced(_timestamps), do: true
@@ -282,9 +282,6 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
   defp starts_with_keyframe?([target | _rest]),
     do: is_key_frame(target)
-
-  defp starts_with_keyframe?(_other),
-    do: false
 
   defp reverse_samples(state),
     do:

@@ -103,11 +103,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
         assert buffer.metadata.duration < Membrane.Time.milliseconds(600)
 
-        if buffer.metadata.independent? do
-          acc + 1
-        else
-          acc
-        end
+        if buffer.metadata.independent?, do: acc + 1, else: acc
       end)
 
     assert independent_buffers == 2
@@ -139,11 +135,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
   end
 
-  # NOTE: in the future we should probably produce as many partial segments as we can until reaching a keyframe
-  # instead of creating a giant one, for now the behaviour matches the behaviour of regular segments
-  test "video with partial segments should assemble samples until reaching a keyframe on last part" do
-    # with partial segment duration being 750ms we should be able to create 1 regular partial segments
-    # while the second one will last a little bit longer until reaching the keyframe after 2s of the video
+  test "video with partial segments should create as many partial segments as possible until reaching a key frame" do
     assert {:ok, pipeline} =
              prepare_pipeline(:video,
                duration_range: new_duration_range(1500, 2000),
@@ -152,7 +144,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
     # the video has 10 seconds where second keyframe appears after 8 seconds
 
-    # part1
+    # first independent segment
     assert_sink_buffer(pipeline, :sink, buffer)
     assert buffer.metadata.independent?
     assert buffer.metadata.duration <= Membrane.Time.milliseconds(600)
