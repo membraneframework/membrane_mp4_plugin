@@ -49,6 +49,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       options
       |> Map.from_struct()
       |> Map.merge(%{
+        has_video_pad?: false,
         seq_num: 0,
         # Caps waiting to be sent after receiving the next buffer. Holds the structure {caps_timestamp, caps}
         awaiting_caps: nil,
@@ -100,8 +101,31 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   @impl true
   def handle_caps(pad, %Membrane.MP4.Payload{} = caps, ctx, state) do
+    is_video_pad = case caps.content do
+      %AAC{} -> false
+      %AVC1{} -> true
+    end
+
+    if state.has_video_pad? and is_video_pad do
+      has_other_video_pad? =
+        ctx.pads
+        |> Map.delete(pad)
+        |> Enum.any?(fn {_pad, data} ->
+          case data do
+            %{caps: %{content: %AVC1{}}} -> true
+            _other -> false
+          end
+        end)
+
+
+        if has_other_video_pad? do
+          raise "CMAF muxer can only handle 1 video track"
+        end
+    end
+
     state =
-      update_in(state, [:pad_to_track_data, pad], fn track_data ->
+      state
+      |> update_in([:pad_to_track_data, pad], fn track_data ->
         track =
           caps
           |> Map.from_struct()
@@ -111,6 +135,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
         %{track_data | track: track}
       end)
+      |> Map.update!(:has_video_pad?, & (&1 || is_video_pad))
 
     has_all_input_caps? =
       Map.drop(ctx.pads, [:output, pad]) |> Map.values() |> Enum.all?(&(&1.caps != nil))
