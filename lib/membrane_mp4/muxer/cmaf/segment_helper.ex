@@ -69,7 +69,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   defp collect_from_track_to_timestamp(track, samples, desired_end) do
     use Ratio, comparison: true
 
-    {leftover, samples} = Enum.split_while(samples, &(&1.dts > desired_end))
+    {leftover, samples} = Enum.split_while(samples, &(&1.dts >= desired_end))
 
     if hd(samples).dts + hd(samples).metadata.duration >= desired_end do
       {:ok, {track, samples, leftover}}
