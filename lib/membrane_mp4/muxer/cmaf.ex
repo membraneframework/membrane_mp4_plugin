@@ -438,10 +438,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
   defp update_awaiting_caps(state, _pad), do: state
 
   defp maybe_init_elapsed_time(state, pad, sample) do
-    if is_nil(state.pad_to_track_data[pad].elapsed_time) do
-      put_in(state, [:pad_to_track_data, pad, :elapsed_time], sample.dts)
-    else
-      state
+    case state do
+      %{pad_to_track_data: %{^pad => %{elapsed_time: nil}}} ->
+        put_in(state, [:pad_to_track_data, pad, :elapsed_time], sample.dts)
+
+      _else ->
+        state
     end
   end
 end
