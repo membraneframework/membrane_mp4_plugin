@@ -231,7 +231,9 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   end
 
   defp max_end_timestamp(state) do
-    Enum.map(state.pad_to_track_data, fn {_key, track_data} ->
+    state.pad_to_track_data
+    |> Enum.reject(fn {_key, track_data} -> is_nil(track_data.elapsed_time) end)
+    |> Enum.map(fn {_key, track_data} ->
       Ratio.to_float(track_data.elapsed_time)
     end)
     |> Enum.max()

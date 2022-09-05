@@ -77,7 +77,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     track_data = %{
       id: track_id,
       track: nil,
-      elapsed_time: 0,
+      elapsed_time: nil,
       end_timestamp: 0,
       buffer_awaiting_duration: nil,
       parts_duration: Membrane.Time.seconds(0)
@@ -185,7 +185,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
   def handle_process(Pad.ref(:input, _id) = pad, sample, ctx, state) do
     use Ratio, comparison: true
 
-    {sample, state} = process_buffer_awaiting_duration(state, pad, sample)
+    {sample, state} =
+      state
+      |> maybe_init_elapsed_time(pad, sample)
+      |> process_buffer_awaiting_duration(pad, sample)
 
     state = update_awaiting_caps(state, pad)
 
@@ -433,4 +436,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   defp update_awaiting_caps(state, _pad), do: state
+
+  defp maybe_init_elapsed_time(state, pad, sample) do
+    if is_nil(state.pad_to_track_data[pad].elapsed_time) do
+      put_in(state, [:pad_to_track_data, pad, :elapsed_time], sample.dts)
+    else
+      state
+    end
+  end
 end
