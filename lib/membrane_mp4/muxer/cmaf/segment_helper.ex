@@ -1,277 +1,278 @@
 defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   @moduledoc false
+
   use Bunch
 
-  alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange
+  alias Membrane.MP4.Muxer.CMAF.TrackSamplesCache, as: Cache
 
-  @eps 1.0e-6
+  @type pad_t :: Membrane.Pad.ref_t()
+  @type state_t :: map()
 
   @type segment_t :: %{
-          (pad :: any()) => [Membrane.Buffer.t()]
+          pad_t() => [Membrane.Buffer.t()]
         }
 
-  @type segment_result_t ::
-          {:ok, segment :: segment_t(), state :: map()} | {:error, :not_enough_data}
+  @spec push_segment(state_t(), Membrane.Pad.ref_t(), Membrane.Buffer.t()) ::
+          {:ok, state_t()} | {:ok, segment_t(), state_t()}
+  def push_segment(state, pad, sample) do
+    cache = Map.fetch!(state.samples_cache, pad)
+    is_video = cache.supports_keyframes?
 
-  @spec get_segment(map(), SegmentDurationRange.t()) :: segment_result_t()
-  def get_segment(state, duration_range) do
-    min_end_timestamp = calculate_end_timestamps(state, duration_range.min)
-
-    with {:ok, min_segment, state} <- collect_minimum_duration(state, min_end_timestamp),
-         {:ok, target_segment, state} <-
-           collect_until_keyframes(state) do
-      segment = merge_segments(min_segment, target_segment)
-      {:ok, segment, state}
+    if is_video do
+      push_video_segment(state, cache, pad, sample)
+    else
+      push_audio_segment(state, cache, pad, sample)
     end
   end
 
-  @spec get_partial_segment(map(), SegmentDurationRange.t(), SegmentDurationRange.t()) ::
-          segment_result_t()
-  def get_partial_segment(state, duration_range, partial_duration_range) do
-    partial_segments_duration =
-      state.pad_to_track_data
-      |> Enum.map(fn {_key, data} -> data.partial_segments_duration end)
-      |> Enum.max()
+  defp push_video_segment(state, cache, pad, sample) do
+    duration_range = state.segment_duration_range
+    end_timestamp = max_end_timestamp(state) + duration_range.min
+
+    case Cache.push(cache, sample, end_timestamp) do
+      %Cache{state: :collecting} = cache ->
+        {:ok, update_cache_for(pad, cache, state)}
+
+      %Cache{state: :to_collect} = cache ->
+        collect_samples_for_video_track(pad, cache, state)
+    end
+  end
+
+  defp push_audio_segment(state, cache, pad, sample) do
+    duration_range = state.segment_duration_range
+    end_timestamp = max_end_timestamp(state) + duration_range.min
+
+    any_video_tracks? =
+      Enum.any?(state.samples_cache, fn {_pad, cache} -> cache.supports_keyframes? end)
+
+    if any_video_tracks? do
+      Cache.force_push(cache, sample)
+    else
+      Cache.push(cache, sample, end_timestamp)
+    end
+    |> case do
+      %Cache{state: :collecting} = cache ->
+        {:ok, update_cache_for(pad, cache, state)}
+
+      %Cache{state: :to_collect} = cache ->
+        collect_samples_for_audio_track(pad, cache, state)
+    end
+  end
+
+  @spec push_partial_segment(state_t(), Membrane.Pad.ref_t(), Membrane.Buffer.t()) ::
+          {:ok, state_t()} | {:ok, segment_t(), state_t()}
+  def push_partial_segment(state, pad, sample) do
+    cache = Map.fetch!(state.samples_cache, pad)
+
+    if cache.supports_keyframes? do
+      push_partial_video_segment(state, cache, pad, sample)
+    else
+      push_partial_audio_segment(state, cache, pad, sample)
+    end
+  end
+
+  defp push_partial_video_segment(state, cache, pad, sample) do
+    %{
+      partial_segment_duration_range: part_duration_range,
+      segment_duration_range: duration_range
+    } = state
+
+    collected_duration = cache.collected_duration
+
+    total_collected_durations =
+      Map.fetch!(state.pad_to_track_data, pad).parts_duration + collected_duration
+
+    base_timestamp = max_end_timestamp(state)
 
     cond do
-      # there duration will be less than minimum, collect full partial segment
-      partial_segments_duration + partial_duration_range.target - duration_range.min - @eps < 0 ->
-        target_end_timestamp = calculate_end_timestamps(state, partial_duration_range.target)
+      # if we are far below minimal duration then just collect the sample in a dumb way
+      total_collected_durations + part_duration_range.min < duration_range.min ->
+        Cache.push_part(cache, sample, base_timestamp + part_duration_range.target)
 
-        collect_minimum_duration(state, target_end_timestamp)
-
-      # the partial segment will be the first to exceed the minimum full segment duration,
-      # collect up to the min segment duration and then lookup further partial segments and try to look for key frames
-      partial_segments_duration - duration_range.min - @eps < 0 ->
+      # in this case we want to perform the lookahead
+      # TODO: this should depend on the collected_duration as well
+      total_collected_durations < duration_range.min ->
         min_duration =
-          max(duration_range.min - partial_segments_duration, partial_duration_range.min)
+          max(duration_range.min - total_collected_durations, part_duration_range.min)
 
-        remaining_duration = partial_duration_range.target - min_duration
+        remaining_duration = part_duration_range.target - min_duration
 
-        # if the remaining duration is not relevant then just skip it
-        durations =
-          if remaining_duration > 0.1 * min_duration do
-            [
-              min_duration,
-              min_duration + remaining_duration,
-              min_duration + remaining_duration + partial_duration_range.min
-            ]
-          else
-            [min_duration]
-          end
+        min_timestamp = base_timestamp + min_duration
+        mid_timestamp = min_timestamp + remaining_duration
+        max_timestamp = mid_timestamp + part_duration_range.min
 
-        maybe_collect_partial_segment_until_keyframe(state, durations)
-
-      # there is enough duration to finish a partial segment,
-      # try to assemble at least the target duration while still looking for key frames
-      # to finish the segment quicker
-      partial_segments_duration - duration_range.min + @eps >= 0 ->
-        %SegmentDurationRange{min: min, target: target} = partial_duration_range
-
-        maybe_collect_partial_segment_until_keyframe(state, [min, target, min + target])
+        Cache.push_part(cache, sample, min_timestamp, mid_timestamp, max_timestamp)
 
       true ->
-        raise "Invalid durations of all partial segments"
+        min_timestamp = base_timestamp + part_duration_range.min
+        mid_timestamp = base_timestamp + part_duration_range.target
+        max_timestamp = base_timestamp + part_duration_range.min + part_duration_range.target
+
+        Cache.push_part(cache, sample, min_timestamp, mid_timestamp, max_timestamp)
+    end
+    |> case do
+      %Cache{state: :collecting} = cache ->
+        {:ok, update_cache_for(pad, cache, state)}
+
+      %Cache{state: :to_collect} = cache ->
+        pad
+        |> collect_samples_for_video_track(cache, state)
+        |> maybe_reset_partial_durations()
     end
   end
 
-  defp maybe_collect_partial_segment_until_keyframe(state, []) do
-    {:ok, %{}, state}
+  @spec take_all_samples(state_t()) :: {:ok, segment_t(), state_t()}
+  def take_all_samples(state) do
+    segment =
+      state.samples_cache
+      |> Enum.reject(fn {_pad, cache} -> Cache.empty?(cache) end)
+      |> Enum.map(fn {pad, cache} ->
+        {samples, _cache} = Cache.drain_samples(cache)
+
+        {pad, samples}
+      end)
+      |> Map.new()
+
+    {:ok, segment, state}
   end
 
-  defp maybe_collect_partial_segment_until_keyframe(state, [duration | durations]) do
-    end_timestamp = calculate_end_timestamps(state, duration)
+  defp push_partial_audio_segment(state, cache, pad, sample) do
+    %{
+      partial_segment_duration_range: part_duration_range,
+      segment_duration_range: duration_range
+    } = state
 
-    with {:ok, partial_segment1, state1} <- collect_minimum_duration(state, end_timestamp),
-         {:ok, partial_segment2, state2} <-
-           maybe_collect_partial_segment_until_keyframe(state1, durations) do
-      if has_keyframe(partial_segment2) do
-        {:ok, partial_segment3, state3} = collect_until_keyframes(state1)
+    any_video_tracks? =
+      Enum.any?(state.samples_cache, fn {_pad, cache} -> cache.supports_keyframes? end)
 
-        {:ok, merge_segments(partial_segment1, partial_segment3), reset_partial_durations(state3)}
-      else
-        # the last duration is a lookahead so don't merge it
-        if length(durations) == 1 do
-          {:ok, partial_segment1, state1}
-        else
-          {:ok, merge_segments(partial_segment1, partial_segment2), state2}
-        end
-      end
-    end
-  end
+    # NOTE: if we have any video tracks then let the video tracks decide when to collect audio tracks
+    if any_video_tracks? do
+      cache = Cache.force_push(cache, sample)
 
-  defp collect_minimum_duration(state, min_end_timestamp) do
-    partial_segments =
-      for {track, samples} <- state.samples do
-        collect_from_track_to_timestamp(track, samples, min_end_timestamp)
-      end
-
-    if Enum.any?(partial_segments, &(&1 == {:error, :not_enough_data})) do
-      {:error, :not_enough_data}
+      {:ok, update_cache_for(pad, cache, state)}
     else
-      state =
-        Enum.reduce(partial_segments, state, fn {:ok, {track, segment, leftover}}, state ->
-          update_track(track, segment, leftover, state)
-        end)
+      parts_duration = parts_duration_for(pad, state)
 
-      segment =
-        Map.new(partial_segments, fn {:ok, {track, segment, _leftover}} ->
-          {track, Enum.reverse(segment)}
-        end)
+      base_timestamp = max_end_timestamp(state)
+
+      duration =
+        min(
+          part_duration_range.target,
+          max(part_duration_range.min, duration_range.target - parts_duration)
+        )
+
+      case Cache.push_part(cache, sample, base_timestamp + duration) do
+        %Cache{state: :collecting} = cache ->
+          {:ok, update_cache_for(pad, cache, state)}
+
+        %Cache{state: :to_collect} = cache ->
+          pad
+          |> collect_samples_for_audio_track(cache, state)
+          |> maybe_reset_partial_durations()
+      end
+    end
+  end
+
+  defp update_cache_for(pad, cache, state), do: put_in(state, [:samples_cache, pad], cache)
+
+  defp collect_samples_for_video_track(pad, cache, state) do
+    end_timestamp = Cache.last_collected_dts(cache)
+
+    {collected, cache} = Cache.collect(cache)
+
+    state = update_cache_for(pad, cache, state)
+
+    if tracks_ready_for_collection?(state, end_timestamp) do
+      state = update_partial_duration(state, pad, collected)
+
+      {segment, state} =
+        state.samples_cache
+        |> Map.delete(pad)
+        |> collect_segment_from_cache(end_timestamp, state)
+
+      segment = Map.put(segment, pad, collected)
 
       {:ok, segment, state}
+    else
+      {:ok, update_cache_for(pad, cache, state)}
     end
   end
 
-  defp calculate_end_timestamps(state, duration) do
-    elapsed_time =
-      Enum.map(state.pad_to_track_data, fn {_key, track_data} ->
-        Ratio.to_float(track_data.elapsed_time)
-      end)
-      |> Enum.max()
+  defp collect_samples_for_audio_track(pad, cache, state) do
+    end_timestamp = Cache.last_collected_dts(cache)
+    state = update_cache_for(pad, cache, state)
 
-    elapsed_time + duration
+    if tracks_ready_for_collection?(state, end_timestamp) do
+      {segment, state} = collect_segment_from_cache(state.samples_cache, end_timestamp, state)
+
+      {:ok, segment, state}
+    else
+      {:ok, state}
+    end
   end
 
-  defp merge_segments(segment1, segment2) do
-    Map.new(segment1, fn {pad, samples} ->
-      samples2 = Map.get(segment2, pad, [])
-      {pad, samples ++ samples2}
+  defp collect_segment_from_cache(cache_per_pad, end_timestamp, state) do
+    Enum.reduce(cache_per_pad, {%{}, state}, fn {pad, cache}, {acc, state} ->
+      {collected, cache} = Cache.simple_collect(cache, end_timestamp)
+
+      state =
+        pad
+        |> update_cache_for(cache, state)
+        |> update_partial_duration(pad, collected)
+
+      {Map.put(acc, pad, collected), update_cache_for(pad, cache, state)}
     end)
   end
 
-  @spec take_all_samples(map()) :: {:ok, map(), map()}
-  def take_all_samples(state) do
-    samples = Map.new(state.samples, fn {key, samples} -> {key, Enum.reverse(samples)} end)
-
-    {:ok, samples, %{state | samples: %{}}}
+  defp tracks_ready_for_collection?(state, end_timestamp) do
+    Enum.all?(state.samples_cache, fn {_pad, cache} ->
+      Cache.last_collected_dts(cache) >= end_timestamp
+    end)
   end
 
-  @spec get_discontinuity_segment(map(), Membrane.Time.t()) :: segment_result_t()
-  def get_discontinuity_segment(state, duration) do
-    with {:ok, segment, state} <- get_segment(state, SegmentDurationRange.new(duration)) do
-      {:ok, segment, %{state | awaiting_caps: nil}}
-    end
+  defp update_partial_duration(state, pad, samples) do
+    duration = Enum.reduce(samples, 0, &(&1.metadata.duration + &2))
+
+    update_in(state, [:pad_to_track_data, pad, :parts_duration], &(&1 + duration))
   end
 
-  defp update_track(track, segment, leftover, state) do
-    durations =
-      Enum.reduce(segment, 0, fn sample, durations ->
-        durations + sample.metadata.duration
+  defp maybe_reset_partial_durations({:ok, _state} = result), do: result
+
+  defp maybe_reset_partial_durations({:ok, segment, state}) do
+    min_duration = state.segment_duration_range.min
+
+    independent? = Enum.all?(segment, fn {_pad, samples} -> starts_with_keyframe?(samples) end)
+
+    enough_duration? =
+      Enum.all?(state.pad_to_track_data, fn {pad, data} ->
+        data.parts_duration >= min_duration and not (Map.get(segment, pad, []) |> Enum.empty?())
       end)
 
-    state
-    |> put_in([:samples, track], leftover)
-    |> update_in([:pad_to_track_data, track, :partial_segments_duration], &(&1 + durations))
-  end
-
-  defp has_keyframe(segment) do
-    map_size(segment) > 0 and
-      Enum.all?(segment, fn {_track, samples} ->
-        Enum.any?(samples, &is_key_frame/1)
-      end)
-  end
-
-  defp collect_from_track_to_timestamp(_track, [], _target_duration),
-    do: {:error, :not_enough_data}
-
-  defp collect_from_track_to_timestamp(track, samples, desired_end) do
-    use Ratio, comparison: true
-
-    {leftover, samples} = Enum.split_while(samples, &(&1.dts > desired_end))
-
-    with [sample | _rest] <- samples,
-         true <- sample.dts + sample.metadata.duration >= desired_end do
-      {:ok, {track, samples, leftover}}
+    if independent? and enough_duration? do
+      {:ok, segment, reset_partial_durations(state)}
     else
-      _other ->
-        {:error, :not_enough_data}
+      {:ok, segment, state}
     end
   end
 
-  # Collects the samples until there is a keyframe on all tracks.
-  # 1. Check if all tracks begin with keyframe. If that is the case, algorithm finishes
-  # 2. Select the track with the smallest dts at the beginning. Collect samples until it doesn't have the smallest dts.
-  # 3. Go to step 1
-  defp collect_until_keyframes(state) do
-    with {:ok, segment, state} <- do_collect_until_keyframes(reverse_samples(state)) do
-      {:ok, segment, reverse_samples(state)}
-    end
+  defp max_end_timestamp(state) do
+    Enum.map(state.pad_to_track_data, fn {_key, track_data} ->
+      Ratio.to_float(track_data.elapsed_time)
+    end)
+    |> Enum.max()
   end
-
-  defp do_collect_until_keyframes(state) do
-    use Ratio, comparison: true
-
-    {target_pad, _samples} =
-      Enum.min_by(state.samples, fn {_track, samples} ->
-        case samples do
-          [] ->
-            :infinity
-
-          [sample | _rest] ->
-            Ratio.to_float(sample.dts)
-        end
-      end)
-
-    # if samples' dts differ between each other with at most of 1 sample duration
-    # then the timestamps are balanced
-    timestamps_balanced? =
-      state.samples
-      |> Enum.map(fn {_track, samples} ->
-        case samples do
-          [] -> nil
-          [sample | _rest] -> {sample.dts, sample.metadata.duration}
-        end
-      end)
-      |> check_timestamps_balanced()
-
-    cond do
-      Enum.any?(state.samples, fn {_track, samples} -> samples == [] end) ->
-        {:error, :not_enough_data}
-
-      timestamps_balanced? and
-          Enum.all?(state.samples, fn {_track, samples} -> starts_with_keyframe?(samples) end) ->
-        {:ok, %{}, state}
-
-      true ->
-        {sample, state} = get_and_update_in(state, [:samples, target_pad], &List.pop_at(&1, 0))
-
-        with {:ok, segment, state} <- do_collect_until_keyframes(state) do
-          segment = Map.update(segment, target_pad, [sample], &[sample | &1])
-          {:ok, segment, state}
-        end
-    end
-  end
-
-  defp check_timestamps_balanced([first, second | rest]) do
-    with {dts1, duration1} <- first,
-         {dts2, duration2} <- second do
-      max_duration =
-        if Ratio.gt?(duration1, duration2) do
-          duration1
-        else
-          duration2
-        end
-
-      balanced? = Ratio.lte?(Ratio.abs(Ratio.sub(dts1, dts2)), max_duration)
-
-      balanced? and check_timestamps_balanced([second | rest])
-    else
-      _other ->
-        # if either first or second are nils then we can't know
-        # if timestamps are balanced
-        false
-    end
-  end
-
-  defp check_timestamps_balanced(_timestamps), do: true
 
   defp reset_partial_durations(state) do
     state
     |> Map.update!(:pad_to_track_data, fn entries ->
       entries
-      |> Map.new(fn {pad, data} -> {pad, Map.replace(data, :partial_segments_duration, 0)} end)
+      |> Map.new(fn {pad, data} -> {pad, Map.replace(data, :parts_duration, 0)} end)
     end)
+  end
+
+  @compile {:inline, parts_duration_for: 2}
+  defp parts_duration_for(pad, state) do
+    Map.fetch!(state.pad_to_track_data, pad).parts_duration
   end
 
   @compile {:inline, is_key_frame: 1}
@@ -282,12 +283,4 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
   defp starts_with_keyframe?([target | _rest]),
     do: is_key_frame(target)
-
-  defp reverse_samples(state),
-    do:
-      Map.update!(
-        state,
-        :samples,
-        &Map.new(&1, fn {key, samples} -> {key, Enum.reverse(samples)} end)
-      )
 end

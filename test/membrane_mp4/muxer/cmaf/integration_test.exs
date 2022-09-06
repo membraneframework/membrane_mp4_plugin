@@ -97,11 +97,11 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
              )
 
     independent_buffers =
-      1..20
+      1..21
       |> Enum.reduce(0, fn _i, acc ->
         assert_sink_buffer(pipeline, :sink, buffer)
 
-        assert buffer.metadata.duration < Membrane.Time.milliseconds(600)
+        assert buffer.metadata.duration < Membrane.Time.milliseconds(650)
 
         if buffer.metadata.independent?, do: acc + 1, else: acc
       end)
@@ -121,7 +121,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
                partial_duration_range: new_duration_range(250, 500)
              )
 
-    0..22
+    0..19
     |> Enum.map(fn _i ->
       assert_sink_buffer(pipeline, :sink, buffer)
 
@@ -150,7 +150,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert buffer.metadata.duration <= Membrane.Time.milliseconds(600)
 
     # partial segments for the following 8 seconds without a keyframe
-    for _ <- 1..15 do
+    for _ <- 1..16 do
       assert_sink_buffer(pipeline, :sink, buffer)
       refute buffer.metadata.independent?
       assert buffer.metadata.duration <= Membrane.Time.milliseconds(600)
