@@ -3,10 +3,6 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesCacheTest do
 
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesCache, as: Cache
 
-  defp ms(time) do
-    Membrane.Time.milliseconds(time)
-  end
-
   defp with_buffer(opts) do
     dts = Keyword.fetch!(opts, :dts)
     duration = Keyword.fetch!(opts, :duration)
@@ -164,7 +160,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesCacheTest do
       assert length(cache.collected) == 2
     end
 
-    test "not change collecting state when audio sample's is lower than end timestamp but should put in 'to_collect' gropu" do
+    test "not change collecting state when audio sample's is lower than end timestamp but should put in 'to_collect' gropup" do
       # given
       cache = empty_audio_cache()
       assert collecting?(cache)
@@ -204,27 +200,77 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesCacheTest do
       assert cache.collected == [buf2]
     end
 
-    # NOTE: to delete
-    # test "not change collecting state when sample's dts is lower than minimum timestamp" do
-    #   # given
-    #   video_cache = empty_audio_cache()
-    #   assert collecting?(video_cache)
-    #
-    #   # when
-    #   buf1 = with_buffer(dts: 10, duration: 10)
-    #   buf2 = with_keyframe_buffer(dts: 10, duration: 10, keyframe?: false)
-    #   # even buffer with a keyframe should not make the cache collectible
-    #   buf2 = with_keyframe_buffer(dts: 15, duration: 10, keyframe?: true)
-    #
-    #   audio_cache = Cache.push_part(audio_cache, buf1, 20, 30, 40)
-    #   video_cache = 
-    #     video_cache
-    #     |> Cache.push_part(buf2, 20, 30, 40)
-    #     |> Cache.push_part(buf3, 20, 30, 40)
-    #
-    #   # then
-    #   assert collecting?(audio_cache)
-    #   assert collecting?(video_cache)
-    # end
+    test "change to to_collect state when video sample is a keyframe and its dts exceeds either min or mid timestamp" do
+      # given
+      cache = empty_video_cache()
+      assert collecting?(cache)
+
+      # when
+      buf1 = with_keyframe_buffer(dts: 15, duration: 10, keyframe?: false)
+      buf2 = with_keyframe_buffer(dts: 25, duration: 10, keyframe?: false)
+      buf3 = with_keyframe_buffer(dts: 30, duration: 10, keyframe?: false)
+
+      # dts > min and dts < mid
+      key1 = with_keyframe_buffer(dts: 26, duration: 10, keyframe?: true)
+      # dts > mid and dts < end
+      key2 = with_keyframe_buffer(dts: 35, duration: 10, keyframe?: true)
+
+      cache1 =
+        cache
+        |> Cache.push_part(buf1, 20, 30, 40)
+        |> Cache.push_part(buf2, 20, 30, 40)
+        |> Cache.push_part(key1, 20, 30, 40)
+
+      cache2 =
+        cache
+        |> Cache.push_part(buf1, 20, 30, 40)
+        |> Cache.push_part(buf2, 20, 30, 40)
+        |> Cache.push_part(buf3, 20, 30, 40)
+        |> Cache.push_part(key2, 20, 30, 40)
+
+      # reference cachce that should not triggeer collection
+      non_collectibe_cache =
+        cache
+        |> Cache.push_part(buf1, 20, 30, 40)
+        |> Cache.push_part(buf2, 20, 30, 40)
+        |> Cache.push_part(buf3, 20, 30, 40)
+
+      # then
+      assert collecting?(non_collectibe_cache)
+      refute collecting?(cache1)
+      refute collecting?(cache2)
+
+      assert cache1.collected == [buf1, buf2]
+      assert cache2.collected == [buf1, buf2, buf3]
+
+      assert cache1.to_collect == [key1]
+      assert cache2.to_collect == [key2]
+    end
+
+    test "change to to_collect state when video sample's dts is not a keyframe but exceeds end timestamp" do
+      # given
+      cache = empty_video_cache()
+      assert collecting?(cache)
+
+      # when
+      buf1 = with_keyframe_buffer(dts: 10, duration: 10, keyframe?: false)
+      buf2 = with_keyframe_buffer(dts: 25, duration: 10, keyframe?: false)
+      buf3 = with_keyframe_buffer(dts: 50, duration: 10, keyframe?: false)
+
+      cache =
+        cache
+        |> Cache.push_part(buf1, 20, 30, 40)
+        |> Cache.push_part(buf2, 20, 30, 40)
+        |> Cache.push_part(buf3, 20, 30, 40)
+
+      # then
+      refute collecting?(cache)
+
+      {samples, cache} = Cache.collect(cache)
+
+      assert collecting?(cache)
+      assert samples == [buf1, buf2]
+      assert cache.collected == [buf3]
+    end
   end
 end

@@ -84,31 +84,14 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
     base_timestamp = max_end_timestamp(state)
 
-    cond do
-      # if we are far below minimal duration then just collect the sample in a dumb way
-      total_collected_durations + part_duration_range.min < duration_range.min ->
-        Cache.push_part(cache, sample, base_timestamp + part_duration_range.target)
+    if total_collected_durations < duration_range.min do
+      Cache.push_part(cache, sample, base_timestamp + part_duration_range.target)
+    else
+      min_timestamp = base_timestamp + part_duration_range.min
+      mid_timestamp = base_timestamp + part_duration_range.target
+      max_timestamp = base_timestamp + part_duration_range.min + part_duration_range.target
 
-      # in this case we want to perform the lookahead
-      # TODO: this should depend on the collected_duration as well
-      total_collected_durations < duration_range.min ->
-        min_duration =
-          max(duration_range.min - total_collected_durations, part_duration_range.min)
-
-        remaining_duration = part_duration_range.target - min_duration
-
-        min_timestamp = base_timestamp + min_duration
-        mid_timestamp = min_timestamp + remaining_duration
-        max_timestamp = mid_timestamp + part_duration_range.min
-
-        Cache.push_part(cache, sample, min_timestamp, mid_timestamp, max_timestamp)
-
-      true ->
-        min_timestamp = base_timestamp + part_duration_range.min
-        mid_timestamp = base_timestamp + part_duration_range.target
-        max_timestamp = base_timestamp + part_duration_range.min + part_duration_range.target
-
-        Cache.push_part(cache, sample, min_timestamp, mid_timestamp, max_timestamp)
+      Cache.push_part(cache, sample, min_timestamp, mid_timestamp, max_timestamp)
     end
     |> case do
       %Cache{state: :collecting} = cache ->
@@ -136,6 +119,22 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     {:ok, segment, state}
   end
 
+  @spec take_all_samples_for(state_t(), Membrane.Time.t()) :: {:ok, segment_t(), state_t()}
+  def take_all_samples_for(state, duration) do
+    end_timestamp = max_end_timestamp(state) + duration
+
+    {segment, state} =
+      state.samples_cache
+      |> Enum.reject(fn {_pad, cache} -> Cache.empty?(cache) end)
+      |> Enum.reduce({[], state}, fn {pad, cache}, {acc, state} ->
+        {samples, cache} = Cache.force_collect(cache, end_timestamp)
+
+        {[{pad, samples} | acc], update_cache_for(pad, cache, state)}
+      end)
+
+    maybe_reset_partial_durations({:ok, Map.new(segment), state})
+  end
+
   defp push_partial_audio_segment(state, cache, pad, sample) do
     %{
       partial_segment_duration_range: part_duration_range,
@@ -145,7 +144,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     any_video_tracks? =
       Enum.any?(state.samples_cache, fn {_pad, cache} -> cache.supports_keyframes? end)
 
-    # NOTE: if we have any video tracks then let the video tracks decide when to collect audio tracks
+    # if we have any video track then let the video track decide when to collect audio tracks
     if any_video_tracks? do
       cache = Cache.force_push(cache, sample)
 
@@ -213,7 +212,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
   defp collect_segment_from_cache(cache_per_pad, end_timestamp, state) do
     Enum.reduce(cache_per_pad, {%{}, state}, fn {pad, cache}, {acc, state} ->
-      {collected, cache} = Cache.simple_collect(cache, end_timestamp)
+      {collected, cache} = Cache.force_collect(cache, end_timestamp)
 
       state =
         pad

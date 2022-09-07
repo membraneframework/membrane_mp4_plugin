@@ -6,8 +6,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesCache do
             collected_duration: 0,
             collected: [],
             to_collect_duration: 0,
-            to_collect: [],
-            latest_collected_dts: nil
+            to_collect: []
 
   @type state_t :: :collecting | :to_collect
 
@@ -16,11 +15,8 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesCache do
           supports_keyframes?: boolean(),
           collected_duration: non_neg_integer(),
           collected: list(Membrane.Buffer.t()),
-          to_collect: list(Membrane.Buffer.t()),
-          latest_collected_dts: float() | nil
+          to_collect: list(Membrane.Buffer.t())
         }
-
-  def mtime(time), do: Membrane.Time.to_milliseconds(trunc(time))
 
   @doc """
   Force pushes the sample into the cache ignoring any timestamps.
@@ -164,8 +160,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesCache do
         cache
         | state: :to_collect,
           collected: Enum.reverse(collected),
-          to_collect: [sample],
-          latest_collected_dts: latest_collected_dts(collected)
+          to_collect: [sample]
       }
     else
       %__MODULE__{
@@ -211,7 +206,6 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesCache do
           cache
           | state: :to_collect,
             collected: Enum.reverse(collected),
-            latest_collected_dts: latest_collected_dts(collected),
             collected_duration: total_duration(cache.to_collect),
             to_collect: [sample]
         }
@@ -226,12 +220,16 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesCache do
     end
   end
 
-  defp latest_collected_dts([]), do: nil
-  defp latest_collected_dts([sample | _rest]), do: Ratio.to_float(sample.dts)
-
   defp total_duration(samples), do: Enum.map(samples, & &1.metadata.duration) |> Enum.sum()
 
-  def simple_collect(%__MODULE__{state: :collecting} = cache, end_timestamp) do
+  @doc """
+  Forces collection until a given timestamp.
+
+  If the cache is already in `:to_collect` state then the function works the
+  same as `collect/1`.
+  """
+  @spec force_collect(t(), Membrane.Time.t()) :: {[Membrane.Buffer.t()], t()}
+  def force_collect(%__MODULE__{state: :collecting} = cache, end_timestamp) do
     use Ratio, comparison: true
 
     {to_collect, collected} = Enum.split_while(cache.collected, &(&1.dts >= end_timestamp))
@@ -248,24 +246,17 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesCache do
     {result, cache}
   end
 
-  def simple_collect(%__MODULE__{state: :to_collect, collected: collected} = cache, _timestamp) do
-    cache = %__MODULE__{
-      cache
-      | state: :collecting,
-        collected: cache.to_collect,
-        to_collect: [],
-        collected_duration: total_duration(cache.to_collect)
-    }
+  def force_collect(%__MODULE__{state: :to_collect} = cache, _timestamp), do: collect(cache)
 
-    {collected, cache}
-  end
+  @doc """
+  Collects samples from given cache.
 
-  @spec collect(Membrane.MP4.Muxer.CMAF.TrackSamplesCache.t()) ::
-          {any, Membrane.MP4.Muxer.CMAF.TrackSamplesCache.t()}
+  Cache itself must be in ':to_collect' state to perform collection.
+  """
+  @spec collect(t()) :: {[Membrane.Buffer.t()], t()}
   def collect(%__MODULE__{state: :to_collect} = cache) do
     %__MODULE__{collected: collected} = cache
 
-    # TODO: we may want to perform `__MODULE__.push/5` instead of just stating that collected are the ones that were to be collected
     cache = %__MODULE__{
       supports_keyframes?: cache.supports_keyframes?,
       collected: cache.to_collect,
@@ -275,6 +266,13 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesCache do
     {collected, cache}
   end
 
+  @doc """
+  Drains all samples from cache.
+
+  Similar to `collect/1` but returns all cached samples instead
+  of those marked for collection.
+  """
+  @spec drain_samples(t()) :: {[Membrane.Buffer.t()], t()}
   def drain_samples(%__MODULE__{state: :to_collect} = cache) do
     {cache.collected ++ Enum.reverse(cache.to_collect), %__MODULE__{}}
   end
@@ -283,10 +281,21 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesCache do
     {Enum.reverse(cache.to_collect ++ cache.collected), %__MODULE__{}}
   end
 
+  @doc """
+  Checks if cache contians any samples.
+  """
+  @spec empty?(t()) :: boolean()
   def empty?(%__MODULE__{collected: collected, to_collect: to_collect}) do
     Enum.empty?(collected) and Enum.empty?(to_collect)
   end
 
+  @doc """
+  Returns dts of the latest sample that is eligible for collection.
+
+  In case of ':collecting' state it is the last sample that has been put to cache.
+  When in ':to_collect' state it is the last sample that will be in return from 'collect/1'.
+  """
+  @spec last_collected_dts(t()) :: integer()
   def last_collected_dts(%__MODULE__{
         state: :collecting,
         collected: collected,
@@ -297,6 +306,13 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesCache do
   def last_collected_dts(%__MODULE__{state: :to_collect, collected: collected}),
     do: latest_collected_dts(List.last(collected, []) |> List.wrap()) || -1
 
+  defp latest_collected_dts([]), do: nil
+  defp latest_collected_dts([sample | _rest]), do: Ratio.to_float(sample.dts)
+
+  @doc """
+  Returns the most recenlty pushed sample.
+  """
+  @spec last_sample(t()) :: Membrane.Buffer.t() | nil
   def last_sample(%__MODULE__{state: :collecting, collected: [last_sample | _rest]}),
     do: last_sample
 
