@@ -4,10 +4,10 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.HelperTest do
   alias Membrane.Buffer
   alias Membrane.MP4.Muxer.CMAF.Segment.Helper, as: SegmentHelper
   alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange
-  alias Membrane.MP4.Muxer.CMAF.TrackSamplesCache, as: Cache
+  alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: Queue
 
   test "get_discontinuity_segment works correctly" do
-    cache = %Cache{supports_keyframes?: true}
+    queue = %Queue{track_with_keyframes?: true}
 
     buffers = [
       %Buffer{
@@ -30,7 +30,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.HelperTest do
       }
     ]
 
-    cache = Enum.reduce(buffers, cache, &Cache.force_push(&2, &1))
+    queue = Enum.reduce(buffers, queue, &Queue.force_push(&2, &1))
 
     state = %{
       awaiting_caps: nil,
@@ -38,14 +38,14 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.HelperTest do
       pad_to_track_data: %{
         a: %{elapsed_time: 0, parts_duration: 0}
       },
-      samples_cache: %{a: cache}
+      sample_queues: %{a: queue}
     }
 
     assert {:ok, _segment, state} = SegmentHelper.take_all_samples_for(state, 10)
 
-    Enum.each(state.samples_cache, fn {_key, cache} ->
+    Enum.each(state.sample_queues, fn {_key, queue} ->
       # verify that each tracks now starts with the keyframe
-      {buffers, _cache} = Cache.drain_samples(cache)
+      {buffers, _queue} = Queue.drain_samples(queue)
       assert hd(buffers).metadata.mp4_payload.key_frame?
     end)
   end

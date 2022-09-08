@@ -3,7 +3,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
   use Bunch
 
-  alias Membrane.MP4.Muxer.CMAF.TrackSamplesCache, as: Cache
+  alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
 
   @type pad_t :: Membrane.Pad.ref_t()
   @type state_t :: map()
@@ -15,102 +15,102 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   @spec push_segment(state_t(), Membrane.Pad.ref_t(), Membrane.Buffer.t()) ::
           {:ok, state_t()} | {:ok, segment_t(), state_t()}
   def push_segment(state, pad, sample) do
-    cache = Map.fetch!(state.samples_cache, pad)
-    is_video = cache.supports_keyframes?
+    queue = Map.fetch!(state.sample_queues, pad)
+    is_video = queue.track_with_keyframes?
 
     if is_video do
-      push_video_segment(state, cache, pad, sample)
+      push_video_segment(state, queue, pad, sample)
     else
-      push_audio_segment(state, cache, pad, sample)
+      push_audio_segment(state, queue, pad, sample)
     end
   end
 
-  defp push_video_segment(state, cache, pad, sample) do
+  defp push_video_segment(state, queue, pad, sample) do
     duration_range = state.segment_duration_range
     end_timestamp = max_end_timestamp(state) + duration_range.min
 
-    case Cache.push(cache, sample, end_timestamp) do
-      %Cache{state: :collecting} = cache ->
-        {:ok, update_cache_for(pad, cache, state)}
+    queue = SamplesQueue.push(queue, sample, end_timestamp)
 
-      %Cache{state: :to_collect} = cache ->
-        collect_samples_for_video_track(pad, cache, state)
+    if queue.collectable? do
+      collect_samples_for_video_track(pad, queue, state)
+    else
+      {:ok, update_queue_for(pad, queue, state)}
     end
   end
 
-  defp push_audio_segment(state, cache, pad, sample) do
+  defp push_audio_segment(state, queue, pad, sample) do
     duration_range = state.segment_duration_range
     end_timestamp = max_end_timestamp(state) + duration_range.min
 
     any_video_tracks? =
-      Enum.any?(state.samples_cache, fn {_pad, cache} -> cache.supports_keyframes? end)
+      Enum.any?(state.sample_queues, fn {_pad, queue} -> queue.track_with_keyframes? end)
 
-    if any_video_tracks? do
-      Cache.force_push(cache, sample)
+    queue =
+      if any_video_tracks? do
+        SamplesQueue.force_push(queue, sample)
+      else
+        SamplesQueue.push(queue, sample, end_timestamp)
+      end
+
+    if queue.collectable? do
+      collect_samples_for_audio_track(pad, queue, state)
     else
-      Cache.push(cache, sample, end_timestamp)
-    end
-    |> case do
-      %Cache{state: :collecting} = cache ->
-        {:ok, update_cache_for(pad, cache, state)}
-
-      %Cache{state: :to_collect} = cache ->
-        collect_samples_for_audio_track(pad, cache, state)
+      {:ok, update_queue_for(pad, queue, state)}
     end
   end
 
   @spec push_partial_segment(state_t(), Membrane.Pad.ref_t(), Membrane.Buffer.t()) ::
           {:ok, state_t()} | {:ok, segment_t(), state_t()}
   def push_partial_segment(state, pad, sample) do
-    cache = Map.fetch!(state.samples_cache, pad)
+    queue = Map.fetch!(state.sample_queues, pad)
 
-    if cache.supports_keyframes? do
-      push_partial_video_segment(state, cache, pad, sample)
+    if queue.track_with_keyframes? do
+      push_partial_video_segment(state, queue, pad, sample)
     else
-      push_partial_audio_segment(state, cache, pad, sample)
+      push_partial_audio_segment(state, queue, pad, sample)
     end
   end
 
-  defp push_partial_video_segment(state, cache, pad, sample) do
+  defp push_partial_video_segment(state, queue, pad, sample) do
     %{
       partial_segment_duration_range: part_duration_range,
       segment_duration_range: duration_range
     } = state
 
-    collected_duration = cache.collected_duration
+    collected_duration = queue.collected_duration
 
     total_collected_durations =
       Map.fetch!(state.pad_to_track_data, pad).parts_duration + collected_duration
 
     base_timestamp = max_end_timestamp(state)
 
-    if total_collected_durations < duration_range.min do
-      Cache.push_part(cache, sample, base_timestamp + part_duration_range.target)
+    queue =
+      if total_collected_durations < duration_range.min do
+        SamplesQueue.push_part(queue, sample, base_timestamp + part_duration_range.target)
+      else
+        min_timestamp = base_timestamp + part_duration_range.min
+        mid_timestamp = base_timestamp + part_duration_range.target
+        max_timestamp = base_timestamp + part_duration_range.min + part_duration_range.target
+
+        SamplesQueue.push_part(queue, sample, min_timestamp, mid_timestamp, max_timestamp)
+      end
+
+    if queue.collectable? do
+      pad
+      |> collect_samples_for_video_track(queue, state)
+      |> maybe_reset_partial_durations()
     else
-      min_timestamp = base_timestamp + part_duration_range.min
-      mid_timestamp = base_timestamp + part_duration_range.target
-      max_timestamp = base_timestamp + part_duration_range.min + part_duration_range.target
-
-      Cache.push_part(cache, sample, min_timestamp, mid_timestamp, max_timestamp)
-    end
-    |> case do
-      %Cache{state: :collecting} = cache ->
-        {:ok, update_cache_for(pad, cache, state)}
-
-      %Cache{state: :to_collect} = cache ->
-        pad
-        |> collect_samples_for_video_track(cache, state)
-        |> maybe_reset_partial_durations()
+      {:ok, update_queue_for(pad, queue, state)}
     end
   end
 
   @spec take_all_samples(state_t()) :: {:ok, segment_t(), state_t()}
   def take_all_samples(state) do
     segment =
-      state.samples_cache
-      |> Enum.reject(fn {_pad, cache} -> Cache.empty?(cache) end)
-      |> Enum.map(fn {pad, cache} ->
-        {samples, _cache} = Cache.drain_samples(cache)
+      state.sample_queues
+      |> Enum.reject(fn {_pad, queue} -> SamplesQueue.empty?(queue) end)
+      |> Enum.map(fn {pad, queue} ->
+        {samples, _queue} = SamplesQueue.drain_samples(queue)
 
         {pad, samples}
       end)
@@ -124,31 +124,31 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end_timestamp = max_end_timestamp(state) + duration
 
     {segment, state} =
-      state.samples_cache
-      |> Enum.reject(fn {_pad, cache} -> Cache.empty?(cache) end)
-      |> Enum.reduce({[], state}, fn {pad, cache}, {acc, state} ->
-        {samples, cache} = Cache.force_collect(cache, end_timestamp)
+      state.sample_queues
+      |> Enum.reject(fn {_pad, queue} -> SamplesQueue.empty?(queue) end)
+      |> Enum.map_reduce(state, fn {pad, queue}, state ->
+        {samples, queue} = SamplesQueue.force_collect(queue, end_timestamp)
 
-        {[{pad, samples} | acc], update_cache_for(pad, cache, state)}
+        {{pad, samples}, update_queue_for(pad, queue, state)}
       end)
 
     maybe_reset_partial_durations({:ok, Map.new(segment), state})
   end
 
-  defp push_partial_audio_segment(state, cache, pad, sample) do
+  defp push_partial_audio_segment(state, queue, pad, sample) do
     %{
       partial_segment_duration_range: part_duration_range,
       segment_duration_range: duration_range
     } = state
 
     any_video_tracks? =
-      Enum.any?(state.samples_cache, fn {_pad, cache} -> cache.supports_keyframes? end)
+      Enum.any?(state.sample_queues, fn {_pad, queue} -> queue.track_with_keyframes? end)
 
     # if we have any video track then let the video track decide when to collect audio tracks
     if any_video_tracks? do
-      cache = Cache.force_push(cache, sample)
+      queue = SamplesQueue.force_push(queue, sample)
 
-      {:ok, update_cache_for(pad, cache, state)}
+      {:ok, update_queue_for(pad, queue, state)}
     else
       parts_duration = parts_duration_for(pad, state)
 
@@ -160,49 +160,49 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
           max(part_duration_range.min, duration_range.target - parts_duration)
         )
 
-      case Cache.push_part(cache, sample, base_timestamp + duration) do
-        %Cache{state: :collecting} = cache ->
-          {:ok, update_cache_for(pad, cache, state)}
+      queue = SamplesQueue.push_part(queue, sample, base_timestamp + duration)
 
-        %Cache{state: :to_collect} = cache ->
-          pad
-          |> collect_samples_for_audio_track(cache, state)
-          |> maybe_reset_partial_durations()
+      if queue.collectable? do
+        pad
+        |> collect_samples_for_audio_track(queue, state)
+        |> maybe_reset_partial_durations()
+      else
+        {:ok, update_queue_for(pad, queue, state)}
       end
     end
   end
 
-  defp update_cache_for(pad, cache, state), do: put_in(state, [:samples_cache, pad], cache)
+  defp update_queue_for(pad, queue, state), do: put_in(state, [:sample_queues, pad], queue)
 
-  defp collect_samples_for_video_track(pad, cache, state) do
-    end_timestamp = Cache.last_collected_dts(cache)
+  defp collect_samples_for_video_track(pad, queue, state) do
+    end_timestamp = SamplesQueue.last_collected_dts(queue)
 
-    {collected, cache} = Cache.collect(cache)
+    {collected, queue} = SamplesQueue.collect(queue)
 
-    state = update_cache_for(pad, cache, state)
+    state = update_queue_for(pad, queue, state)
 
     if tracks_ready_for_collection?(state, end_timestamp) do
       state = update_partial_duration(state, pad, collected)
 
       {segment, state} =
-        state.samples_cache
+        state.sample_queues
         |> Map.delete(pad)
-        |> collect_segment_from_cache(end_timestamp, state)
+        |> collect_segment_from_queue(end_timestamp, state)
 
       segment = Map.put(segment, pad, collected)
 
       {:ok, segment, state}
     else
-      {:ok, update_cache_for(pad, cache, state)}
+      {:ok, update_queue_for(pad, queue, state)}
     end
   end
 
-  defp collect_samples_for_audio_track(pad, cache, state) do
-    end_timestamp = Cache.last_collected_dts(cache)
-    state = update_cache_for(pad, cache, state)
+  defp collect_samples_for_audio_track(pad, queue, state) do
+    end_timestamp = SamplesQueue.last_collected_dts(queue)
+    state = update_queue_for(pad, queue, state)
 
     if tracks_ready_for_collection?(state, end_timestamp) do
-      {segment, state} = collect_segment_from_cache(state.samples_cache, end_timestamp, state)
+      {segment, state} = collect_segment_from_queue(state.sample_queues, end_timestamp, state)
 
       {:ok, segment, state}
     else
@@ -210,22 +210,22 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end
   end
 
-  defp collect_segment_from_cache(cache_per_pad, end_timestamp, state) do
-    Enum.reduce(cache_per_pad, {%{}, state}, fn {pad, cache}, {acc, state} ->
-      {collected, cache} = Cache.force_collect(cache, end_timestamp)
+  defp collect_segment_from_queue(queue_per_pad, end_timestamp, state) do
+    Enum.reduce(queue_per_pad, {%{}, state}, fn {pad, queue}, {acc, state} ->
+      {collected, queue} = SamplesQueue.force_collect(queue, end_timestamp)
 
       state =
         pad
-        |> update_cache_for(cache, state)
+        |> update_queue_for(queue, state)
         |> update_partial_duration(pad, collected)
 
-      {Map.put(acc, pad, collected), update_cache_for(pad, cache, state)}
+      {Map.put(acc, pad, collected), update_queue_for(pad, queue, state)}
     end)
   end
 
   defp tracks_ready_for_collection?(state, end_timestamp) do
-    Enum.all?(state.samples_cache, fn {_pad, cache} ->
-      Cache.last_collected_dts(cache) >= end_timestamp
+    Enum.all?(state.sample_queues, fn {_pad, queue} ->
+      SamplesQueue.last_collected_dts(queue) >= end_timestamp
     end)
   end
 

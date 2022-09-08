@@ -24,7 +24,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   alias Membrane.{Buffer, Time}
   alias Membrane.MP4.Payload.{AAC, AVC1}
   alias Membrane.MP4.{Helper, Track}
-  alias Membrane.MP4.Muxer.CMAF.TrackSamplesCache, as: Cache
+  alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
 
   def_input_pad :input,
     availability: :on_request,
@@ -57,7 +57,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
         # ID for the next input track
         next_track_id: 1,
         samples: %{},
-        samples_cache: %{}
+        sample_queues: %{}
       })
 
     {:ok, state}
@@ -85,7 +85,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     state
     |> put_in([:pad_to_track_data, pad], track_data)
-    |> put_in([:samples_cache, pad], %Cache{})
+    |> put_in([:sample_queues, pad], %SamplesQueue{})
     |> then(&{:ok, &1})
   end
 
@@ -109,7 +109,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
     state =
       state
       |> update_in([:pad_to_track_data, pad], &%{&1 | track: caps_to_track(caps, &1.id)})
-      |> update_in([:samples_cache, pad], &%Cache{&1 | supports_keyframes?: is_video_pad})
+      |> update_in(
+        [:sample_queues, pad],
+        &%SamplesQueue{&1 | track_with_keyframes?: is_video_pad}
+      )
 
     has_all_input_caps? =
       ctx.pads
@@ -144,8 +147,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   defp find_video_pads(ctx) do
     ctx.pads
-    |> Enum.filter(fn {_pad, data} ->
-      data.caps != nil and is_video(data.caps)
+    |> Enum.filter(fn
+      {Pad.ref(:input, _id), data} ->
+        data.caps != nil and is_video(data.caps)
+
+      _other ->
+        false
     end)
     |> Enum.map(fn {pad, _data} -> pad end)
   end
@@ -156,12 +163,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     if is_video_pad do
       video_pads = find_video_pads(ctx)
 
-      has_other_video_pad? =
-        cond do
-          video_pads == [] -> false
-          video_pads == [pad] -> false
-          true -> true
-        end
+      has_other_video_pad? = video_pads != [] and video_pads != [pad]
 
       if has_other_video_pad? do
         raise "CMAF muxer can only handle at most one video pad"
@@ -221,7 +223,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   @impl true
   def handle_end_of_stream(Pad.ref(:input, _track_id) = pad, ctx, state) do
-    cache = Map.fetch!(state.samples_cache, pad)
+    cache = Map.fetch!(state.sample_queues, pad)
 
     processing_finished? =
       ctx.pads
@@ -229,7 +231,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> Map.values()
       |> Enum.all?(& &1.end_of_stream?)
 
-    if Cache.empty?(cache) do
+    if SamplesQueue.empty?(cache) do
       if processing_finished? do
         {{:ok, end_of_stream: :output}, state}
       else
@@ -244,12 +246,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
     sample = state.pad_to_track_data[pad].buffer_awaiting_duration
 
     sample_metadata =
-      Map.put(sample.metadata, :duration, Cache.last_sample(cache).metadata.duration)
+      Map.put(sample.metadata, :duration, SamplesQueue.last_sample(cache).metadata.duration)
 
     sample = %Buffer{sample | metadata: sample_metadata}
 
-    cache = Cache.force_push(cache, sample)
-    state = put_in(state, [:samples_cache, pad], cache)
+    cache = SamplesQueue.force_push(cache, sample)
+    state = put_in(state, [:sample_queues, pad], cache)
 
     if processing_finished? do
       with {:ok, segment, state} when map_size(segment) > 0 <-
@@ -345,20 +347,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> then(&(Enum.sum(&1) / length(&1)))
       |> floor()
 
-    independent =
-      Enum.all?(acc, fn {_pad, samples} ->
-        case samples do
-          [sample | _samples] ->
-            sample.metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
-
-          [] ->
-            false
-        end
-      end)
-
     metadata = %{
       duration: duration,
-      independent?: independent
+      independent?: is_segment_independent(acc, ctx)
     }
 
     buffer = %Buffer{payload: payload, metadata: metadata}
@@ -371,6 +362,22 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> Map.update!(:seq_num, &(&1 + 1))
 
     {buffer, state}
+  end
+
+  defp is_segment_independent(segment, ctx) do
+    case find_video_pads(ctx) do
+      [] ->
+        true
+
+      [video_pad] ->
+        case segment do
+          %{^video_pad => samples} ->
+            hd(samples).metadata.mp4_payload.key_frame?
+
+          _other ->
+            true
+        end
+    end
   end
 
   defp generate_sample_flags(metadata) do
