@@ -102,39 +102,20 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   @impl true
   def handle_caps(pad, %Membrane.MP4.Payload{} = caps, ctx, state) do
+    ensure_max_one_video_pad!(pad, caps, ctx)
+
     is_video_pad = is_video(caps)
-
-    if is_video_pad do
-      video_pads = find_video_pads(ctx)
-
-      has_other_video_pad? =
-        cond do
-          video_pads == [] -> false
-          video_pads == [pad] -> false
-          true -> true
-        end
-
-      if has_other_video_pad? do
-        raise "CMAF muxer can only handle at most one video pad"
-      end
-    end
 
     state =
       state
-      |> update_in([:pad_to_track_data, pad], fn track_data ->
-        track =
-          caps
-          |> Map.from_struct()
-          |> Map.take([:width, :height, :content, :timescale])
-          |> Map.put(:id, track_data.id)
-          |> Track.new()
-
-        %{track_data | track: track}
-      end)
+      |> update_in([:pad_to_track_data, pad], &%{&1 | track: caps_to_track(caps, &1.id)})
       |> update_in([:samples_cache, pad], &%Cache{&1 | supports_keyframes?: is_video_pad})
 
     has_all_input_caps? =
-      Map.drop(ctx.pads, [:output, pad]) |> Map.values() |> Enum.all?(&(&1.caps != nil))
+      ctx.pads
+      |> Map.drop([:output, pad])
+      |> Map.values()
+      |> Enum.all?(&(&1.caps != nil))
 
     if has_all_input_caps? do
       caps = generate_output_caps(state)
@@ -154,6 +135,13 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
+  defp is_video(caps) do
+    case caps.content do
+      %AAC{} -> false
+      %AVC1{} -> true
+    end
+  end
+
   defp find_video_pads(ctx) do
     ctx.pads
     |> Enum.filter(fn {_pad, data} ->
@@ -162,11 +150,31 @@ defmodule Membrane.MP4.Muxer.CMAF do
     |> Enum.map(fn {pad, _data} -> pad end)
   end
 
-  defp is_video(caps) do
-    case caps.content do
-      %AAC{} -> false
-      %AVC1{} -> true
+  defp ensure_max_one_video_pad!(pad, caps, ctx) do
+    is_video_pad = is_video(caps)
+
+    if is_video_pad do
+      video_pads = find_video_pads(ctx)
+
+      has_other_video_pad? =
+        cond do
+          video_pads == [] -> false
+          video_pads == [pad] -> false
+          true -> true
+        end
+
+      if has_other_video_pad? do
+        raise "CMAF muxer can only handle at most one video pad"
+      end
     end
+  end
+
+  defp caps_to_track(caps, track_id) do
+    caps
+    |> Map.from_struct()
+    |> Map.take([:width, :height, :content, :timescale])
+    |> Map.put(:id, track_id)
+    |> Track.new()
   end
 
   @impl true
