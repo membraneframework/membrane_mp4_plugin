@@ -27,60 +27,70 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
 
   defp with_collectable(queue), do: %Queue{queue | collectable?: true}
 
-  describe "Regular push to queue should" do
-    test "not change state when the sample's dts is lower than end timestamp" do
+  describe "Pushing to queue using push/3 should" do
+    test "not change to collectable state when the sample's dts is lower than end timestamp" do
+      # given
+      audio_queue = empty_audio_queue()
+      video_queue = empty_video_queue()
+      refute audio_queue.collectable?
+      refute video_queue.collectable?
+
+      # when
+      audio_buffer = with_buffer(dts: 5, duration: 10)
+      video_buffer1 = with_keyframe_buffer(dts: 5, duration: 10, keyframe?: false)
+      video_buffer2 = with_keyframe_buffer(dts: 6, duration: 10, keyframe?: true)
+
+      audio_queue = Queue.push(audio_queue, audio_buffer, 10)
+
+      video_queue =
+        video_queue
+        |> Queue.push(video_buffer1, 10)
+        |> Queue.push(video_buffer2, 10)
+
+      # then
+      refute audio_queue.collectable?
+      refute video_queue.collectable?
+    end
+
+    test "change to collectable state when sample's dts exceeds end timestamp" do
+      # given
+      audio_queue = empty_audio_queue()
+      video_queue = empty_video_queue()
+      refute audio_queue.collectable?
+      refute video_queue.collectable?
+
+      # when
+      audio_buffer = with_buffer(dts: 20, duration: 10)
+      video_buffer = with_keyframe_buffer(dts: 20, duration: 10, keyframe?: false)
+
+      audio_queue = Queue.push(audio_queue, audio_buffer, 10)
+      video_queue = Queue.push(video_queue, video_buffer, 10)
+
+      # then
+      assert audio_queue.collectable?
+      assert video_queue.collectable?
+    end
+
+    test "keep collecting when sample's dts exceeds end timestamp" do
       # given
       queue = empty_video_queue()
       refute queue.collectable?
 
       # when
-      buffer = with_buffer(dts: 10, duration: 10)
-      queue = Queue.push(queue, buffer, 20)
+      buf1 = with_keyframe_buffer(dts: 30, duration: 10, keyframe?: false)
+      buf2 = with_keyframe_buffer(dts: 40, duration: 10, keyframe?: false)
 
-      # then
-      refute queue.collectable?
-    end
-
-    test "change to collected state when audio sample exceeds end timestamp" do
-      # given
-      queue = empty_audio_queue()
-      refute queue.collectable?
-
-      # when
-      buffer = with_buffer(dts: 20, duration: 10)
-      queue = Queue.push(queue, buffer, 10)
+      queue =
+        queue
+        |> Queue.push(buf1, 10)
+        |> Queue.push(buf2, 10)
 
       # then
       assert queue.collectable?
+      assert queue.excess_samples == [buf2, buf1]
     end
 
-    test "keep collecting when video exceeds end timestamp but is not a keyframe" do
-      # given
-      queue = empty_video_queue()
-      refute queue.collectable?
-
-      # when
-      buffer = with_keyframe_buffer(dts: 20, duration: 10, keyframe?: false)
-      queue = Queue.push(queue, buffer, 10)
-
-      # then
-      refute queue.collectable?
-    end
-
-    test "change to collected state when video sample exceeds end timestamp and is a keyframe" do
-      # given
-      queue = empty_video_queue()
-      refute queue.collectable?
-
-      # when
-      buffer = with_keyframe_buffer(dts: 20, duration: 10, keyframe?: true)
-      queue = Queue.push(queue, buffer, 10)
-
-      # then
-      assert queue.collectable?
-    end
-
-    test "put samples in 'to_collect' group when queue is already ready for collection" do
+    test "put samples in excess samples group when queue is already collectable" do
       # given
       queue = empty_audio_queue() |> with_collectable()
       assert queue.target_samples == []
@@ -94,7 +104,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
       assert queue.excess_samples == [buffer]
     end
 
-    test "keep accumulated samples' duration" do
+    test "keep accumulated duration of target samples" do
       # given
       queue = empty_audio_queue()
       assert queue.collected_duration == 0
@@ -111,8 +121,10 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
       # then
       assert queue.collected_duration == buf1.metadata.duration + buf2.metadata.duration
     end
+  end
 
-    test "result in a proper collection once in 'to_collect' state" do
+  describe "Pushing to queue using push/5 should" do
+    test "result in a proper collection once in collectable state" do
       # given
       queue = empty_audio_queue()
 
@@ -123,8 +135,8 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
 
       queue =
         queue
-        |> Queue.push(buf1, 20)
-        |> Queue.push(buf2, 20)
+        |> Queue.push(buf1, 20, 25)
+        |> Queue.push(buf2, 20, 25)
 
       # then
       assert queue.collectable?
@@ -135,10 +147,21 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
       refute queue.collectable?
       assert queue.target_samples == [buf2]
     end
-  end
 
-  describe "Partial push to queue should" do
-    test "not change collecting state when audio sample's dts is lower than minimum and mid timestamps" do
+    test "change to collectable state when video sample exceeds mid timestamp and is a keyframe" do
+      # given
+      queue = empty_video_queue()
+      refute queue.collectable?
+
+      # when
+      buffer = with_keyframe_buffer(dts: 30, duration: 10, keyframe?: true)
+      queue = Queue.push(queue, buffer, 10, 15, 30)
+
+      # then
+      assert queue.collectable?
+    end
+
+    test "not change to collectable state when audio sample's dts is lower than minimum and mid timestamps" do
       # given
       queue = empty_audio_queue()
       refute queue.collectable?
@@ -149,30 +172,28 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
 
       queue =
         queue
-        |> Queue.push_part(buf1, 20, 30, 40)
-        |> Queue.push_part(buf2, 20, 30, 40)
+        |> Queue.push(buf1, 20, 30, 40)
+        |> Queue.push(buf2, 20, 30, 40)
 
       # then
       refute queue.collectable?
       assert length(queue.target_samples) == 2
     end
 
-    test "not change collecting state when audio sample's is lower than end timestamp but should put in 'to_collect' gropup" do
+    test "change to collectable state when audio sample's is lower than end timestamp but higher than mid timestamp" do
       # given
       queue = empty_audio_queue()
       refute queue.collectable?
 
       # when
       buffer = with_buffer(dts: 35, duration: 10)
-      queue = Queue.push_part(queue, buffer, 20, 30, 40)
+      queue = Queue.push(queue, buffer, 20, 30, 40)
 
       # then
-      refute queue.collectable?
-      assert queue.target_samples == []
-      assert queue.excess_samples == [buffer]
+      assert queue.collectable?
     end
 
-    test "change to to_collect state when audio sample's dts exceedes end timestamp" do
+    test "change to collectable state when audio sample's dts exceedes end timestamp" do
       # given
       queue = empty_audio_queue()
       refute queue.collectable?
@@ -183,8 +204,8 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
 
       queue =
         queue
-        |> Queue.push_part(buf1, 20, 30, 40)
-        |> Queue.push_part(buf2, 20, 30, 40)
+        |> Queue.push(buf1, 20, 30, 40)
+        |> Queue.push(buf2, 20, 30, 40)
 
       # then
       assert queue.collectable?
@@ -197,7 +218,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
       assert queue.target_samples == [buf2]
     end
 
-    test "change to to_collect state when video sample is a keyframe and its dts exceeds either min or mid timestamp" do
+    test "change to collectable state when video sample is a keyframe and its dts exceeds either min or mid timestamp" do
       # given
       queue = empty_video_queue()
       refute queue.collectable?
@@ -214,23 +235,23 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
 
       queue1 =
         queue
-        |> Queue.push_part(buf1, 20, 30, 40)
-        |> Queue.push_part(buf2, 20, 30, 40)
-        |> Queue.push_part(key1, 20, 30, 40)
+        |> Queue.push(buf1, 20, 30, 40)
+        |> Queue.push(buf2, 20, 30, 40)
+        |> Queue.push(key1, 20, 30, 40)
 
       queue2 =
         queue
-        |> Queue.push_part(buf1, 20, 30, 40)
-        |> Queue.push_part(buf2, 20, 30, 40)
-        |> Queue.push_part(buf3, 20, 30, 40)
-        |> Queue.push_part(key2, 20, 30, 40)
+        |> Queue.push(buf1, 20, 30, 40)
+        |> Queue.push(buf2, 20, 30, 40)
+        |> Queue.push(buf3, 20, 30, 40)
+        |> Queue.push(key2, 20, 30, 40)
 
       # reference cachce that should not triggeer collection
       non_collectibe_queue =
         queue
-        |> Queue.push_part(buf1, 20, 30, 40)
-        |> Queue.push_part(buf2, 20, 30, 40)
-        |> Queue.push_part(buf3, 20, 30, 40)
+        |> Queue.push(buf1, 20, 30, 40)
+        |> Queue.push(buf2, 20, 30, 40)
+        |> Queue.push(buf3, 20, 30, 40)
 
       # then
       refute non_collectibe_queue.collectable?
@@ -244,7 +265,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
       assert queue2.excess_samples == [key2]
     end
 
-    test "change to to_collect state when video sample's dts is not a keyframe but exceeds end timestamp" do
+    test "change to collectable state when video sample's dts is not a keyframe but exceeds end timestamp" do
       # given
       queue = empty_video_queue()
       refute queue.collectable?
@@ -256,9 +277,9 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
 
       queue =
         queue
-        |> Queue.push_part(buf1, 20, 30, 40)
-        |> Queue.push_part(buf2, 20, 30, 40)
-        |> Queue.push_part(buf3, 20, 30, 40)
+        |> Queue.push(buf1, 20, 30, 40)
+        |> Queue.push(buf2, 20, 30, 40)
+        |> Queue.push(buf3, 20, 30, 40)
 
       # then
       assert queue.collectable?

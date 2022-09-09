@@ -30,67 +30,15 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     }
   end
 
-  @spec push(t(), Membrane.Buffer.t(), Membrane.Time.t()) :: t()
-  def push(queue, sample, timestamp) do
-    dts = Ratio.to_float(sample.dts)
-
-    do_push(queue, sample, dts, timestamp)
-  end
-
-  defp do_push(%__MODULE__{collectable?: false} = queue, sample, dts, timestamp)
-       when dts < timestamp do
-    %__MODULE__{
-      queue
-      | target_samples: [sample | queue.target_samples],
-        collected_duration: queue.collected_duration + sample.metadata.duration
-    }
-  end
-
-  # we are handling video sample that has already exceeded the timestamp, don't collect until reaching a keyframe
-  defp do_push(
-         %__MODULE__{collectable?: false, track_with_keyframes?: true} = queue,
-         sample,
-         _dts,
-         _timestamp
-       ) do
-    if sample.metadata.mp4_payload.key_frame? do
-      %__MODULE__{
-        queue
-        | collectable?: true,
-          target_samples: Enum.reverse(queue.target_samples),
-          excess_samples: [sample]
-      }
-    else
-      %__MODULE__{
-        queue
-        | target_samples: [sample | queue.target_samples],
-          collected_duration: queue.collected_duration + sample.metadata.duration
-      }
-    end
-  end
-
-  defp do_push(%__MODULE__{collectable?: false} = queue, sample, _dts, _timestamp) do
-    %__MODULE__{
-      queue
-      | collectable?: true,
-        target_samples: Enum.reverse(queue.target_samples),
-        excess_samples: [sample]
-    }
-  end
-
-  defp do_push(%__MODULE__{collectable?: true} = queue, sample, _dts, _timestamp) do
-    %__MODULE__{queue | excess_samples: [sample | queue.excess_samples]}
-  end
-
   @doc """
   Pushes sample into the queue based on the given timestamp and sample's dts.
 
   If the sample has a dts lower than the desired timestamp then the sample will land in target samples group,
   otherwise it means that the required samples are already collected and the sample will land in excess samples group
-  and queue will become collectable. 
+  and queue will become collectable.
   """
-  @spec push_part(t(), Membrane.Buffer.t(), Membrane.Time.t()) :: t()
-  def push_part(%__MODULE__{collectable?: false} = queue, sample, timestamp) do
+  @spec push(t(), Membrane.Buffer.t(), Membrane.Time.t()) :: t()
+  def push(%__MODULE__{collectable?: false} = queue, sample, timestamp) do
     dts = Ratio.to_float(sample.dts)
 
     if dts < timestamp do
@@ -109,7 +57,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     end
   end
 
-  def push_part(queue, sample, _timestamp) do
+  def push(%__MODULE__{collectable?: true} = queue, sample, _timestamp) do
     %__MODULE__{queue | excess_samples: [sample | queue.excess_samples]}
   end
 
@@ -128,20 +76,20 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   the end timestamp then queue gets marked as collectable with all frames until a mid timestamp.
 
   """
-  @spec push_part(
+  @spec push(
           t(),
           Membrane.Buffer.t(),
           Membrane.Time.t(),
           Membrane.Time.t(),
-          Membrane.Time.t()
+          Membrane.Time.t() | :infinity
         ) :: t()
-  def push_part(queue, sample, min_timestamp, mid_timestamp, end_timestamp) do
+  def push(queue, sample, min_timestamp, mid_timestamp, end_timestamp \\ :infinity) do
     dts = Ratio.to_float(sample.dts)
 
-    do_push_part(queue, sample, dts, min_timestamp, mid_timestamp, end_timestamp)
+    do_push(queue, sample, dts, min_timestamp, mid_timestamp, end_timestamp)
   end
 
-  defp do_push_part(queue, sample, dts, min_timestamp, _mid_timestamp, _end_timestamp)
+  defp do_push(queue, sample, dts, min_timestamp, _mid_timestamp, _end_timestamp)
        when dts < min_timestamp do
     %__MODULE__{
       queue
@@ -150,7 +98,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     }
   end
 
-  defp do_push_part(queue, sample, dts, _min_timestamp, mid_timestamp, _end_timestamp)
+  defp do_push(queue, sample, dts, _min_timestamp, mid_timestamp, _end_timestamp)
        when dts < mid_timestamp do
     %__MODULE__{target_samples: target_samples, collected_duration: duration} = queue
 
@@ -170,7 +118,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     end
   end
 
-  defp do_push_part(queue, sample, dts, _min_timestamp, _mid_timestamp, end_timestamp)
+  defp do_push(queue, sample, dts, _min_timestamp, _mid_timestamp, end_timestamp)
        when dts < end_timestamp do
     %__MODULE__{
       target_samples: target_samples,
@@ -178,8 +126,8 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
       collected_duration: duration
     } = queue
 
-    # if we have a keyframe we just return the sample from the collected duration
-    if queue.track_with_keyframes? and sample.metadata.mp4_payload.key_frame? do
+    if (queue.track_with_keyframes? and sample.metadata.mp4_payload.key_frame?) or
+         not queue.track_with_keyframes? do
       %__MODULE__{
         queue
         | collectable?: true,
@@ -197,7 +145,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     end
   end
 
-  defp do_push_part(queue, sample, _dts, _min_timestamp, _mid_timestamp, _end_timestamp) do
+  defp do_push(queue, sample, _dts, _min_timestamp, _mid_timestamp, _end_timestamp) do
     if queue.collectable? do
       %__MODULE__{queue | excess_samples: [sample | queue.excess_samples]}
     else
@@ -252,7 +200,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   def force_collect(%__MODULE__{collectable?: true} = queue, _timestamp), do: collect(queue)
 
   @doc """
-  Collects samples from the queue. 
+  Collects samples from the queue.
 
   The queue must be marked as collectable.
 
@@ -274,7 +222,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   Drains all samples from queue.
 
   Similar to `collect/1` but returns all queued samples instead
-  of those from target samples group. 
+  of those from target samples group.
   """
   @spec drain_samples(t()) :: {[Membrane.Buffer.t()], t()}
   def drain_samples(%__MODULE__{collectable?: true} = queue) do
