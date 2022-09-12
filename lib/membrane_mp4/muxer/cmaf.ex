@@ -190,17 +190,18 @@ defmodule Membrane.MP4.Muxer.CMAF do
     {caps_action, segment} = collect_segment_samples(state, pad, sample)
 
     case segment do
-      {:ok, segment, state} ->
+      {:segment, segment, state} ->
         {buffer, state} = generate_segment(segment, ctx, state)
         actions = [buffer: {:output, buffer}] ++ caps_action ++ [redemand: :output]
         {{:ok, actions}, state}
 
-      {:ok, state} ->
+      {:no_segment, state} ->
         {{:ok, redemand: :output}, state}
     end
   end
 
-  defp collect_segment_samples(%{awaiting_caps: nil} = state, _pad, nil), do: {[], {:ok, state}}
+  defp collect_segment_samples(%{awaiting_caps: nil} = state, _pad, nil),
+    do: {[], {:no_segment, state}}
 
   defp collect_segment_samples(%{awaiting_caps: nil} = state, pad, sample) do
     supports_partial_segments? = state.partial_segment_duration_range != nil
@@ -213,12 +214,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   defp collect_segment_samples(%{awaiting_caps: {duration, caps}} = state, pad, sample) do
-    {:ok, segment, state} = Segment.Helper.take_all_samples_for(state, duration)
+    {:segment, segment, state} = Segment.Helper.take_all_samples_for(state, duration)
 
     state = %{state | awaiting_caps: nil}
-    {[], {:ok, state}} = collect_segment_samples(state, pad, sample)
+    {[], {:no_segment, state}} = collect_segment_samples(state, pad, sample)
 
-    {[caps: {:output, caps}], {:ok, segment, state}}
+    {[caps: {:output, caps}], {:segment, segment, state}}
   end
 
   @impl true
@@ -254,12 +255,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
     state = put_in(state, [:sample_queues, pad], cache)
 
     if processing_finished? do
-      with {:ok, segment, state} when map_size(segment) > 0 <-
+      with {:segment, segment, state} when map_size(segment) > 0 <-
              Segment.Helper.take_all_samples(state) do
         {buffer, state} = generate_segment(segment, ctx, state)
         {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
       else
-        {:ok, _segment, state} -> {{:ok, end_of_stream: :output}, state}
+        {:segment, _segment, state} -> {{:ok, end_of_stream: :output}, state}
       end
     else
       state = put_in(state, [:pad_to_track_data, pad, :end_timestamp], nil)

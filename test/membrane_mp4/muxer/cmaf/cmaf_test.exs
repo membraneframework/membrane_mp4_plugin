@@ -41,7 +41,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.HelperTest do
       sample_queues: %{a: queue}
     }
 
-    assert {:ok, _segment, state} = SegmentHelper.take_all_samples_for(state, 10)
+    assert {:segment, _segment, state} = SegmentHelper.take_all_samples_for(state, 10)
 
     Enum.each(state.sample_queues, fn {_key, queue} ->
       # verify that each tracks now starts with the keyframe

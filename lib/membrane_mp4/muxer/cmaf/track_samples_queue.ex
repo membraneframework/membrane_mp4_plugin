@@ -8,8 +8,6 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
             to_collect_duration: 0,
             excess_samples: []
 
-  @type state_t :: :collecting | :to_collect
-
   @type t :: %__MODULE__{
           collectable?: boolean(),
           track_with_keyframes?: boolean(),
