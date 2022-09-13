@@ -151,7 +151,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     if any_video_tracks? do
       queue = SamplesQueue.force_push(queue, sample)
 
-      {:ok, update_queue_for(pad, queue, state)}
+      {:no_segment, update_queue_for(pad, queue, state)}
     else
       base_timestamp = max_end_timestamp(state)
 
@@ -262,11 +262,6 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
       entries
       |> Map.new(fn {pad, data} -> {pad, Map.replace(data, :parts_duration, 0)} end)
     end)
-  end
-
-  @compile {:inline, parts_duration_for: 2}
-  defp parts_duration_for(pad, state) do
-    Map.fetch!(state.pad_to_track_data, pad).parts_duration
   end
 
   @compile {:inline, is_key_frame: 1}
