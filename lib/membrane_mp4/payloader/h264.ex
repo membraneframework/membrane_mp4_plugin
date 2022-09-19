@@ -48,7 +48,7 @@ defmodule Membrane.MP4.Payloader.H264 do
     # Given that the buffer has :au alignment, we don't need to consider the entire buffer - parameter sets should be at the very beginning
     grouped_nalus =
       nalus
-      |> Enum.take_while(&(&1.metadata.h264.type in [:sei, :sps, :pps]))
+      |> Enum.take_while(&(&1.metadata.h264.type in [:sei, :sps, :pps, :aud]))
       |> Enum.map(&{&1.metadata.h264.type, &1.payload})
 
     pps = Keyword.get_values(grouped_nalus, :pps)
