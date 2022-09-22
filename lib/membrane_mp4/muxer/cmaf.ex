@@ -306,7 +306,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
         %{timescale: timescale} = ctx.pads[pad].caps
         first_sample = hd(samples)
         last_sample = List.last(samples)
-        samples = Enum.to_list(samples)
 
         samples_table =
           samples
