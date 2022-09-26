@@ -28,10 +28,9 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   test "audio" do
     assert {:ok, pipeline} = prepare_pipeline(:audio)
 
-    1..5
+    1..6
     |> Enum.map(fn i ->
       assert_sink_buffer(pipeline, :sink, buffer)
-
       assert_mp4_equal(buffer.payload, "ref_audio_segment#{i}.m4s")
     end)
 
@@ -121,10 +120,9 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
                partial_duration_range: new_duration_range(250, 500)
              )
 
-    0..19
-    |> Enum.map(fn _i ->
+    0..20
+    |> Enum.each(fn _i ->
       assert_sink_buffer(pipeline, :sink, buffer)
-
       # every audio buffer should be independent
       assert buffer.metadata.independent?
     end)

@@ -85,7 +85,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     state
     |> put_in([:pad_to_track_data, pad], track_data)
-    |> put_in([:sample_queues, pad], %SamplesQueue{})
+    |> put_in([:sample_queues, pad], %SamplesQueue{
+      duration_range: state.partial_segment_duration_range || state.segment_duration_range
+    })
     |> then(&{:ok, &1})
   end
 

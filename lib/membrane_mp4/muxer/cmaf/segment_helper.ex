@@ -26,12 +26,9 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   end
 
   defp push_video_segment(state, queue, pad, sample) do
-    duration_range = state.segment_duration_range
     base_timestamp = max_end_timestamp(state)
-    min_timestamp = base_timestamp + duration_range.min
-    mid_timestamp = base_timestamp + duration_range.target
 
-    queue = SamplesQueue.push(queue, sample, min_timestamp, mid_timestamp)
+    queue = SamplesQueue.push_until_target(queue, sample, base_timestamp)
 
     if queue.collectable? do
       collect_samples_for_video_track(pad, queue, state)
@@ -41,10 +38,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   end
 
   defp push_audio_segment(state, queue, pad, sample) do
-    duration_range = state.segment_duration_range
     base_timestamp = max_end_timestamp(state)
-    min_timestamp = base_timestamp + duration_range.min
-    mid_timestamp = base_timestamp + duration_range.target
 
     any_video_tracks? =
       Enum.any?(state.sample_queues, fn {_pad, queue} -> queue.track_with_keyframes? end)
@@ -53,7 +47,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
       if any_video_tracks? do
         SamplesQueue.force_push(queue, sample)
       else
-        SamplesQueue.push(queue, sample, min_timestamp, mid_timestamp)
+        SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
       end
 
     if queue.collectable? do
@@ -76,12 +70,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   end
 
   defp push_partial_video_segment(state, queue, pad, sample) do
-    %{
-      partial_segment_duration_range: part_duration_range,
-      segment_duration_range: duration_range
-    } = state
-
-    collected_duration = queue.collected_duration
+    collected_duration = queue.collected_samples_duration
 
     total_collected_durations =
       Map.fetch!(state.pad_to_track_data, pad).parts_duration + collected_duration
@@ -89,14 +78,10 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     base_timestamp = max_end_timestamp(state)
 
     queue =
-      if total_collected_durations < duration_range.min do
-        SamplesQueue.push(queue, sample, base_timestamp + part_duration_range.target)
+      if total_collected_durations < state.segment_duration_range.min do
+        SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
       else
-        min_timestamp = base_timestamp + part_duration_range.min
-        mid_timestamp = base_timestamp + part_duration_range.target
-        max_timestamp = base_timestamp + part_duration_range.min + part_duration_range.target
-
-        SamplesQueue.push(queue, sample, min_timestamp, mid_timestamp, max_timestamp)
+        SamplesQueue.push_until_end(queue, sample, base_timestamp)
       end
 
     if queue.collectable? do
@@ -140,10 +125,6 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   end
 
   defp push_partial_audio_segment(state, queue, pad, sample) do
-    %{
-      partial_segment_duration_range: part_duration_range
-    } = state
-
     any_video_tracks? =
       Enum.any?(state.sample_queues, fn {_pad, queue} -> queue.track_with_keyframes? end)
 
@@ -155,7 +136,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     else
       base_timestamp = max_end_timestamp(state)
 
-      queue = SamplesQueue.push(queue, sample, base_timestamp + part_duration_range.target)
+      queue = SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
 
       if queue.collectable? do
         pad

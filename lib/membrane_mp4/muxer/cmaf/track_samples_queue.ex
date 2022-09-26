@@ -1,9 +1,12 @@
 defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   @moduledoc false
 
+  alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange, as: DurationRange
+
   defstruct collectable?: false,
             track_with_keyframes?: false,
-            collected_duration: 0,
+            collected_samples_duration: 0,
+            duration_range: nil,
             target_samples: [],
             to_collect_duration: 0,
             excess_samples: []
@@ -11,38 +14,43 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   @type t :: %__MODULE__{
           collectable?: boolean(),
           track_with_keyframes?: boolean(),
-          collected_duration: non_neg_integer(),
+          collected_samples_duration: non_neg_integer(),
+          duration_range: DurationRange.t() | nil,
           target_samples: list(Membrane.Buffer.t()),
           excess_samples: list(Membrane.Buffer.t())
         }
 
   @doc """
-  Force pushes the sample into the queue ignoring any timestamps.
+  Force pushes the sample into the queue ignoring any durations.
   """
   @spec force_push(t(), Membrane.Buffer.t()) :: t()
   def force_push(%__MODULE__{collectable?: false} = queue, sample) do
     %__MODULE__{
       queue
       | target_samples: [sample | queue.target_samples],
-        collected_duration: queue.collected_duration + sample.metadata.duration
+        collected_samples_duration: queue.collected_samples_duration + sample.metadata.duration
     }
   end
 
   @doc """
-  Pushes sample into the queue based on the given timestamp and sample's dts.
+  Pushes sample into the queue based on the calculated duration of the track that the sample belongs to in
+  a simple manner (only cares about the target duration).
 
-  If the sample has a dts lower than the desired timestamp then the sample will land in target samples group,
+  The tracks duration is calculated based on the sample's dts and its duration.
+  If the calculated duration is lower than the desired duration then the sample will land in target samples group,
   otherwise it means that the required samples are already collected and the sample will land in excess samples group
   and queue will become collectable.
   """
-  @spec push(t(), Membrane.Buffer.t(), Membrane.Time.t()) :: t()
-  def push(%__MODULE__{collectable?: false} = queue, sample, timestamp) do
-    dts = Ratio.to_float(sample.dts)
+  @spec plain_push_until_target(t(), Membrane.Buffer.t(), Membrane.Time.t()) :: t()
+  def plain_push_until_target(%__MODULE__{collectable?: false} = queue, sample, base_timestamp) do
+    target_duration = base_timestamp + queue.duration_range.target
 
-    if dts < timestamp do
+    track_duration = duration_from_sample(sample)
+
+    if track_duration <= target_duration do
       %__MODULE__{
         queue
-        | collected_duration: queue.collected_duration + sample.metadata.duration,
+        | collected_samples_duration: queue.collected_samples_duration + sample.metadata.duration,
           target_samples: [sample | queue.target_samples]
       }
     else
@@ -55,50 +63,72 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     end
   end
 
-  def push(%__MODULE__{collectable?: true} = queue, sample, _timestamp) do
+  def plain_push_until_target(%__MODULE__{collectable?: true} = queue, sample, _base_timestamp) do
     %__MODULE__{queue | excess_samples: [sample | queue.excess_samples]}
   end
 
   @doc """
-  Pushes sample into the queue by taking into consideration minimal, desired and end timestamps.
+  Pushes sample into the queue by taking into consideration minimal, target and max track durations.
 
-  The behaviour of when a queue collectable is based on the incoming samples dts and whether
-  the queue's track contains keyframes and when the sample with a keyframe arrives.
+  The behaviour of when a queue becomes collectable is based on the track's duration (after taking the incoming sample into consideration)
+  and whether the following sample contains a keyframe.
 
   In general the this push behaviour will always try to accumulate samples until the minimal duration, no matter
   if the keyframe appears or not.
   Then the behaviour changes and queue will start looking for keyframes to eventually
-  mark itself as collectable when encountring a keyframe while still collecting all samples until a mid timestamp.
-  If no keyframe has been found then the queue starts to look for keyframes until the end timestamp but this time without
-  putting samples into target samples group but into the excess samples one. When no keyframe gets found and the sample's dts exceeds
-  the end timestamp then queue gets marked as collectable with all frames until a mid timestamp.
+  mark itself as collectable when encountering a keyframe while still collecting all samples until a target duration.
 
+  If no keyframe has been found, then the queue starts to look for keyframes until the max duration but this time without
+  putting samples into target samples group but into the excess samples one.
+  When no keyframe gets found and the track's duration exceeds the max duration then
+  queue gets marked as collectable with all frames until a target duration time point.
   """
-  @spec push(
+  @spec push_until_end(
           t(),
           Membrane.Buffer.t(),
-          Membrane.Time.t(),
-          Membrane.Time.t(),
-          Membrane.Time.t() | :infinity
+          Membrane.Time.t()
         ) :: t()
-  def push(queue, sample, min_timestamp, mid_timestamp, end_timestamp \\ :infinity) do
-    dts = Ratio.to_float(sample.dts)
+  def push_until_end(queue, sample, base_timestamp) do
+    range = queue.duration_range
+    min_duration = base_timestamp + range.min
+    target_duration = base_timestamp + range.target
+    max_duration = base_timestamp + range.min + range.target
 
-    do_push(queue, sample, dts, min_timestamp, mid_timestamp, end_timestamp)
+    duration = duration_from_sample(sample)
+
+    do_push(queue, sample, duration, min_duration, target_duration, max_duration)
   end
 
-  defp do_push(queue, sample, dts, min_timestamp, _mid_timestamp, _end_timestamp)
-       when dts < min_timestamp do
+  @doc """
+  Similar to `push_until_end/3` but the max duration is set to infinity.
+  """
+  @spec push_until_target(t(), Membrane.Buffer.t(), Membrane.Time.t()) :: t()
+  def push_until_target(queue, sample, base_timestamp) do
+    range = queue.duration_range
+    min_duration = base_timestamp + range.min
+    target_duration = base_timestamp + range.target
+    max_duration = :infinity
+
+    duration = duration_from_sample(sample)
+
+    do_push(queue, sample, duration, min_duration, target_duration, max_duration)
+  end
+
+  defp do_push(queue, sample, duration, min_duration, _target_duration, _max_duration)
+       when duration <= min_duration do
     %__MODULE__{
       queue
-      | collected_duration: queue.collected_duration + sample.metadata.duration,
+      | collected_samples_duration: queue.collected_samples_duration + sample.metadata.duration,
         target_samples: [sample | queue.target_samples]
     }
   end
 
-  defp do_push(queue, sample, dts, _min_timestamp, mid_timestamp, _end_timestamp)
-       when dts < mid_timestamp do
-    %__MODULE__{target_samples: target_samples, collected_duration: duration} = queue
+  defp do_push(queue, sample, duration, _min_duration, target_duration, _max_duration)
+       when duration <= target_duration do
+    %__MODULE__{
+      target_samples: target_samples,
+      collected_samples_duration: collected_samples_duration
+    } = queue
 
     if queue.track_with_keyframes? and sample.metadata.mp4_payload.key_frame? do
       %__MODULE__{
@@ -110,18 +140,18 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     else
       %__MODULE__{
         queue
-        | collected_duration: duration + sample.metadata.duration,
+        | collected_samples_duration: collected_samples_duration + sample.metadata.duration,
           target_samples: [sample | target_samples]
       }
     end
   end
 
-  defp do_push(queue, sample, dts, _min_timestamp, _mid_timestamp, end_timestamp)
-       when dts < end_timestamp do
+  defp do_push(queue, sample, duration, _min_duration, _target_duration, max_duration)
+       when duration <= max_duration do
     %__MODULE__{
       target_samples: target_samples,
       excess_samples: excess_samples,
-      collected_duration: duration
+      collected_samples_duration: collected_samples_duration
     } = queue
 
     if (queue.track_with_keyframes? and sample.metadata.mp4_payload.key_frame?) or
@@ -133,17 +163,17 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
           excess_samples: [sample]
       }
     else
-      # in case we already exceeded the mid timestamp we don't want to push the sample to target samples group (unless further we encounter a key frame)
+      # in case we already exceeded the target duration we don't want to push the sample to target samples group (unless further we encounter a key frame)
       # NOTE: but we increase the duration
       %__MODULE__{
         queue
-        | collected_duration: duration + sample.metadata.duration,
+        | collected_samples_duration: collected_samples_duration + sample.metadata.duration,
           excess_samples: [sample | excess_samples]
       }
     end
   end
 
-  defp do_push(queue, sample, _dts, _min_timestamp, _mid_timestamp, _end_timestamp) do
+  defp do_push(queue, sample, _duration, _min_duration, _target_duration, _max_duration) do
     if queue.collectable? do
       %__MODULE__{queue | excess_samples: [sample | queue.excess_samples]}
     else
@@ -154,7 +184,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
           queue
           | collectable?: true,
             target_samples: Enum.reverse(target_samples),
-            collected_duration: total_duration(target_samples),
+            collected_samples_duration: total_duration(target_samples),
             excess_samples: [sample]
         }
       else
@@ -177,11 +207,11 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   same as `collect/1`.
   """
   @spec force_collect(t(), Membrane.Time.t()) :: {[Membrane.Buffer.t()], t()}
-  def force_collect(%__MODULE__{collectable?: false} = queue, end_timestamp) do
+  def force_collect(%__MODULE__{collectable?: false} = queue, max_duration) do
     use Ratio, comparison: true
 
     {excess_samples, target_samples} =
-      Enum.split_while(queue.target_samples, &(&1.dts >= end_timestamp))
+      Enum.split_while(queue.target_samples, &(&1.dts >= max_duration))
 
     result = Enum.reverse(target_samples)
 
@@ -189,7 +219,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
       queue
       | target_samples: excess_samples,
         excess_samples: [],
-        collected_duration: total_duration(excess_samples)
+        collected_samples_duration: total_duration(excess_samples)
     }
 
     {result, queue}
@@ -208,9 +238,10 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     %__MODULE__{target_samples: target_samples} = queue
 
     queue = %__MODULE__{
+      duration_range: queue.duration_range,
       track_with_keyframes?: queue.track_with_keyframes?,
       target_samples: queue.excess_samples,
-      collected_duration: total_duration(queue.excess_samples)
+      collected_samples_duration: total_duration(queue.excess_samples)
     }
 
     {target_samples, queue}
@@ -224,11 +255,13 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   """
   @spec drain_samples(t()) :: {[Membrane.Buffer.t()], t()}
   def drain_samples(%__MODULE__{collectable?: true} = queue) do
-    {queue.target_samples ++ Enum.reverse(queue.excess_samples), %__MODULE__{}}
+    {queue.target_samples ++ Enum.reverse(queue.excess_samples),
+     %__MODULE__{duration_range: queue.duration_range}}
   end
 
   def drain_samples(%__MODULE__{collectable?: false} = queue) do
-    {Enum.reverse(queue.excess_samples ++ queue.target_samples), %__MODULE__{}}
+    {Enum.reverse(queue.excess_samples ++ queue.target_samples),
+     %__MODULE__{duration_range: queue.duration_range}}
   end
 
   @doc """
@@ -275,4 +308,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
 
   def last_sample(%__MODULE__{collectable?: true, excess_samples: [last_sample | _rest]}),
     do: last_sample
+
+  @compile {:inline, duration_from_sample: 1}
+  defp duration_from_sample(sample), do: Ratio.to_float(sample.dts) + sample.metadata.duration
 end
