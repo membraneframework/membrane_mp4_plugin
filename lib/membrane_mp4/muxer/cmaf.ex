@@ -7,18 +7,24 @@ defmodule Membrane.MP4.Muxer.CMAF do
   Given that all input streams need to have a keyframe at the beginning of each CMAF Segment, it is recommended
   that all input streams are renditions of the same content.
 
+  The muxer also supports creation of partial segments that do not begin with a key frame
+  when the `partial_segment_duration_range` is specified. The muxer tries to create many partial
+  segments to match the regular segment target duration. When reaching the regular segment's
+  target duration the muxer tries to perform lookaheads of the samples to either create
+  a shorter/longer partial segment so that a new segment can be started (beginning with a keyframe).
+
   If a stream contains non-key frames (like H264 P or B frames), they should be marked
   with a `mp4_payload: %{key_frame?: false}` metadata entry.
-
   """
   use Membrane.Filter
 
   require Membrane.Logger
 
-  alias __MODULE__.{Header, Segment}
+  alias __MODULE__.{Header, Segment, SegmentDurationRange}
   alias Membrane.{Buffer, Time}
   alias Membrane.MP4.Payload.{AAC, AVC1}
   alias Membrane.MP4.{Helper, Track}
+  alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
 
   def_input_pad :input,
     availability: :on_request,
@@ -27,10 +33,15 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   def_output_pad :output, caps: Membrane.CMAF.Track
 
-  def_options segment_duration: [
-                type: :time,
-                spec: Membrane.Time.t(),
-                default: 2 |> Time.seconds()
+  def_options segment_duration_range: [
+                spec: SegmentDurationRange.t(),
+                default: SegmentDurationRange.new(Time.seconds(2), Time.seconds(2))
+              ],
+              partial_segment_duration_range: [
+                spec: SegmentDurationRange.t() | nil,
+                default: nil,
+                description:
+                  "The duration range of partial segments, when set to nil the muxer assumes it should not produce partial segments"
               ]
 
   @impl true
@@ -45,7 +56,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
         pad_to_track_data: %{},
         # ID for the next input track
         next_track_id: 1,
-        samples: %{}
+        samples: %{},
+        sample_queues: %{}
       })
 
     {:ok, state}
@@ -67,12 +79,15 @@ defmodule Membrane.MP4.Muxer.CMAF do
       track: nil,
       elapsed_time: 0,
       end_timestamp: 0,
-      buffer_awaiting_duration: nil
+      buffer_awaiting_duration: nil,
+      parts_duration: Membrane.Time.seconds(0)
     }
 
     state
     |> put_in([:pad_to_track_data, pad], track_data)
-    |> put_in([:samples, pad], [])
+    |> put_in([:sample_queues, pad], %SamplesQueue{
+      duration_range: state.partial_segment_duration_range || state.segment_duration_range
+    })
     |> then(&{:ok, &1})
   end
 
@@ -89,20 +104,23 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   @impl true
   def handle_caps(pad, %Membrane.MP4.Payload{} = caps, ctx, state) do
-    state =
-      update_in(state, [:pad_to_track_data, pad], fn track_data ->
-        track =
-          caps
-          |> Map.from_struct()
-          |> Map.take([:width, :height, :content, :timescale])
-          |> Map.put(:id, track_data.id)
-          |> Track.new()
+    ensure_max_one_video_pad!(pad, caps, ctx)
 
-        %{track_data | track: track}
-      end)
+    is_video_pad = is_video(caps)
+
+    state =
+      state
+      |> update_in([:pad_to_track_data, pad], &%{&1 | track: caps_to_track(caps, &1.id)})
+      |> update_in(
+        [:sample_queues, pad],
+        &%SamplesQueue{&1 | track_with_keyframes?: is_video_pad}
+      )
 
     has_all_input_caps? =
-      Map.drop(ctx.pads, [:output, pad]) |> Map.values() |> Enum.all?(&(&1.caps != nil))
+      ctx.pads
+      |> Map.drop([:output, pad])
+      |> Map.values()
+      |> Enum.all?(&(&1.caps != nil))
 
     if has_all_input_caps? do
       caps = generate_output_caps(state)
@@ -122,54 +140,129 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
+  defp is_video(caps) do
+    case caps.content do
+      %AAC{} -> false
+      %AVC1{} -> true
+    end
+  end
+
+  defp find_video_pads(ctx) do
+    ctx.pads
+    |> Enum.filter(fn
+      {Pad.ref(:input, _id), data} ->
+        data.caps != nil and is_video(data.caps)
+
+      _other ->
+        false
+    end)
+    |> Enum.map(fn {pad, _data} -> pad end)
+  end
+
+  defp ensure_max_one_video_pad!(pad, caps, ctx) do
+    is_video_pad = is_video(caps)
+
+    if is_video_pad do
+      video_pads = find_video_pads(ctx)
+
+      has_other_video_pad? = video_pads != [] and video_pads != [pad]
+
+      if has_other_video_pad? do
+        raise "CMAF muxer can only handle at most one video pad"
+      end
+    end
+  end
+
+  defp caps_to_track(caps, track_id) do
+    caps
+    |> Map.from_struct()
+    |> Map.take([:width, :height, :content, :timescale])
+    |> Map.put(:id, track_id)
+    |> Track.new()
+  end
+
   @impl true
   def handle_process(Pad.ref(:input, _id) = pad, sample, ctx, state) do
     use Ratio, comparison: true
 
-    state =
-      state
-      |> process_buffer_awaiting_duration(pad, sample)
-      |> update_awaiting_caps(pad)
+    {sample, state} = process_buffer_awaiting_duration(state, pad, sample)
 
-    {caps_action, segment} =
-      if is_nil(state.awaiting_caps) do
-        {[], Segment.Helper.get_segment(state, state.segment_duration)}
-      else
-        {duration, caps} = state.awaiting_caps
-        {[caps: {:output, caps}], Segment.Helper.get_discontinuity_segment(state, duration)}
-      end
+    state = update_awaiting_caps(state, pad)
+
+    {caps_action, segment} = collect_segment_samples(state, pad, sample)
 
     case segment do
-      {:ok, segment, state} ->
+      {:segment, segment, state} ->
         {buffer, state} = generate_segment(segment, ctx, state)
         actions = [buffer: {:output, buffer}] ++ caps_action ++ [redemand: :output]
         {{:ok, actions}, state}
 
-      {:error, :not_enough_data} ->
+      {:no_segment, state} ->
         {{:ok, redemand: :output}, state}
     end
   end
 
+  defp collect_segment_samples(%{awaiting_caps: nil} = state, _pad, nil),
+    do: {[], {:no_segment, state}}
+
+  defp collect_segment_samples(%{awaiting_caps: nil} = state, pad, sample) do
+    supports_partial_segments? = state.partial_segment_duration_range != nil
+
+    if supports_partial_segments? do
+      {[], Segment.Helper.push_partial_segment(state, pad, sample)}
+    else
+      {[], Segment.Helper.push_segment(state, pad, sample)}
+    end
+  end
+
+  defp collect_segment_samples(%{awaiting_caps: {duration, caps}} = state, pad, sample) do
+    {:segment, segment, state} = Segment.Helper.take_all_samples_for(state, duration)
+
+    state = %{state | awaiting_caps: nil}
+    {[], {:no_segment, state}} = collect_segment_samples(state, pad, sample)
+
+    {[caps: {:output, caps}], {:segment, segment, state}}
+  end
+
   @impl true
   def handle_end_of_stream(Pad.ref(:input, _track_id) = pad, ctx, state) do
+    cache = Map.fetch!(state.sample_queues, pad)
+
+    processing_finished? =
+      ctx.pads
+      |> Map.drop([:output, pad])
+      |> Map.values()
+      |> Enum.all?(& &1.end_of_stream?)
+
+    if SamplesQueue.empty?(cache) do
+      if processing_finished? do
+        {{:ok, end_of_stream: :output}, state}
+      else
+        {{:ok, redemand: :output}, state}
+      end
+    else
+      generate_end_of_stream_segment(processing_finished?, cache, pad, ctx, state)
+    end
+  end
+
+  defp generate_end_of_stream_segment(processing_finished?, cache, pad, ctx, state) do
     sample = state.pad_to_track_data[pad].buffer_awaiting_duration
 
     sample_metadata =
-      Map.put(sample.metadata, :duration, hd(state.samples[pad]).metadata.duration)
+      Map.put(sample.metadata, :duration, SamplesQueue.last_sample(cache).metadata.duration)
 
     sample = %Buffer{sample | metadata: sample_metadata}
 
-    state = update_in(state, [:samples, pad], &[sample | &1])
-
-    processing_finished? =
-      ctx.pads |> Map.drop([:output, pad]) |> Map.values() |> Enum.all?(& &1.end_of_stream?)
+    cache = SamplesQueue.force_push(cache, sample)
+    state = put_in(state, [:sample_queues, pad], cache)
 
     if processing_finished? do
-      with {:ok, segment, state} <- Segment.Helper.take_all_samples(state) do
+      with {:segment, segment, state} when map_size(segment) > 0 <-
+             Segment.Helper.take_all_samples(state) do
         {buffer, state} = generate_segment(segment, ctx, state)
         {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
       else
-        {:error, :not_enough_data} -> {{:ok, end_of_stream: :output}, state}
+        {:segment, _segment, state} -> {{:ok, end_of_stream: :output}, state}
       end
     else
       state = put_in(state, [:pad_to_track_data, pad, :end_timestamp], nil)
@@ -204,7 +297,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
     use Ratio, comparison: true
 
     tracks_data =
-      Enum.map(acc, fn {pad, samples} ->
+      acc
+      |> Enum.filter(fn {_pad, samples} -> not Enum.empty?(samples) end)
+      |> Enum.map(fn {pad, samples} ->
         %{timescale: timescale} = ctx.pads[pad].caps
         first_sample = hd(samples)
         last_sample = List.last(samples)
@@ -255,7 +350,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> then(&(Enum.sum(&1) / length(&1)))
       |> floor()
 
-    buffer = %Buffer{payload: payload, metadata: %{duration: duration}}
+    metadata = %{
+      duration: duration,
+      independent?: is_segment_independent(acc, ctx)
+    }
+
+    buffer = %Buffer{payload: payload, metadata: metadata}
 
     # Update elapsed time counters for each track
     state =
@@ -265,6 +365,22 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> Map.update!(:seq_num, &(&1 + 1))
 
     {buffer, state}
+  end
+
+  defp is_segment_independent(segment, ctx) do
+    case find_video_pads(ctx) do
+      [] ->
+        true
+
+      [video_pad] ->
+        case segment do
+          %{^video_pad => samples} ->
+            hd(samples).metadata.mp4_payload.key_frame?
+
+          _other ->
+            true
+        end
+    end
   end
 
   defp generate_sample_flags(metadata) do
@@ -289,15 +405,18 @@ defmodule Membrane.MP4.Muxer.CMAF do
     prev_sample = state.pad_to_track_data[pad].buffer_awaiting_duration
 
     if is_nil(prev_sample) do
-      put_in(state, [:pad_to_track_data, pad, :buffer_awaiting_duration], sample)
+      {nil, put_in(state, [:pad_to_track_data, pad, :buffer_awaiting_duration], sample)}
     else
       duration = Ratio.to_float(sample.dts - prev_sample.dts)
       prev_sample_metadata = Map.put(prev_sample.metadata, :duration, duration)
       prev_sample = %Buffer{prev_sample | metadata: prev_sample_metadata}
 
-      put_in(state, [:pad_to_track_data, pad, :end_timestamp], prev_sample.dts)
-      |> put_in([:pad_to_track_data, pad, :buffer_awaiting_duration], sample)
-      |> update_in([:samples, pad], &[prev_sample | &1])
+      state =
+        state
+        |> put_in([:pad_to_track_data, pad, :end_timestamp], prev_sample.dts)
+        |> put_in([:pad_to_track_data, pad, :buffer_awaiting_duration], sample)
+
+      {prev_sample, state}
     end
   end
 

@@ -1,137 +1,256 @@
 defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   @moduledoc false
+
   use Bunch
 
-  @spec get_segment(map(), non_neg_integer()) :: {:ok, map(), map()} | {:error, :not_enough_data}
-  def get_segment(state, duration) do
-    with {:ok, segment_part_1, state} <- collect_duration(state, duration),
-         {:ok, segment_part_2, state} <- collect_until_keyframes(state) do
-      segment =
-        Map.new(segment_part_1, fn {pad, samples} ->
-          samples_part_2 = Map.get(segment_part_2, pad, [])
-          {pad, samples ++ samples_part_2}
-        end)
+  alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
 
-      {:ok, segment, state}
+  @type pad_t :: Membrane.Pad.ref_t()
+  @type state_t :: map()
+
+  @type segment_t :: %{
+          pad_t() => [Membrane.Buffer.t()]
+        }
+
+  @spec push_segment(state_t(), Membrane.Pad.ref_t(), Membrane.Buffer.t()) ::
+          {:no_segment, state_t()} | {:segment, segment_t(), state_t()}
+  def push_segment(state, pad, sample) do
+    queue = Map.fetch!(state.sample_queues, pad)
+    is_video = queue.track_with_keyframes?
+
+    if is_video do
+      push_video_segment(state, queue, pad, sample)
+    else
+      push_audio_segment(state, queue, pad, sample)
     end
   end
 
-  @spec take_all_samples(map()) :: {:ok, map(), map()}
-  def take_all_samples(state) do
-    samples = Map.new(state.samples, fn {key, samples} -> {key, Enum.reverse(samples)} end)
+  defp push_video_segment(state, queue, pad, sample) do
+    base_timestamp = max_end_timestamp(state)
 
-    {:ok, samples, %{state | samples: %{}}}
-  end
+    queue = SamplesQueue.push_until_target(queue, sample, base_timestamp)
 
-  @spec get_discontinuity_segment(map(), non_neg_integer()) ::
-          {:error, :not_enough_data} | {:ok, map, map}
-  def get_discontinuity_segment(state, duration) do
-    with {:ok, segment, state} <- get_segment(state, duration) do
-      {:ok, segment, %{state | awaiting_caps: nil}}
+    if queue.collectable? do
+      collect_samples_for_video_track(pad, queue, state)
+    else
+      {:no_segment, update_queue_for(pad, queue, state)}
     end
   end
 
-  # Collects partial CMAF segment so that the length matches given duration
-  defp collect_duration(state, target_duration) do
-    use Ratio
+  defp push_audio_segment(state, queue, pad, sample) do
+    base_timestamp = max_end_timestamp(state)
 
-    end_timestamp =
-      Enum.map(state.pad_to_track_data, fn {_key, track_data} ->
-        Ratio.to_float(track_data.elapsed_time + target_duration)
-      end)
-      |> Enum.max()
+    any_video_tracks? =
+      Enum.any?(state.sample_queues, fn {_pad, queue} -> queue.track_with_keyframes? end)
 
-    partial_segments =
-      for {track, samples} <- state.samples do
-        collect_from_track_to_timestamp(track, samples, end_timestamp)
+    queue =
+      if any_video_tracks? do
+        SamplesQueue.force_push(queue, sample)
+      else
+        SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
       end
 
-    if Enum.any?(partial_segments, &(&1 == {:error, :not_enough_data})) do
-      {:error, :not_enough_data}
+    if queue.collectable? do
+      collect_samples_for_audio_track(pad, queue, state)
     else
-      state =
-        Enum.reduce(partial_segments, state, fn {:ok, {track, _segment, leftover}}, state ->
-          put_in(state, [:samples, track], leftover)
-        end)
-
-      segment =
-        Map.new(partial_segments, fn {:ok, {track, segment, _leftover}} ->
-          {track, Enum.reverse(segment)}
-        end)
-
-      {:ok, segment, state}
+      {:no_segment, update_queue_for(pad, queue, state)}
     end
   end
 
-  defp collect_from_track_to_timestamp(_track, [], _target_duration),
-    do: {:error, :not_enough_data}
+  @spec push_partial_segment(state_t(), Membrane.Pad.ref_t(), Membrane.Buffer.t()) ::
+          {:no_segment, state_t()} | {:segment, segment_t(), state_t()}
+  def push_partial_segment(state, pad, sample) do
+    queue = Map.fetch!(state.sample_queues, pad)
 
-  defp collect_from_track_to_timestamp(track, samples, desired_end) do
-    use Ratio, comparison: true
-
-    {leftover, samples} = Enum.split_while(samples, &(&1.dts >= desired_end))
-
-    if hd(samples).dts + hd(samples).metadata.duration >= desired_end do
-      {:ok, {track, samples, leftover}}
+    if queue.track_with_keyframes? do
+      push_partial_video_segment(state, queue, pad, sample)
     else
-      {:error, :not_enough_data}
+      push_partial_audio_segment(state, queue, pad, sample)
     end
   end
 
-  # Collects the samples until there is a keyframe on all tracks.
-  # 1. Check if all tracks begin with keyframe. If that is the case, algorithm finishes
-  # 2. Select the track with the smallest dts at the beginning. Collect samples until it doesn't have the smallest dts.
-  # 3. Go to step 1
-  defp collect_until_keyframes(state) do
-    with {:ok, segment, state} <- do_collect_until_keyframes(reverse_samples(state), nil) do
-      {:ok, segment, reverse_samples(state)}
+  defp push_partial_video_segment(state, queue, pad, sample) do
+    collected_duration = queue.collected_samples_duration
+
+    total_collected_durations =
+      Map.fetch!(state.pad_to_track_data, pad).parts_duration + collected_duration
+
+    base_timestamp = max_end_timestamp(state)
+
+    queue =
+      if total_collected_durations < state.segment_duration_range.min do
+        SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
+      else
+        SamplesQueue.push_until_end(queue, sample, base_timestamp)
+      end
+
+    if queue.collectable? do
+      pad
+      |> collect_samples_for_video_track(queue, state)
+      |> maybe_reset_partial_durations()
+    else
+      {:no_segment, update_queue_for(pad, queue, state)}
     end
   end
 
-  defp do_collect_until_keyframes(state, last_target_pad) do
-    use Ratio, comparison: true
+  @spec take_all_samples(state_t()) :: {:segment, segment_t(), state_t()}
+  def take_all_samples(state) do
+    segment =
+      state.sample_queues
+      |> Enum.reject(fn {_pad, queue} -> SamplesQueue.empty?(queue) end)
+      |> Enum.map(fn {pad, queue} ->
+        {samples, _queue} = SamplesQueue.drain_samples(queue)
 
-    {target_pad, _samples} =
-      Enum.min_by(state.samples, fn {_track, samples} ->
-        case samples do
-          [] -> :infinity
-          [sample | _rest] -> Ratio.to_float(sample.dts + sample.metadata.duration)
-        end
+        {pad, samples}
+      end)
+      |> Map.new()
+
+    {:segment, segment, state}
+  end
+
+  @spec take_all_samples_for(state_t(), Membrane.Time.t()) :: {:segment, segment_t(), state_t()}
+  def take_all_samples_for(state, duration) do
+    end_timestamp = max_end_timestamp(state) + duration
+
+    {segment, state} =
+      state.sample_queues
+      |> Enum.reject(fn {_pad, queue} -> SamplesQueue.empty?(queue) end)
+      |> Enum.map_reduce(state, fn {pad, queue}, state ->
+        {samples, queue} = SamplesQueue.force_collect(queue, end_timestamp)
+
+        {{pad, samples}, update_queue_for(pad, queue, state)}
       end)
 
-    # This holds true if and only if all tracks are balanced to begin with.
-    # Therefore, this algorithm will not destroy the balance of tracks, but it is not guaranteed to restore it
-    timestamps_balanced? =
-      target_pad != last_target_pad or Map.keys(state.samples) == [target_pad]
+    maybe_reset_partial_durations({:segment, Map.new(segment), state})
+  end
 
-    cond do
-      Enum.any?(state.samples, fn {_track, samples} -> samples == [] end) ->
-        {:error, :not_enough_data}
+  defp push_partial_audio_segment(state, queue, pad, sample) do
+    any_video_tracks? =
+      Enum.any?(state.sample_queues, fn {_pad, queue} -> queue.track_with_keyframes? end)
 
-      timestamps_balanced? and
-          Enum.all?(state.samples, fn {_track, samples} -> starts_with_keyframe?(samples) end) ->
-        {:ok, %{}, state}
+    # if we have any video track then let the video track decide when to collect audio tracks
+    if any_video_tracks? do
+      queue = SamplesQueue.force_push(queue, sample)
 
-      true ->
-        {sample, state} = get_and_update_in(state, [:samples, target_pad], &List.pop_at(&1, 0))
+      {:no_segment, update_queue_for(pad, queue, state)}
+    else
+      base_timestamp = max_end_timestamp(state)
 
-        with {:ok, segment, state} <- do_collect_until_keyframes(state, target_pad) do
-          segment = Map.update(segment, target_pad, [sample], &[sample | &1])
-          {:ok, segment, state}
-        end
+      queue = SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
+
+      if queue.collectable? do
+        pad
+        |> collect_samples_for_audio_track(queue, state)
+        |> maybe_reset_partial_durations()
+      else
+        {:no_segment, update_queue_for(pad, queue, state)}
+      end
     end
   end
+
+  defp update_queue_for(pad, queue, state), do: put_in(state, [:sample_queues, pad], queue)
+
+  defp collect_samples_for_video_track(pad, queue, state) do
+    end_timestamp = SamplesQueue.last_collected_dts(queue)
+
+    {collected, queue} = SamplesQueue.collect(queue)
+
+    state = update_queue_for(pad, queue, state)
+
+    if tracks_ready_for_collection?(state, end_timestamp) do
+      state = update_partial_duration(state, pad, collected)
+
+      {segment, state} =
+        state.sample_queues
+        |> Map.delete(pad)
+        |> collect_segment_from_queue(end_timestamp, state)
+
+      segment = Map.put(segment, pad, collected)
+
+      {:segment, segment, state}
+    else
+      {:no_segment, update_queue_for(pad, queue, state)}
+    end
+  end
+
+  defp collect_samples_for_audio_track(pad, queue, state) do
+    end_timestamp = SamplesQueue.last_collected_dts(queue)
+    state = update_queue_for(pad, queue, state)
+
+    if tracks_ready_for_collection?(state, end_timestamp) do
+      {segment, state} = collect_segment_from_queue(state.sample_queues, end_timestamp, state)
+
+      {:segment, segment, state}
+    else
+      {:no_segment, state}
+    end
+  end
+
+  defp collect_segment_from_queue(queue_per_pad, end_timestamp, state) do
+    Enum.reduce(queue_per_pad, {%{}, state}, fn {pad, queue}, {acc, state} ->
+      {collected, queue} = SamplesQueue.force_collect(queue, end_timestamp)
+
+      state =
+        pad
+        |> update_queue_for(queue, state)
+        |> update_partial_duration(pad, collected)
+
+      {Map.put(acc, pad, collected), update_queue_for(pad, queue, state)}
+    end)
+  end
+
+  defp tracks_ready_for_collection?(state, end_timestamp) do
+    Enum.all?(state.sample_queues, fn {_pad, queue} ->
+      SamplesQueue.last_collected_dts(queue) >= end_timestamp
+    end)
+  end
+
+  defp update_partial_duration(state, pad, samples) do
+    duration = Enum.reduce(samples, 0, &(&1.metadata.duration + &2))
+
+    update_in(state, [:pad_to_track_data, pad, :parts_duration], &(&1 + duration))
+  end
+
+  defp maybe_reset_partial_durations({:no_segment, _state} = result), do: result
+
+  defp maybe_reset_partial_durations({:segment, segment, state}) do
+    min_duration = state.segment_duration_range.min
+
+    independent? = Enum.all?(segment, fn {_pad, samples} -> starts_with_keyframe?(samples) end)
+
+    enough_duration? =
+      Enum.all?(state.pad_to_track_data, fn {pad, data} ->
+        data.parts_duration >= min_duration and not (Map.get(segment, pad, []) |> Enum.empty?())
+      end)
+
+    if independent? and enough_duration? do
+      {:segment, segment, reset_partial_durations(state)}
+    else
+      {:segment, segment, state}
+    end
+  end
+
+  defp max_end_timestamp(state) do
+    Enum.map(state.pad_to_track_data, fn {_key, track_data} ->
+      Ratio.to_float(track_data.elapsed_time)
+    end)
+    |> Enum.max()
+  end
+
+  defp reset_partial_durations(state) do
+    state
+    |> Map.update!(:pad_to_track_data, fn entries ->
+      entries
+      |> Map.new(fn {pad, data} -> {pad, Map.replace(data, :parts_duration, 0)} end)
+    end)
+  end
+
+  @compile {:inline, is_key_frame: 1}
+  defp is_key_frame(%{metadata: metadata}),
+    do: Map.get(metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
 
   defp starts_with_keyframe?([]), do: false
 
   defp starts_with_keyframe?([target | _rest]),
-    do: Map.get(target.metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
-
-  defp reverse_samples(state),
-    do:
-      Map.update!(
-        state,
-        :samples,
-        &Map.new(&1, fn {key, samples} -> {key, Enum.reverse(samples)} end)
-      )
+    do: is_key_frame(target)
 end
