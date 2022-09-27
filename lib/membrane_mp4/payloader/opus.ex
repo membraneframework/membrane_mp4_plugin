@@ -38,6 +38,8 @@ defmodule Membrane.MP4.Payloader.Opus do
 
   @impl true
   def handle_process(:input, %Buffer{} = buffer, _ctx, state) do
+    # We need DTS to be set, as ISO base media file format specification uses DTS
+    # for calculating decoding deltas (and so is our implementation of sample table)
     buffer = %Buffer{buffer | dts: Buffer.get_dts_or_pts(buffer)}
     {{:ok, buffer: {:output, buffer}}, state}
   end
