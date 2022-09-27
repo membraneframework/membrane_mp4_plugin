@@ -36,7 +36,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.HelperTest do
       awaiting_caps: nil,
       segment_duration_range: SegmentDurationRange.new(100),
       pad_to_track_data: %{
-        a: %{elapsed_time: 0, parts_duration: 0}
+        a: %{segment_base_timestamp: 0, parts_duration: 0}
       },
       sample_queues: %{a: queue}
     }

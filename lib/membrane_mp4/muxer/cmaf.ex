@@ -22,7 +22,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   alias __MODULE__.{Header, Segment, SegmentDurationRange}
   alias Membrane.{Buffer, Time}
-  alias Membrane.MP4.Payload.{AAC, AVC1}
+  alias Membrane.MP4.Payload.AVC1
   alias Membrane.MP4.{Helper, Track}
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
 
@@ -77,7 +77,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     track_data = %{
       id: track_id,
       track: nil,
-      elapsed_time: nil,
+      segment_base_timestamp: nil,
       end_timestamp: 0,
       buffer_awaiting_duration: nil,
       parts_duration: Membrane.Time.seconds(0)
@@ -140,12 +140,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
-  defp is_video(caps) do
-    case caps.content do
-      %AAC{} -> false
-      %AVC1{} -> true
-    end
-  end
+  defp is_video(caps_or_track), do: is_struct(caps_or_track.content, AVC1)
 
   defp find_video_pads(ctx) do
     ctx.pads
@@ -187,7 +182,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     {sample, state} =
       state
-      |> maybe_init_elapsed_time(pad, sample)
+      |> maybe_init_segment_base_timestamp(pad, sample)
       |> process_buffer_awaiting_duration(pad, sample)
 
     state = update_awaiting_caps(state, pad)
@@ -281,10 +276,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     content_type =
       tracks
-      |> Enum.map(fn
-        %{content: %AAC{}} -> :audio
-        %{content: %AVC1{}} -> :video
-      end)
+      |> Enum.map(&if is_video(&1), do: :video, else: :audio)
       |> then(fn
         [item] -> item
         list -> list
@@ -332,7 +324,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
           id: state.pad_to_track_data[pad].id,
           sequence_number: state.seq_num,
           elapsed_time:
-            Helper.timescalify(state.pad_to_track_data[pad].elapsed_time, timescale)
+            Helper.timescalify(state.pad_to_track_data[pad].segment_base_timestamp, timescale)
             |> Ratio.trunc(),
           unscaled_duration: duration,
           duration: Helper.timescalify(duration, timescale),
@@ -359,10 +351,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     buffer = %Buffer{payload: payload, metadata: metadata}
 
-    # Update elapsed time counters for each track
+    # Update segment base timestamps for each track
     state =
       Enum.reduce(tracks_data, state, fn %{unscaled_duration: duration, pad: pad}, state ->
-        update_in(state, [:pad_to_track_data, pad, :elapsed_time], &(&1 + duration))
+        update_in(state, [:pad_to_track_data, pad, :segment_base_timestamp], &(&1 + duration))
       end)
       |> Map.update!(:seq_num, &(&1 + 1))
 
@@ -436,10 +428,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   defp update_awaiting_caps(state, _pad), do: state
 
-  defp maybe_init_elapsed_time(state, pad, sample) do
+  defp maybe_init_segment_base_timestamp(state, pad, sample) do
     case state do
-      %{pad_to_track_data: %{^pad => %{elapsed_time: nil}}} ->
-        put_in(state, [:pad_to_track_data, pad, :elapsed_time], sample.dts)
+      %{pad_to_track_data: %{^pad => %{segment_base_timestamp: nil}}} ->
+        put_in(state, [:pad_to_track_data, pad, :segment_base_timestamp], sample.dts)
 
       _else ->
         state
