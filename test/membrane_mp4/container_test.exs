@@ -25,7 +25,7 @@ defmodule Membrane.MP4.ContainerTest do
     assert data |> Container.parse!() |> Container.serialize!() == data
     data = @cmaf_fixtures |> Path.join("ref_audio_segment3.m4s") |> File.read!()
     assert data |> Container.parse!() |> Container.serialize!() == data
-    data = @isom_fixtures |> Path.join("ref_audio.mp4") |> File.read!()
+    data = @isom_fixtures |> Path.join("ref_aac.mp4") |> File.read!()
     assert data |> Container.parse!() |> Container.serialize!() == data
   end
 
