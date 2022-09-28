@@ -26,7 +26,7 @@ defmodule Membrane.MP4.Container do
   @doc """
   Parses binary data to MP4 according to `#{inspect(Schema)}.schema/0`.
   """
-  @spec parse(binary) :: {:ok, t} | {:error, parse_error_context_t}
+  @spec parse(binary) :: {:ok, t, binary()} | {:error, parse_error_context_t}
   def parse(data) do
     parse(data, @schema)
   end
@@ -34,10 +34,10 @@ defmodule Membrane.MP4.Container do
   @doc """
   Parses binary data to MP4 according to a custom schema.
   """
-  @spec parse(binary, Schema.t()) :: {:ok, t} | {:error, parse_error_context_t}
+  @spec parse(binary, Schema.t()) :: {:ok, t, binary()} | {:error, parse_error_context_t}
   def parse(data, schema) do
     case ParseHelper.parse_boxes(data, schema, %{}, []) do
-      {:ok, result, _storage} -> {:ok, result}
+      {:ok, boxes, rest, _storage} -> {:ok, boxes, rest}
       error -> error
     end
   end
@@ -45,7 +45,7 @@ defmodule Membrane.MP4.Container do
   @doc """
   Same as `parse/1`, raises on error.
   """
-  @spec parse!(binary) :: t
+  @spec parse!(binary) :: {t, binary()}
   def parse!(data) do
     parse!(data, @schema)
   end
@@ -53,11 +53,11 @@ defmodule Membrane.MP4.Container do
   @doc """
   Same as `parse/2`, raises on error.
   """
-  @spec parse!(binary, Schema.t()) :: t
+  @spec parse!(binary, Schema.t()) :: {t, binary()}
   def parse!(data, schema) do
     case ParseHelper.parse_boxes(data, schema, %{}, []) do
-      {:ok, mp4, _storage} ->
-        mp4
+      {:ok, boxes, rest, _storage} ->
+        {boxes, rest}
 
       {:error, context} ->
         raise """

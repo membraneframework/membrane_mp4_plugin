@@ -14,9 +14,10 @@ defmodule Membrane.MP4.Container.ParseHelper do
   @type context_t() :: %{atom() => integer()}
 
   @spec parse_boxes(binary, Schema.t(), context_t(), Container.t()) ::
-          {:ok, Container.t(), context_t()} | {:error, Container.parse_error_context_t()}
+          {:ok, Container.t(), binary(), context_t()}
+          | {:error, Container.parse_error_context_t()}
   def parse_boxes(<<>>, _schema, context, acc) do
-    {:ok, Enum.reverse(acc), context}
+    {:ok, Enum.reverse(acc), <<>>, context}
   end
 
   def parse_boxes(data, schema, context, acc) do
@@ -25,12 +26,14 @@ defmodule Membrane.MP4.Container.ParseHelper do
           known?: true <- box_schema && not box_schema.black_box?,
           try:
             {:ok, {fields, rest}, context} <- parse_fields(content, box_schema.fields, context),
-          try: {:ok, children, context} <- parse_boxes(rest, box_schema.children, context, []) do
+          try:
+            {:ok, children, <<>>, context} <- parse_boxes(rest, box_schema.children, context, []) do
       box = %{fields: fields, children: children}
       parse_boxes(data, schema, context, [{name, box} | acc])
     else
-      header: error ->
-        error
+      header: _error ->
+        # more data needed
+        {:ok, Enum.reverse(acc), data, context}
 
       known?: _ ->
         box = %{content: content}
