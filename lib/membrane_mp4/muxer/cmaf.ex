@@ -56,7 +56,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
         pad_to_track_data: %{},
         # ID for the next input track
         next_track_id: 1,
-        samples: %{},
         sample_queues: %{}
       })
 
@@ -205,15 +204,15 @@ defmodule Membrane.MP4.Muxer.CMAF do
   defp collect_segment_samples(%{awaiting_caps: nil} = state, _pad, nil),
     do: {[], {:no_segment, state}}
 
-  defp collect_segment_samples(%{awaiting_caps: nil} = state, pad, sample) do
-    supports_partial_segments? = state.partial_segment_duration_range != nil
+  defp collect_segment_samples(%{awaiting_caps: nil} = state, pad, sample),
+    do: do_collect_segment_samples(state, pad, sample)
 
-    if supports_partial_segments? do
-      {[], Segment.Helper.push_partial_segment(state, pad, sample)}
-    else
-      {[], Segment.Helper.push_segment(state, pad, sample)}
-    end
-  end
+  defp collect_segment_samples(
+         %{awaiting_caps: {{:update_with_next, _pad}, _caps}} = state,
+         pad,
+         sample
+       ),
+       do: do_collect_segment_samples(state, pad, sample)
 
   defp collect_segment_samples(%{awaiting_caps: {duration, caps}} = state, pad, sample) do
     {:segment, segment, state} = Segment.Helper.take_all_samples_for(state, duration)
@@ -222,6 +221,16 @@ defmodule Membrane.MP4.Muxer.CMAF do
     {[], {:no_segment, state}} = collect_segment_samples(state, pad, sample)
 
     {[caps: {:output, caps}], {:segment, segment, state}}
+  end
+
+  defp do_collect_segment_samples(state, pad, sample) do
+    supports_partial_segments? = state.partial_segment_duration_range != nil
+
+    if supports_partial_segments? do
+      {[], Segment.Helper.push_partial_segment(state, pad, sample)}
+    else
+      {[], Segment.Helper.push_segment(state, pad, sample)}
+    end
   end
 
   @impl true
@@ -427,7 +436,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     duration =
       state.pad_to_track_data[pad].buffer_awaiting_duration.dts -
-        List.last(state.samples[pad]).dts
+        SamplesQueue.last_collected_dts(state.sample_queues[pad])
 
     %{state | awaiting_caps: {duration, caps}}
   end
