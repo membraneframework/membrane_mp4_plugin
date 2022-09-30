@@ -1,7 +1,9 @@
 defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
   use ExUnit.Case, async: true
+
   import Membrane.Testing.Assertions
-  alias Membrane.{ParentSpec, Time}
+
+  alias Membrane.ParentSpec
   alias Membrane.Testing.Pipeline
 
   # Fixtures used in demuxer tests below were generated with `chunk_duration` option set to `Membrane.Time.seconds(1)`.
