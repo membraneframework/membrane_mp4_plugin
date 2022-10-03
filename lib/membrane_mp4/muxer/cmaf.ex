@@ -77,6 +77,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
     track_data = %{
       id: track_id,
       track: nil,
+      # base timestamp of the current segment, initialized with DTS of the first buffer
+      # and then incremented by duration of every produced segment
       segment_base_timestamp: nil,
       end_timestamp: 0,
       buffer_awaiting_duration: nil,
@@ -179,6 +181,11 @@ defmodule Membrane.MP4.Muxer.CMAF do
   @impl true
   def handle_process(Pad.ref(:input, _id) = pad, sample, ctx, state) do
     use Ratio, comparison: true
+
+    # In case DTS is not set, use PTS. This is the case for audio tracks or H264 originated
+    # from an RTP stream. ISO base media file format specification uses DTS for calculating
+    # decoding deltas, and so is the implementation of sample table in this plugin.
+    sample = %Buffer{sample | dts: Buffer.get_dts_or_pts(sample)}
 
     {sample, state} =
       state
@@ -323,7 +330,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
           pad: pad,
           id: state.pad_to_track_data[pad].id,
           sequence_number: state.seq_num,
-          elapsed_time:
+          base_timestamp:
             Helper.timescalify(state.pad_to_track_data[pad].segment_base_timestamp, timescale)
             |> Ratio.trunc(),
           unscaled_duration: duration,

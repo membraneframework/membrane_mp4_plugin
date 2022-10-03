@@ -6,7 +6,6 @@ defmodule Membrane.MP4.Payloader.AAC do
   - Packaging/Encapsulation And Setup Data section of https://wiki.multimedia.cx/index.php/Understanding_AAC
   """
   use Membrane.Filter
-  alias Membrane.Buffer
 
   def_input_pad :input, demand_unit: :buffers, caps: {Membrane.AAC, encapsulation: :none}
 
@@ -39,9 +38,6 @@ defmodule Membrane.MP4.Payloader.AAC do
 
   @impl true
   def handle_process(:input, buffer, _ctx, state) do
-    # We need DTS to be set, as ISO base media file format specification uses DTS
-    # for calculating decoding deltas (and so is our implementation of sample table)
-    buffer = %Buffer{buffer | dts: Buffer.get_dts_or_pts(buffer)}
     {{:ok, buffer: {:output, buffer}}, state}
   end
 

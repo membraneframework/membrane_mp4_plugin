@@ -4,8 +4,8 @@ defmodule Membrane.MP4.Payloader.Opus do
   """
   use Membrane.Filter
 
-  alias Membrane.{Buffer, Opus}
   alias Membrane.MP4.Payload
+  alias Membrane.Opus
 
   def_input_pad :input,
     availability: :always,
@@ -37,10 +37,7 @@ defmodule Membrane.MP4.Payloader.Opus do
   end
 
   @impl true
-  def handle_process(:input, %Buffer{} = buffer, _ctx, state) do
-    # We need DTS to be set, as ISO base media file format specification uses DTS
-    # for calculating decoding deltas (and so is our implementation of sample table)
-    buffer = %Buffer{buffer | dts: Buffer.get_dts_or_pts(buffer)}
+  def handle_process(:input, buffer, _ctx, state) do
     {{:ok, buffer: {:output, buffer}}, state}
   end
 end
