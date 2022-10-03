@@ -46,8 +46,8 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert {:ok, pipeline} =
              Testing.Pipeline.start_link(
                children: [
-                 audio_source: %Membrane.File.Source{location: "test/fixtures/audio.aac"},
-                 video_source: %Membrane.File.Source{location: "test/fixtures/video.h264"},
+                 audio_source: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
+                 video_source: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
                  audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
                  video_parser: %Membrane.H264.FFmpeg.Parser{
                    framerate: {30, 1},
@@ -181,8 +181,8 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
         opts,
         :file,
         case type do
-          :audio -> "test/fixtures/audio.aac"
-          :video -> "test/fixtures/video.h264"
+          :audio -> "test/fixtures/in_audio.aac"
+          :video -> "test/fixtures/in_video.h264"
         end
       )
 
