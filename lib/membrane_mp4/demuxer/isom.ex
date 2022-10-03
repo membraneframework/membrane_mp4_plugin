@@ -43,7 +43,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   def handle_process(:input, buffer, ctx, state) do
     # check if all tracks have corresponding output pads
     {actions, state} =
-      if Enum.each([:ftyp, :moov], &Keyword.has_key?(state.boxes, &1)) do
+      if Enum.all?([:ftyp, :moov], &Keyword.has_key?(state.boxes, &1)) do
         actions = get_track_notifications(state.boxes[:moov])
 
         # notify about number and types of tracks

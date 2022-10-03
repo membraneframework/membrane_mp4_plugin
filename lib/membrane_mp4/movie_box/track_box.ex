@@ -155,4 +155,23 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
       }
     ]
   end
+
+  @spec unpack(%{children: Container.t(), fields: map}) :: Track.t()
+  def unpack(%{children: boxes}) do
+    header = boxes[:tkhd].fields
+    media = boxes[:mdia].children
+
+    sample_table = SampleTableBox.unpack(media[:minf].children[:stbl])
+
+    %Track{
+      id: header.track_id,
+      content: sample_table.sample_description.content,
+      height: header.height |> elem(0),
+      width: header.width |> elem(0),
+      timescale: media[:mdhd].fields.timescale,
+      sample_table: sample_table,
+      duration: nil,
+      movie_duration: nil
+    }
+  end
 end

@@ -15,7 +15,7 @@ defmodule Membrane.MP4.Track.SampleTable do
           chunk_first_dts: non_neg_integer | nil,
           last_dts: non_neg_integer | nil,
           sample_description: %{content: struct, height: non_neg_integer, width: non_neg_integer},
-          timescale: pos_integer,
+          timescale: pos_integer | nil,
           sample_count: non_neg_integer,
           sample_sizes: [pos_integer],
           sync_samples: [pos_integer],

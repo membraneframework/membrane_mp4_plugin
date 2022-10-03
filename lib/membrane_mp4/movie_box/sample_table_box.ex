@@ -7,12 +7,12 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
   @spec assemble(SampleTable.t()) :: Container.t()
   def assemble(table) do
-    sample_description = sample_description(table.sample_description)
-    sample_deltas = sample_deltas(table)
+    sample_description = assemble_sample_description(table.sample_description)
+    sample_deltas = assemble_sample_deltas(table)
     maybe_sample_sync = maybe_sample_sync(table)
-    sample_to_chunk = sample_to_chunk(table)
-    sample_sizes = sample_sizes(table)
-    chunk_offsets = chunk_offsets(table)
+    sample_to_chunk = assemble_sample_to_chunk(table)
+    sample_sizes = assemble_sample_sizes(table)
+    chunk_offsets = assemble_chunk_offsets(table)
 
     [
       stbl: %{
@@ -68,7 +68,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     ]
   end
 
-  defp sample_description(%{content: %AVC1{} = avc1} = sample_descriptions) do
+  defp assemble_sample_description(%{content: %AVC1{} = avc1} = sample_descriptions) do
     [
       avc1: %{
         children: [
@@ -96,7 +96,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     ]
   end
 
-  defp sample_description(%{content: %AAC{} = aac}) do
+  defp assemble_sample_description(%{content: %AAC{} = aac}) do
     [
       mp4a: %{
         children: %{
@@ -123,7 +123,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     ]
   end
 
-  defp sample_description(%{content: %Opus{} = opus}) do
+  defp assemble_sample_description(%{content: %Opus{} = opus}) do
     [
       Opus: %{
         children: %{
@@ -148,7 +148,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     ]
   end
 
-  defp sample_deltas(%{timescale: timescale, decoding_deltas: decoding_deltas}),
+  defp assemble_sample_deltas(%{timescale: timescale, decoding_deltas: decoding_deltas}),
     do:
       Enum.map(decoding_deltas, fn %{sample_count: count, sample_delta: delta} ->
         %{sample_count: count, sample_delta: Helper.timescalify(delta, timescale)}
@@ -173,7 +173,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     )
   end
 
-  defp sample_to_chunk(%{samples_per_chunk: samples_per_chunk}),
+  defp assemble_sample_to_chunk(%{samples_per_chunk: samples_per_chunk}),
     do:
       Enum.map(
         samples_per_chunk,
@@ -184,9 +184,55 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
         }
       )
 
-  defp sample_sizes(%{sample_sizes: sample_sizes}),
+  defp assemble_sample_sizes(%{sample_sizes: sample_sizes}),
     do: Enum.map(sample_sizes, &%{entry_size: &1})
 
-  defp chunk_offsets(%{chunk_offsets: chunk_offsets}),
+  defp assemble_chunk_offsets(%{chunk_offsets: chunk_offsets}),
     do: Enum.map(chunk_offsets, &%{chunk_offset: &1})
+
+  @spec unpack(%{children: Container.t(), fields: map()}) :: SampleTable.t()
+  def unpack(%{children: boxes}) do
+    %SampleTable{
+      sample_description: unpack_sample_description(boxes[:stsd]),
+      sample_count: boxes[:stsz].fields.sample_count,
+      sample_sizes: unpack_sample_sizes(boxes[:stsz]),
+      chunk_offsets: unpack_chunk_offsets(boxes[:stco]),
+      decoding_deltas: boxes[:stts].fields.entry_list,
+      samples_per_chunk: boxes[:stsc].fields.entry_list
+    }
+  end
+
+  defp unpack_chunk_offsets(%{fields: %{entry_list: offsets}}) do
+    offsets |> Enum.map(fn %{chunk_offest: offset} -> offset end)
+  end
+
+  defp unpack_sample_sizes(%{fields: %{entry_list: sizes}}) do
+    sizes |> Enum.map(fn %{entry_size: size} -> size end)
+  end
+
+  defp unpack_sample_description(%{children: definitions}) do
+    [{codec, %{fields: fields} = data}] = definitions
+
+    %{
+      content: unpack_content(codec, data),
+      height: fields.height,
+      width: fields.width
+    }
+  end
+
+  defp unpack_content(:avc1, %{children: boxes}) do
+    %AVC1{avcc: boxes[:avcC].content, inband_parameters?: false}
+  end
+
+  defp unpack_content(:mp4a, %{children: boxes, fields: fields}) do
+    %AAC{
+      esds: boxes[:esds].fields.elementary_stream_descriptor,
+      sample_rate: fields.sample_rate |> elem(0),
+      channels: fields.channel_count
+    }
+  end
+
+  defp unpack_content(:Opus, %{children: boxes}) do
+    %Opus{channels: boxes[:dOps].fields.output_channel_count, self_delimiting?: false}
+  end
 end
