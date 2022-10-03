@@ -26,7 +26,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   end
 
   defp push_video_segment(state, queue, pad, sample) do
-    base_timestamp = max_end_timestamp(state)
+    base_timestamp = max_segment_base_timestamp(state)
 
     queue = SamplesQueue.push_until_target(queue, sample, base_timestamp)
 
@@ -38,7 +38,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   end
 
   defp push_audio_segment(state, queue, pad, sample) do
-    base_timestamp = max_end_timestamp(state)
+    base_timestamp = max_segment_base_timestamp(state)
 
     any_video_tracks? =
       Enum.any?(state.sample_queues, fn {_pad, queue} -> queue.track_with_keyframes? end)
@@ -75,7 +75,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     total_collected_durations =
       Map.fetch!(state.pad_to_track_data, pad).parts_duration + collected_duration
 
-    base_timestamp = max_end_timestamp(state)
+    base_timestamp = max_segment_base_timestamp(state)
 
     queue =
       if total_collected_durations < state.segment_duration_range.min do
@@ -110,7 +110,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
   @spec take_all_samples_for(state_t(), Membrane.Time.t()) :: {:segment, segment_t(), state_t()}
   def take_all_samples_for(state, duration) do
-    end_timestamp = max_end_timestamp(state) + duration
+    end_timestamp = max_segment_base_timestamp(state) + duration
 
     {segment, state} =
       state.sample_queues
@@ -134,7 +134,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
       {:no_segment, update_queue_for(pad, queue, state)}
     else
-      base_timestamp = max_end_timestamp(state)
+      base_timestamp = max_segment_base_timestamp(state)
 
       queue = SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
 
@@ -230,9 +230,11 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end
   end
 
-  defp max_end_timestamp(state) do
-    Enum.map(state.pad_to_track_data, fn {_key, track_data} ->
-      Ratio.to_float(track_data.elapsed_time)
+  defp max_segment_base_timestamp(state) do
+    state.pad_to_track_data
+    |> Enum.reject(fn {_key, track_data} -> is_nil(track_data.segment_base_timestamp) end)
+    |> Enum.map(fn {_key, track_data} ->
+      Ratio.to_float(track_data.segment_base_timestamp)
     end)
     |> Enum.max()
   end

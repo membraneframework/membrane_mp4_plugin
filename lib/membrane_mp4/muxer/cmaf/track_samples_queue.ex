@@ -8,7 +8,6 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
             collected_samples_duration: 0,
             duration_range: nil,
             target_samples: [],
-            to_collect_duration: 0,
             excess_samples: []
 
   @type t :: %__MODULE__{

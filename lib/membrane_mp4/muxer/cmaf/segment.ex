@@ -5,7 +5,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment do
   @spec serialize([
           %{
             sequence_number: integer,
-            elapsed_time: integer,
+            base_timestamp: integer,
             timescale: integer,
             duration: integer,
             samples_table: [%{sample_size: integer, sample_flags: integer}],
@@ -25,7 +25,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment do
 
         sidx_config =
           config
-          |> Map.take([:id, :elapsed_time, :timescale, :duration])
+          |> Map.take([:id, :base_timestamp, :timescale, :duration])
           |> Map.put(:referenced_size, byte_size(moof) + byte_size(mdat))
 
         sidx = SegmentIndexBox.assemble(sidx_config) |> Container.serialize!()

@@ -12,7 +12,7 @@ defmodule Membrane.MP4.SegmentIndexBox do
 
   @spec assemble(%{
           id: non_neg_integer(),
-          elapsed_time: non_neg_integer(),
+          base_timestamp: non_neg_integer(),
           referenced_size: non_neg_integer(),
           timescale: non_neg_integer(),
           duration: non_neg_integer()
@@ -22,7 +22,7 @@ defmodule Membrane.MP4.SegmentIndexBox do
       sidx: %{
         children: [],
         fields: %{
-          earliest_presentation_time: config.elapsed_time,
+          earliest_presentation_time: config.base_timestamp,
           first_offset: 0,
           flags: 0,
           reference_count: 1,
