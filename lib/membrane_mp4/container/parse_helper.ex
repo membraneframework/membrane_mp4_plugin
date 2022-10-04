@@ -1,15 +1,10 @@
 defmodule Membrane.MP4.Container.ParseHelper do
   @moduledoc false
-
   use Bunch
   use Bitwise
 
   alias Membrane.MP4.Container
-  alias Membrane.MP4.Container.Schema
-
-  @box_name_size 4
-  @box_size_size 4
-  @box_header_size @box_name_size + @box_size_size
+  alias Membrane.MP4.Container.{Header, Schema}
 
   @type context_t() :: %{atom() => integer()}
 
@@ -21,7 +16,9 @@ defmodule Membrane.MP4.Container.ParseHelper do
   end
 
   def parse_boxes(data, schema, context, acc) do
-    withl header: {:ok, {name, content, data}} <- parse_box_header(data),
+    withl header_content:
+            {:ok, %{type: name, content_size: content_size}, rest} <- Header.parse(data),
+          header_content: <<content::binary-size(content_size), data::binary>> <- rest,
           do: box_schema = schema[name],
           known?: true <- box_schema && not box_schema.black_box?,
           try:
@@ -31,7 +28,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
       box = %{fields: fields, children: children}
       parse_boxes(data, schema, context, [{name, box} | acc])
     else
-      header: _error ->
+      header_content: _error ->
         # more data needed
         {:ok, Enum.reverse(acc), data, context}
 
@@ -42,23 +39,6 @@ defmodule Membrane.MP4.Container.ParseHelper do
       try: {:error, context} ->
         {:error, [box: name] ++ context}
     end
-  end
-
-  defp parse_box_header(data) do
-    withl header:
-            <<size::integer-size(@box_size_size)-unit(8), name::binary-size(@box_name_size),
-              rest::binary>> <- data,
-          do: content_size = size - @box_header_size,
-          size: <<content::binary-size(content_size), rest::binary>> <- rest do
-      {:ok, {parse_box_name(name), content, rest}}
-    else
-      header: _ -> {:error, reason: :box_header, data: data}
-      size: _ -> {:error, reason: {:box_size, header: size, actual: byte_size(rest)}, data: data}
-    end
-  end
-
-  defp parse_box_name(name) do
-    name |> String.trim_trailing(" ") |> String.to_atom()
   end
 
   defp parse_fields(data, [], context) do
