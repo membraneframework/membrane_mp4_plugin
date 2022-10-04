@@ -14,8 +14,8 @@ defmodule Membrane.MP4.ContainerTest do
   defp test_partial(file, boxes_expected) do
     data = @isom_fixtures |> Path.join(file) |> File.read!()
     data_size = byte_size(data) - 1
-    <<data::binary-size(data_size), _last::binary-size(1)>> = data
-    assert {:ok, boxes, <<_rest::binary>>} = data |> Container.parse()
+    <<partial::binary-size(data_size), _last::binary-size(1)>> = data
+    assert {:ok, boxes, <<_rest::binary>>} = Container.parse(partial)
     assert boxes |> Enum.map(&elem(&1, 0)) == boxes_expected
   end
 

@@ -134,7 +134,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
     end
 
     test "single AAC track" do
-      prepare_test("audio_fast_start")
+      prepare_test("aac_fast_start")
 
       children = [
         file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
