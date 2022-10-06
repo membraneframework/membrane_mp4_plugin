@@ -203,7 +203,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
   end
 
   defp unpack_chunk_offsets(%{fields: %{entry_list: offsets}}) do
-    offsets |> Enum.map(fn %{chunk_offest: offset} -> offset end)
+    offsets |> Enum.map(fn %{chunk_offset: offset} -> offset end)
   end
 
   defp unpack_sample_sizes(%{fields: %{entry_list: sizes}}) do
@@ -215,8 +215,8 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
     %{
       content: unpack_content(codec, data),
-      height: fields.height,
-      width: fields.width
+      height: Map.get(fields, :height, 0),
+      width: Map.get(fields, :width, 0)
     }
   end
 
