@@ -1,13 +1,14 @@
 defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
   @moduledoc false
-  alias Membrane.Buffer
+  alias Membrane.{Buffer, Time}
   alias Membrane.MP4.Container
   alias Membrane.MP4.MovieBox.SampleTableBox
 
   @enforce_keys [
     :samples,
     :tracks_number,
-    :offset
+    :timescales,
+    :last_dts
   ]
 
   defstruct @enforce_keys
@@ -20,14 +21,54 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
               track_id: pos_integer()
             }
           ],
-          tracks_number: pos_integer(),
-          offset: non_neg_integer()
+          timescales: %{
+            (track_id :: pos_integer()) => timescale :: pos_integer()
+          },
+          last_dts: %{
+            (track_id :: pos_integer()) => last_dts :: Ratio.t()
+          },
+          tracks_number: pos_integer()
         }
 
   @spec get_samples(t, data :: binary()) ::
           {[{Buffer.t(), track_id :: pos_integer()}], rest :: binary, t}
-  def get_samples(t, _data) do
-    {[{%Buffer{payload: <<>>}, 1}], <<>>, t}
+  def get_samples(sample_data, data) do
+    {sample_data, rest, buffers} = do_get_samples(sample_data, data, [])
+
+    {buffers, rest, sample_data}
+  end
+
+  defp do_get_samples(sample_data, data, buffers) do
+    [%{size: size, track_id: track_id} = sample | samples] = sample_data.samples
+
+    if size <= byte_size(data) do
+      <<payload::binary-size(size), rest::binary>> = data
+
+      {dts, sample_data} = get_dts(sample_data, sample)
+
+      buffer =
+        {%Buffer{
+           payload: payload,
+           dts: dts
+         }, track_id}
+
+      sample_data = %{sample_data | samples: samples}
+      do_get_samples(sample_data, rest, [buffer | buffers])
+    else
+      {sample_data, data, Enum.reverse(buffers)}
+    end
+  end
+
+  defp get_dts(sample_data, %{sample_delta: delta, track_id: track_id}) do
+    use Ratio
+
+    dts =
+      (sample_data.last_dts[track_id] + delta / sample_data.timescale[track_id]) *
+        Time.millisecond()
+
+    sample_data = put_in(sample_data, [:last_dts, track_id], dts)
+
+    {Ratio.trunc(dts), sample_data}
   end
 
   @spec get_sample_data(%{children: boxes :: Container.t()}) :: t
@@ -76,10 +117,21 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
       |> Enum.reverse()
       |> List.flatten()
 
+    timescales =
+      Enum.map(sample_tables, fn {track_id, sample_table} ->
+        {track_id, sample_table.timescale}
+      end)
+      |> Enum.into(%{})
+
+    last_dts =
+      Enum.map(tracks, fn {track_id, _boxes} -> {track_id, 0} end)
+      |> Enum.into(%{})
+
     %__MODULE__{
       samples: samples,
       tracks_number: map_size(tracks),
-      offset: 0
+      timescales: timescales,
+      last_dts: last_dts
     }
   end
 
