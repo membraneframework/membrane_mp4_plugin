@@ -15,7 +15,7 @@ defmodule Membrane.MP4.Track.SampleTable do
           chunk_first_dts: non_neg_integer | nil,
           last_dts: non_neg_integer | nil,
           sample_description: %{content: struct, height: non_neg_integer, width: non_neg_integer},
-          timescale: pos_integer | nil,
+          timescale: pos_integer,
           sample_count: non_neg_integer,
           sample_sizes: [pos_integer],
           sync_samples: [pos_integer],
@@ -34,17 +34,21 @@ defmodule Membrane.MP4.Track.SampleTable do
           ]
         }
 
-  defstruct chunk: [],
-            chunk_first_dts: nil,
-            last_dts: nil,
-            sample_description: %{},
-            timescale: nil,
-            sample_count: 0,
-            sample_sizes: [],
-            sync_samples: [],
-            chunk_offsets: [],
-            decoding_deltas: [],
-            samples_per_chunk: []
+  @enforce_keys [:timescale]
+
+  defstruct @enforce_keys ++
+              [
+                chunk: [],
+                chunk_first_dts: nil,
+                last_dts: nil,
+                sample_description: %{},
+                sample_count: 0,
+                sample_sizes: [],
+                sync_samples: [],
+                chunk_offsets: [],
+                decoding_deltas: [],
+                samples_per_chunk: []
+              ]
 
   @spec store_sample(__MODULE__.t(), Buffer.t()) :: __MODULE__.t()
   def store_sample(sample_table, buffer) do

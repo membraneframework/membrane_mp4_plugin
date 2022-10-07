@@ -38,6 +38,10 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
     {buffers, rest, sample_data}
   end
 
+  defp do_get_samples(%{samples: []} = sample_data, data, buffers) do
+    {sample_data, data, Enum.reverse(buffers)}
+  end
+
   defp do_get_samples(sample_data, data, buffers) do
     [%{size: size, track_id: track_id} = sample | samples] = sample_data.samples
 
@@ -63,10 +67,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
     use Ratio
 
     dts =
-      (sample_data.last_dts[track_id] + delta / sample_data.timescale[track_id]) *
+      (sample_data.last_dts[track_id] + delta / sample_data.timescales[track_id]) *
         Time.millisecond()
 
-    sample_data = put_in(sample_data, [:last_dts, track_id], dts)
+    last_dts = Map.put(sample_data.last_dts, track_id, dts)
+    sample_data = %{sample_data | last_dts: last_dts}
 
     {Ratio.trunc(dts), sample_data}
   end
@@ -83,7 +88,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
     # get sample tables
     sample_tables =
       Enum.map(tracks, fn {track_id, boxes} ->
-        {track_id, SampleTableBox.unpack(boxes[:mdia].children[:minf].children[:stbl])}
+        {track_id,
+         SampleTableBox.unpack(
+           boxes[:mdia].children[:minf].children[:stbl],
+           boxes[:mdia].children[:mdhd].fields.timescale
+         )}
       end)
       |> Enum.into(%{})
 
@@ -169,6 +178,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
           {delta, [%{sample_count: count - 1, sample_delta: delta} | tl(deltas)]}
       end
 
-    {%{size: size, delta: delta}, %{acc | decoding_deltas: deltas, sample_sizes: sample_sizes}}
+    {%{size: size, sample_delta: delta},
+     %{acc | decoding_deltas: deltas, sample_sizes: sample_sizes}}
   end
 end
