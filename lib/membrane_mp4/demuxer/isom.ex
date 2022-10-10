@@ -122,13 +122,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
         {samples, rest, sample_data} = SampleHelper.get_samples(state.sample_data, data)
 
+        state = %{state | sample_data: sample_data, partial: rest}
+
         all_pads_connected? = all_pads_connected?(ctx, state)
 
         {buffers, state} =
           if all_pads_connected? do
             {get_buffer_actions(samples), state}
           else
-            {[], %{store_samples(state, samples) | sample_data: sample_data, partial: rest}}
+            {[], store_samples(state, samples)}
           end
 
         demand = [
