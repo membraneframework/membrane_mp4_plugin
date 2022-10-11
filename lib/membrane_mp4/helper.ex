@@ -8,12 +8,6 @@ defmodule Membrane.MP4.Helper do
   @spec timescalify(Ratio.t() | integer, Ratio.t() | integer) :: integer
   def timescalify(time, timescale) do
     use Ratio
-    Ratio.trunc(time * timescale / Time.second())
-  end
-
-  @spec detimescalify(integer, Ratio.t() | integer) :: Membrane.Time.t()
-  def detimescalify(time, timescale) do
-    use Ratio
-    (time / timescale) |> Ratio.trunc() |> Time.seconds()
+    Ratio.trunc(time * timescale / Time.second() + 0.5)
   end
 end

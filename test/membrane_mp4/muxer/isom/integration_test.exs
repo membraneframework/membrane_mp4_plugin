@@ -207,12 +207,12 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
         payloader: %Membrane.MP4.Payloader.H264{parameters_in_band?: true},
         muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true},
-        sink: %Membrane.File.Sink{location: out_path_for("h264_variable_parameters")}
+        sink: %Membrane.File.Sink{location: out_path_for("video_variable_parameters")}
       ]
 
       assert {:ok, pid} = Pipeline.start(links: ParentSpec.link_linear(children))
 
-      perform_test(pid, "h264_variable_parameters")
+      perform_test(pid, "video_variable_parameters")
     end
   end
 end
