@@ -27,7 +27,7 @@ defmodule Membrane.MP4.Container do
   Parses binary data to MP4 according to `#{inspect(Schema)}.schema/0`.
 
   Returns boxes that have been correctly parsed, and the leftover data that
-  doesn't constitute to an entire box.
+  is insufficient to constitute a complete box.
   """
   @spec parse(binary) :: {:ok, t, leftover :: binary()} | {:error, parse_error_context_t}
   def parse(data) do
@@ -38,7 +38,7 @@ defmodule Membrane.MP4.Container do
   Parses binary data to MP4 according to a custom schema.
 
   Returns boxes that have been correctly parsed, and the leftover data that
-  doesn't constitute to an entire box.
+  is insufficient to constitute a complete box.
   """
   @spec parse(binary, Schema.t()) ::
           {:ok, t, leftover :: binary()} | {:error, parse_error_context_t}

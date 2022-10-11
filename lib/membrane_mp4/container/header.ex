@@ -19,23 +19,22 @@ defmodule Membrane.MP4.Container.Header do
   @header_size @name_size + @size_size
 
   @doc """
-  Parses the box's header.
+  Parses the header of a box.
 
   Returns the `t:t/0` and the leftover data.
   """
   @spec parse(binary()) :: {:ok, t, leftover :: binary()} | {:error, :not_enough_data}
-  def parse(data) do
-    with <<size::integer-size(@size_size)-unit(8), name::binary-size(@name_size), rest::binary>> <-
-           data do
-      {:ok,
-       %__MODULE__{
-         name: parse_box_name(name),
-         content_size: size - @header_size
-       }, rest}
-    else
-      _error -> {:error, :not_enough_data}
-    end
+  def parse(
+        <<size::integer-size(@size_size)-unit(8), name::binary-size(@name_size), rest::binary>>
+      ) do
+    {:ok,
+     %__MODULE__{
+       name: parse_box_name(name),
+       content_size: size - @header_size
+     }, rest}
   end
+
+  def parse(_data), do: {:error, :not_enough_data}
 
   defp parse_box_name(name) do
     name |> String.trim_trailing(" ") |> String.to_atom()
