@@ -46,7 +46,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
 
     children = [
       file: %Membrane.File.Source{
-        location: "test/fixtures/isom/ref_video_new_fast_start.mp4"
+        location: "test/fixtures/isom/ref_video_fast_start.mp4"
       },
       demuxer: Membrane.MP4.Demuxer.ISOM,
       sink: %Membrane.File.Sink{location: out_path}
@@ -60,7 +60,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
     ]
 
     assert {:ok, pid} = Pipeline.start_link(children: children, links: links)
-    perform_test(pid, "video_new", out_path)
+    perform_test(pid, "video", out_path)
   end
 
   test "demux single AAC track" do

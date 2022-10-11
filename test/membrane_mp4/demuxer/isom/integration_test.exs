@@ -41,7 +41,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntgerationTest do
   end
 
   test "single H264 track" do
-    in_path = "test/fixtures/isom/ref_video_new_fast_start.mp4"
+    in_path = "test/fixtures/isom/ref_video_fast_start.mp4"
     out_path = prepare_dir()
 
     children = [
