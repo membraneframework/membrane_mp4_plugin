@@ -2,10 +2,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
   use ExUnit.Case, async: true
 
   import Membrane.Testing.Assertions
+  import Membrane.ParentSpec
 
   require Membrane.Pad
 
-  alias Membrane.{Pad, ParentSpec}
+  alias Membrane.Pad
   alias Membrane.Testing.Pipeline
 
   # Fixtures used in demuxer tests below were generated with `chunk_duration` option set to `Membrane.Time.seconds(1)`.
@@ -40,47 +41,45 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
     assert_files_equal(out_path, ref_path)
   end
 
-  describe "Demuxer.ISOM should demux" do
-    @tag :skip
-    test "single H264 track" do
-      out_path = prepare_dir()
+  test "demux single H264 track" do
+    out_path = prepare_dir()
 
-      children = [
-        file: %Membrane.File.Source{location: "test/fixtures/isom/ref_video_fast_start.mp4"},
-        demuxer: Membrane.MP4.Demuxer.ISOM,
-        sink: %Membrane.File.Sink{location: out_path}
-      ]
+    children = [
+      file: %Membrane.File.Source{
+        location: "test/fixtures/isom/ref_video_new_fast_start.mp4"
+      },
+      demuxer: Membrane.MP4.Demuxer.ISOM,
+      sink: %Membrane.File.Sink{location: out_path}
+    ]
 
-      links = [
-        ParentSpec.link(:file) |> ParentSpec.to(:demuxer),
-        ParentSpec.link(:demuxer)
-        |> ParentSpec.via_out(Pad.ref(:output, 1))
-        |> ParentSpec.to(:sink)
-      ]
+    links = [
+      link(:file) |> to(:demuxer),
+      link(:demuxer)
+      |> via_out(Pad.ref(:output, 1))
+      |> to(:sink)
+    ]
 
-      assert {:ok, pid} = Pipeline.start_link(children: children, links: links)
-      perform_test(pid, "video", out_path)
-    end
+    assert {:ok, pid} = Pipeline.start_link(children: children, links: links)
+    perform_test(pid, "video_new", out_path)
+  end
 
-    @tag :skip
-    test "single AAC track" do
-      out_path = prepare_dir()
+  test "demux single AAC track" do
+    out_path = prepare_dir()
 
-      children = [
-        file: %Membrane.File.Source{location: "test/fixtures/isom/ref_aac_fast_start.mp4"},
-        demuxer: Membrane.MP4.Demuxer.ISOM,
-        sink: %Membrane.File.Sink{location: out_path}
-      ]
+    children = [
+      file: %Membrane.File.Source{location: "test/fixtures/isom/ref_aac_fast_start.mp4"},
+      demuxer: Membrane.MP4.Demuxer.ISOM,
+      sink: %Membrane.File.Sink{location: out_path}
+    ]
 
-      links = [
-        ParentSpec.link(:file) |> ParentSpec.to(:demuxer),
-        ParentSpec.link(:demuxer)
-        |> ParentSpec.via_out(Pad.ref(:output, 1))
-        |> ParentSpec.to(:sink)
-      ]
+    links = [
+      link(:file) |> to(:demuxer),
+      link(:demuxer)
+      |> via_out(Pad.ref(:output, 1))
+      |> to(:sink)
+    ]
 
-      assert {:ok, pid} = Pipeline.start(children: children, links: links)
-      perform_test(pid, "aac", out_path)
-    end
+    assert {:ok, pid} = Pipeline.start(children: children, links: links)
+    perform_test(pid, "aac", out_path)
   end
 end

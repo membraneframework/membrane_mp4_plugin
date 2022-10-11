@@ -25,7 +25,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
             (track_id :: pos_integer()) => timescale :: pos_integer()
           },
           last_dts: %{
-            (track_id :: pos_integer()) => last_dts :: Ratio.t()
+            (track_id :: pos_integer()) => last_dts :: Ratio.t() | nil
           },
           tracks_number: pos_integer()
         }
@@ -67,9 +67,15 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
     use Ratio
 
     dts =
-      sample_data.last_dts[track_id] +
-        delta / sample_data.timescales[track_id] *
-          Time.second()
+      case sample_data.last_dts[track_id] do
+        nil ->
+          0
+
+        last_dts ->
+          last_dts +
+            delta / sample_data.timescales[track_id] *
+              Time.second()
+      end
 
     last_dts = Map.put(sample_data.last_dts, track_id, dts)
     sample_data = %{sample_data | last_dts: last_dts}
@@ -134,7 +140,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
       |> Enum.into(%{})
 
     last_dts =
-      Enum.map(tracks, fn {track_id, _boxes} -> {track_id, 0} end)
+      Enum.map(tracks, fn {track_id, _boxes} -> {track_id, nil} end)
       |> Enum.into(%{})
 
     %__MODULE__{
