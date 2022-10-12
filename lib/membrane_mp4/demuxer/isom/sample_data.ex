@@ -1,14 +1,16 @@
-defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
+defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
   @moduledoc false
   alias Membrane.{Buffer, Time}
   alias Membrane.MP4.Container
   alias Membrane.MP4.MovieBox.SampleTableBox
+  alias Membrane.MP4.Track.SampleTable
 
   @enforce_keys [
     :samples,
     :tracks_number,
     :timescales,
-    :last_dts
+    :last_dts,
+    :sample_tables
   ]
 
   defstruct @enforce_keys
@@ -27,7 +29,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
           last_dts: %{
             (track_id :: pos_integer()) => last_dts :: Ratio.t() | nil
           },
-          tracks_number: pos_integer()
+          tracks_number: pos_integer(),
+          sample_tables: %{(track_id :: pos_integer()) => SampleTable.t()}
         }
 
   @spec get_samples(t, data :: binary()) ::
@@ -92,7 +95,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
         {boxes[:tkhd].fields.track_id, boxes}
       end)
 
-    # get sample tables
     sample_tables =
       Enum.map(tracks, fn {track_id, boxes} ->
         {track_id,
@@ -103,7 +105,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
       end)
       |> Enum.into(%{})
 
-    # get chunk offsets, and order them
     chunk_offsets =
       Enum.flat_map(tracks, fn {track_id, _boxes} ->
         offsets = sample_tables[track_id].chunk_offsets
@@ -147,7 +148,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleHelper do
       samples: samples,
       tracks_number: map_size(tracks),
       timescales: timescales,
-      last_dts: last_dts
+      last_dts: last_dts,
+      sample_tables: sample_tables
     }
   end
 
