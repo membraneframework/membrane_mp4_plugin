@@ -32,7 +32,9 @@ defmodule Membrane.MP4.Track do
           width: non_neg_integer,
           timescale: pos_integer
         }) :: __MODULE__.t()
-  def new(%{width: width, height: height, content: content, timescale: timescale} = config) do
+  def new(config) do
+    %{width: width, height: height, content: content, timescale: timescale} = config
+
     config =
       Map.put(config, :sample_table, %SampleTable{
         sample_description: %{content: content, width: width, height: height},

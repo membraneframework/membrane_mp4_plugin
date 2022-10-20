@@ -164,11 +164,14 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
     sample_table =
       SampleTableBox.unpack(media[:minf].children[:stbl], media[:mdhd].fields.timescale)
 
+    {height, 0} = header.height
+    {width, 0} = header.width
+
     %Track{
       id: header.track_id,
       content: sample_table.sample_description.content,
-      height: header.height |> elem(0),
-      width: header.width |> elem(0),
+      height: height,
+      width: width,
       timescale: media[:mdhd].fields.timescale,
       sample_table: sample_table,
       duration: nil,

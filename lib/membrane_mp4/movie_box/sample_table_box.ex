@@ -227,9 +227,11 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
   end
 
   defp unpack_content(:mp4a, %{children: boxes, fields: fields}) do
+    {sample_rate, 0} = fields.sample_rate
+
     %AAC{
       esds: boxes[:esds].fields.elementary_stream_descriptor,
-      sample_rate: fields.sample_rate |> elem(0),
+      sample_rate: sample_rate,
       channels: fields.channel_count
     }
   end

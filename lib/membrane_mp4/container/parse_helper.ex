@@ -17,7 +17,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
 
   def parse_boxes(data, schema, context, acc) do
     withl header_content:
-            {:ok, %{type: name, content_size: content_size}, rest} <- Header.parse(data),
+            {:ok, %{name: name, content_size: content_size}, rest} <- Header.parse(data),
           header_content: <<content::binary-size(content_size), data::binary>> <- rest,
           do: box_schema = schema[name],
           known?: true <- box_schema && not box_schema.black_box?,
