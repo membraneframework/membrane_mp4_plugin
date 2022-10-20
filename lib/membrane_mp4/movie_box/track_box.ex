@@ -9,9 +9,7 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
 
   For more information about the track box, refer to [ISO/IEC 14496-12](https://www.iso.org/standard/74428.html).
   """
-  alias Membrane.MP4.{Container, Helper, Track}
-  alias Membrane.MP4.Payload.{AAC, AVC1}
-  alias Membrane.Opus
+  alias Membrane.MP4.{Container, MovieBox.SampleTableBox, Track}
 
   defguardp is_audio(track) when {track.height, track.width} == {0, 0}
 
@@ -39,7 +37,7 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
                       minf: %{
                         children:
                           media_header(track) ++
-                            dinf ++ sample_table(track),
+                            dinf ++ SampleTableBox.assemble(track.sample_table),
                         fields: %{}
                       }
                     ],
@@ -158,187 +156,25 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
     ]
   end
 
-  defp sample_table(track) do
-    sample_description = sample_description(track)
-    sample_deltas = sample_deltas(track)
-    maybe_sample_sync = maybe_sample_sync(track)
-    sample_to_chunk = sample_to_chunk(track)
-    sample_sizes = sample_sizes(track)
-    chunk_offsets = chunk_offsets(track)
+  @spec unpack(%{children: Container.t(), fields: map}) :: Track.t()
+  def unpack(%{children: boxes}) do
+    header = boxes[:tkhd].fields
+    media = boxes[:mdia].children
 
-    [
-      stbl: %{
-        children:
-          [
-            stsd: %{
-              children: sample_description,
-              fields: %{
-                entry_count: length(sample_description),
-                flags: 0,
-                version: 0
-              }
-            },
-            stts: %{
-              fields: %{
-                version: 0,
-                flags: 0,
-                entry_count: length(sample_deltas),
-                entry_list: sample_deltas
-              }
-            }
-          ] ++
-            maybe_sample_sync ++
-            [
-              stsc: %{
-                fields: %{
-                  version: 0,
-                  flags: 0,
-                  entry_count: length(sample_to_chunk),
-                  entry_list: sample_to_chunk
-                }
-              },
-              stsz: %{
-                fields: %{
-                  version: 0,
-                  flags: 0,
-                  sample_size: 0,
-                  sample_count: track.sample_table.sample_count,
-                  entry_list: sample_sizes
-                }
-              },
-              stco: %{
-                fields: %{
-                  version: 0,
-                  flags: 0,
-                  entry_count: length(chunk_offsets),
-                  entry_list: chunk_offsets
-                }
-              }
-            ],
-        fields: %{}
-      }
-    ]
+    sample_table = SampleTableBox.unpack(media[:minf].children[:stbl])
+
+    {height, 0} = header.height
+    {width, 0} = header.width
+
+    %Track{
+      id: header.track_id,
+      content: sample_table.sample_description.content,
+      height: height,
+      width: width,
+      timescale: media[:mdhd].fields.timescale,
+      sample_table: sample_table,
+      duration: nil,
+      movie_duration: nil
+    }
   end
-
-  defp sample_description(%{content: %AVC1{} = avc1} = track) do
-    [
-      avc1: %{
-        children: [
-          avcC: %{
-            content: avc1.avcc
-          },
-          pasp: %{
-            children: [],
-            fields: %{h_spacing: 1, v_spacing: 1}
-          }
-        ],
-        fields: %{
-          compressor_name: <<0::size(32)-unit(8)>>,
-          depth: 24,
-          flags: 0,
-          frame_count: 1,
-          height: track.height,
-          horizresolution: {0, 0},
-          num_of_entries: 1,
-          version: 0,
-          vertresolution: {0, 0},
-          width: track.width
-        }
-      }
-    ]
-  end
-
-  defp sample_description(%{content: %AAC{} = aac}) do
-    [
-      mp4a: %{
-        children: %{
-          esds: %{
-            fields: %{
-              elementary_stream_descriptor: aac.esds,
-              flags: 0,
-              version: 0
-            }
-          }
-        },
-        fields: %{
-          channel_count: aac.channels,
-          compression_id: 0,
-          data_reference_index: 1,
-          encoding_revision: 0,
-          encoding_vendor: 0,
-          encoding_version: 0,
-          packet_size: 0,
-          sample_size: 16,
-          sample_rate: {aac.sample_rate, 0}
-        }
-      }
-    ]
-  end
-
-  defp sample_description(%{content: %Opus{} = opus}) do
-    [
-      Opus: %{
-        children: %{
-          dOps: %{
-            fields: %{
-              version: 0,
-              output_channel_count: opus.channels,
-              pre_skip: 413,
-              input_sample_rate: 0,
-              output_gain: 0,
-              channel_mapping_family: 0
-            }
-          }
-        },
-        fields: %{
-          data_reference_index: 0,
-          channel_count: opus.channels,
-          sample_size: 16,
-          sample_rate: Bitwise.bsl(48_000, 16)
-        }
-      }
-    ]
-  end
-
-  defp sample_deltas(%{timescale: timescale, sample_table: %{decoding_deltas: decoding_deltas}}),
-    do:
-      Enum.map(decoding_deltas, fn %{sample_count: count, sample_delta: delta} ->
-        %{sample_count: count, sample_delta: Helper.timescalify(delta, timescale)}
-      end)
-
-  defp maybe_sample_sync(%{sample_table: %{sync_samples: []}}), do: []
-
-  defp maybe_sample_sync(%{sample_table: %{sync_samples: sync_samples}}) do
-    sync_samples
-    |> Enum.map(&%{sample_number: &1})
-    |> then(
-      &[
-        stss: %{
-          fields: %{
-            version: 0,
-            flags: 0,
-            entry_count: length(&1),
-            entry_list: &1
-          }
-        }
-      ]
-    )
-  end
-
-  defp sample_to_chunk(%{sample_table: %{samples_per_chunk: samples_per_chunk}}),
-    do:
-      Enum.map(
-        samples_per_chunk,
-        &%{
-          first_chunk: &1.first_chunk,
-          samples_per_chunk: &1.sample_count,
-          sample_description_index: 1
-        }
-      )
-
-  defp sample_sizes(%{sample_table: %{sample_sizes: sample_sizes}}),
-    do: Enum.map(sample_sizes, &%{entry_size: &1})
-
-  defp chunk_offsets(%{sample_table: %{chunk_offsets: chunk_offsets}}),
-    do: Enum.map(chunk_offsets, &%{chunk_offset: &1})
 end

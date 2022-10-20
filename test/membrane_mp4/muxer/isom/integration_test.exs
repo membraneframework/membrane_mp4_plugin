@@ -51,19 +51,19 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
     end
 
     test "single AAC track" do
-      prepare_test("audio")
+      prepare_test("aac")
 
       children = [
         file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
         parser: %Membrane.AAC.Parser{out_encapsulation: :none},
         payloader: Membrane.MP4.Payloader.AAC,
         muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)},
-        sink: %Membrane.File.Sink{location: out_path_for("audio")}
+        sink: %Membrane.File.Sink{location: out_path_for("aac")}
       ]
 
       assert {:ok, pid} = Pipeline.start(links: ParentSpec.link_linear(children))
 
-      perform_test(pid, "audio")
+      perform_test(pid, "aac")
     end
 
     test "single OPUS track" do
@@ -134,19 +134,19 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
     end
 
     test "single AAC track" do
-      prepare_test("autio_fast_start")
+      prepare_test("aac_fast_start")
 
       children = [
         file: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
         parser: %Membrane.AAC.Parser{out_encapsulation: :none},
         payloader: Membrane.MP4.Payloader.AAC,
         muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true},
-        sink: %Membrane.File.Sink{location: out_path_for("audio_fast_start")}
+        sink: %Membrane.File.Sink{location: out_path_for("aac_fast_start")}
       ]
 
       assert {:ok, pid} = Pipeline.start(links: ParentSpec.link_linear(children))
 
-      perform_test(pid, "audio_fast_start")
+      perform_test(pid, "aac_fast_start")
     end
 
     test "two tracks" do
@@ -186,7 +186,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
   describe "When fed a variable parameter h264 stream, Muxer.ISOM should" do
     test "raise when caps inband_parameters are not used" do
       children = [
-        file: %Membrane.File.Source{location: "test/fixtures/in_video_vp.h264"},
+        file: %Membrane.File.Source{location: "test/fixtures/video_vp.h264"},
         parser: %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true},
         payloader: Membrane.MP4.Payloader.H264,
         muxer: %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true},

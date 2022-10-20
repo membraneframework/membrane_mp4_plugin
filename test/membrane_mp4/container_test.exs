@@ -5,33 +5,44 @@ defmodule Membrane.MP4.ContainerTest do
   @cmaf_fixtures "test/fixtures/cmaf"
   @isom_fixtures "test/fixtures/isom"
 
+  defp test_parse_serialize(fixtures, reference) do
+    data = fixtures |> Path.join(reference) |> File.read!()
+    assert {boxes, <<>>} = data |> Container.parse!()
+    assert boxes |> Container.serialize!() == data
+  end
+
+  defp test_partial(file, boxes_expected) do
+    data = @isom_fixtures |> Path.join(file) |> File.read!()
+    data_size = byte_size(data) - 1
+    <<partial::binary-size(data_size), _last::binary-size(1)>> = data
+    assert {:ok, boxes, <<_rest::binary>>} = Container.parse(partial)
+    assert boxes |> Enum.map(&elem(&1, 0)) == boxes_expected
+  end
+
   test "video" do
-    data = @cmaf_fixtures |> Path.join("ref_video_header.mp4") |> File.read!()
-    assert data |> Container.parse!() |> Container.serialize!() == data
-    data = @cmaf_fixtures |> Path.join("ref_video_segment1.m4s") |> File.read!()
-    assert data |> Container.parse!() |> Container.serialize!() == data
-    data = @cmaf_fixtures |> Path.join("ref_video_segment2.m4s") |> File.read!()
-    assert data |> Container.parse!() |> Container.serialize!() == data
-    data = @isom_fixtures |> Path.join("ref_video.mp4") |> File.read!()
-    assert data |> Container.parse!() |> Container.serialize!() == data
+    test_parse_serialize(@cmaf_fixtures, "ref_video_header.mp4")
+    test_parse_serialize(@cmaf_fixtures, "ref_video_segment1.m4s")
+    test_parse_serialize(@cmaf_fixtures, "ref_video_segment2.m4s")
+    test_parse_serialize(@isom_fixtures, "ref_video.mp4")
   end
 
   test "audio" do
-    data = @cmaf_fixtures |> Path.join("ref_audio_header.mp4") |> File.read!()
-    assert data |> Container.parse!() |> Container.serialize!() == data
-    data = @cmaf_fixtures |> Path.join("ref_audio_segment1.m4s") |> File.read!()
-    assert data |> Container.parse!() |> Container.serialize!() == data
-    data = @cmaf_fixtures |> Path.join("ref_audio_segment2.m4s") |> File.read!()
-    assert data |> Container.parse!() |> Container.serialize!() == data
-    data = @cmaf_fixtures |> Path.join("ref_audio_segment3.m4s") |> File.read!()
-    assert data |> Container.parse!() |> Container.serialize!() == data
-    data = @isom_fixtures |> Path.join("ref_audio.mp4") |> File.read!()
-    assert data |> Container.parse!() |> Container.serialize!() == data
+    test_parse_serialize(@cmaf_fixtures, "ref_audio_header.mp4")
+    test_parse_serialize(@cmaf_fixtures, "ref_audio_segment1.m4s")
+    test_parse_serialize(@cmaf_fixtures, "ref_audio_segment2.m4s")
+    test_parse_serialize(@cmaf_fixtures, "ref_audio_segment3.m4s")
+    test_parse_serialize(@isom_fixtures, "ref_aac.mp4")
   end
 
   test "two tracks" do
-    data = @isom_fixtures |> Path.join("ref_two_tracks.mp4") |> File.read!()
-    assert data |> Container.parse!() |> Container.serialize!() == data
+    test_parse_serialize(@isom_fixtures, "ref_two_tracks.mp4")
+  end
+
+  test "partial data" do
+    test_partial("ref_video.mp4", [:ftyp, :mdat])
+    test_partial("ref_video_fast_start.mp4", [:ftyp, :moov])
+    test_partial("ref_aac.mp4", [:ftyp, :mdat])
+    test_partial("ref_aac_fast_start.mp4", [:ftyp, :moov])
   end
 
   test "unknown box" do
@@ -39,7 +50,8 @@ defmodule Membrane.MP4.ContainerTest do
       @cmaf_fixtures |> Path.join("ref_audio_segment1.m4s") |> File.read!()
 
     data = <<size::4-binary, "abcd", rest::binary>>
-    assert data |> Container.parse!() |> Container.serialize!() == data
+    assert {boxes, <<>>} = data |> Container.parse!()
+    assert boxes |> Container.serialize!() == data
   end
 
   test "parse error" do
@@ -52,7 +64,7 @@ defmodule Membrane.MP4.ContainerTest do
   end
 
   test "serialize error" do
-    assert {:ok, mp4} =
+    assert {:ok, mp4, <<>>} =
              @cmaf_fixtures
              |> Path.join("ref_video_header.mp4")
              |> File.read!()

@@ -20,10 +20,10 @@ defmodule Membrane.MP4.Track do
           movie_duration: non_neg_integer | nil
         }
 
-  @enforce_keys [:id, :content, :height, :width, :timescale]
+  @enforce_keys [:id, :content, :height, :width, :timescale, :sample_table]
 
   defstruct @enforce_keys ++
-              [sample_table: %SampleTable{}, duration: nil, movie_duration: nil]
+              [duration: nil, movie_duration: nil]
 
   @spec new(%{
           id: pos_integer,
@@ -33,6 +33,14 @@ defmodule Membrane.MP4.Track do
           timescale: pos_integer
         }) :: __MODULE__.t()
   def new(config) do
+    %{width: width, height: height, content: content, timescale: timescale} = config
+
+    config =
+      Map.put(config, :sample_table, %SampleTable{
+        sample_description: %{content: content, width: width, height: height},
+        timescale: timescale
+      })
+
     struct!(__MODULE__, config)
   end
 
