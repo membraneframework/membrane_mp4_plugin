@@ -7,10 +7,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
   require Membrane.Pad
   require Membrane.RemoteControlled.Pipeline
 
-  alias Membrane.Pad
-  alias Membrane.ParentSpec
-  alias Membrane.RemoteControlled.Pipeline, as: RemotePipeline
+  alias Membrane.{Pad, ParentSpec}
   alias Membrane.RemoteControlled.Message, as: RemoteMessage
+  alias Membrane.RemoteControlled.Pipeline, as: RemotePipeline
   alias Membrane.Testing.Pipeline
 
   # Fixtures used in demuxer tests below were generated with `chunk_duration` option set to `Membrane.Time.seconds(1)`.
@@ -20,19 +19,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
     assert a == b
   end
 
-  defp get_out_path(),
-    do:
-      "tmp/out_" <>
-        (:crypto.strong_rand_bytes(16) |> Base.url_encode64() |> binary_part(0, 16))
-
   defp ref_path_for(filename), do: "test/fixtures/payloaded/isom/payloaded_#{filename}"
-
-  defp prepare_dir() do
-    out_path = get_out_path()
-    File.rm(out_path)
-    on_exit(fn -> File.rm(out_path) end)
-    out_path
-  end
 
   defp perform_test(pid, filename, out_path) do
     ref_path = ref_path_for(filename)
@@ -46,8 +33,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
   end
 
   describe "Demuxer should demux" do
-    test "demux single H264 track" do
-      out_path = prepare_dir()
+    @tag :tmp_dir
+    test "demux single H264 track", %{tmp_dir: dir} do
+      out_path = Path.join(dir, "out")
 
       children = [
         file: %Membrane.File.Source{
@@ -68,8 +56,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       perform_test(pid, "video", out_path)
     end
 
-    test "demux single AAC track" do
-      out_path = prepare_dir()
+    @tag :tmp_dir
+    test "demux single AAC track", %{tmp_dir: dir} do
+      out_path = Path.join(dir, "out")
 
       children = [
         file: %Membrane.File.Source{location: "test/fixtures/isom/ref_aac_fast_start.mp4"},
@@ -89,8 +78,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
     end
   end
 
-  test "output pads connected after end_of_stream" do
-    out_path = prepare_dir()
+  @tag :tmp_dir
+  test "output pads connected after end_of_stream", %{tmp_dir: dir} do
+    out_path = Path.join(dir, "out")
     filename = "test/fixtures/isom/ref_video_fast_start.mp4"
 
     spec = %ParentSpec{

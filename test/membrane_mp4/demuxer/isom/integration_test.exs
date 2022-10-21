@@ -11,18 +11,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntgerationTest do
 
   alias Membrane.Testing.Pipeline
 
-  defp get_out_path(),
-    do:
-      "tmp/out_" <>
-        (:crypto.strong_rand_bytes(16) |> Base.url_encode64() |> binary_part(0, 16))
-
-  defp prepare_dir() do
-    out_path = get_out_path()
-    File.rm(out_path)
-    # on_exit(fn -> File.rm(out_path) end)
-    out_path
-  end
-
   defp perform_test(pid, in_path, out_path) do
     assert_end_of_stream(pid, :sink, :input, 6000)
     refute_sink_buffer(pid, :sink, _buffer, 0)
@@ -40,9 +28,10 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntgerationTest do
     assert out_mp4[:mdat] == in_mp4[:mdat]
   end
 
-  test "single H264 track" do
+  @tag :tmp_dir
+  test "single H264 track", %{tmp_dir: dir} do
     in_path = "test/fixtures/isom/ref_video_fast_start.mp4"
-    out_path = prepare_dir()
+    out_path = Path.join(dir, "out")
 
     children = [
       file: %Membrane.File.Source{
@@ -68,9 +57,10 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntgerationTest do
     perform_test(pid, in_path, out_path)
   end
 
-  test "single AAC track" do
+  @tag :tmp_dir
+  test "single AAC track", %{tmp_dir: dir} do
     in_path = "test/fixtures/isom/ref_aac_fast_start.mp4"
-    out_path = prepare_dir()
+    out_path = Path.join(dir, "out")
 
     children = [
       file: %Membrane.File.Source{
