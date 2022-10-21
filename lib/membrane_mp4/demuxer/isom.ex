@@ -235,11 +235,23 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {{:ok, get_end_of_stream_actions(ctx)}, state}
   end
 
+  defp all_pads_connected?(_ctx, %{sample_data: nil}), do: false
+
   defp all_pads_connected?(ctx, state) do
-    state.sample_data != nil and
-      Enum.all?(1..state.sample_data.tracks_number, fn track_id ->
-        Map.has_key?(ctx.pads, Pad.ref(:output, track_id))
-      end)
+    tracks = 1..state.sample_data.tracks_number |> Enum.to_list()
+
+    pads =
+      Enum.filter(ctx.pads, &match?({Pad.ref(:output, _id), _data}, &1))
+      |> Enum.map(fn {Pad.ref(:output, pad_id), _data} -> pad_id end)
+      |> Enum.sort()
+
+    Enum.each(pads, fn pad ->
+      if pad not in tracks do
+        raise "An output pad connected with #{pad} id, however no matching track exists"
+      end
+    end)
+
+    tracks == pads
   end
 
   defp flush_samples(state, track_id) do
