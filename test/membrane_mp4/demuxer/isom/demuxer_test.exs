@@ -5,8 +5,12 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
   import Membrane.ParentSpec
 
   require Membrane.Pad
+  require Membrane.RemoteControlled.Pipeline
 
   alias Membrane.Pad
+  alias Membrane.ParentSpec
+  alias Membrane.RemoteControlled.Pipeline, as: RemotePipeline
+  alias Membrane.RemoteControlled.Message, as: RemoteMessage
   alias Membrane.Testing.Pipeline
 
   # Fixtures used in demuxer tests below were generated with `chunk_duration` option set to `Membrane.Time.seconds(1)`.
@@ -41,45 +45,97 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
     assert_files_equal(out_path, ref_path)
   end
 
-  test "demux single H264 track" do
-    out_path = prepare_dir()
+  describe "Demuxer should demux" do
+    test "demux single H264 track" do
+      out_path = prepare_dir()
 
-    children = [
-      file: %Membrane.File.Source{
-        location: "test/fixtures/isom/ref_video_fast_start.mp4"
-      },
-      demuxer: Membrane.MP4.Demuxer.ISOM,
-      sink: %Membrane.File.Sink{location: out_path}
-    ]
+      children = [
+        file: %Membrane.File.Source{
+          location: "test/fixtures/isom/ref_video_fast_start.mp4"
+        },
+        demuxer: Membrane.MP4.Demuxer.ISOM,
+        sink: %Membrane.File.Sink{location: out_path}
+      ]
 
-    links = [
-      link(:file) |> to(:demuxer),
-      link(:demuxer)
-      |> via_out(Pad.ref(:output, 1))
-      |> to(:sink)
-    ]
+      links = [
+        link(:file) |> to(:demuxer),
+        link(:demuxer)
+        |> via_out(Pad.ref(:output, 1))
+        |> to(:sink)
+      ]
 
-    assert {:ok, pid} = Pipeline.start_link(children: children, links: links)
-    perform_test(pid, "video", out_path)
+      assert {:ok, pid} = Pipeline.start_link(children: children, links: links)
+      perform_test(pid, "video", out_path)
+    end
+
+    test "demux single AAC track" do
+      out_path = prepare_dir()
+
+      children = [
+        file: %Membrane.File.Source{location: "test/fixtures/isom/ref_aac_fast_start.mp4"},
+        demuxer: Membrane.MP4.Demuxer.ISOM,
+        sink: %Membrane.File.Sink{location: out_path}
+      ]
+
+      links = [
+        link(:file) |> to(:demuxer),
+        link(:demuxer)
+        |> via_out(Pad.ref(:output, 1))
+        |> to(:sink)
+      ]
+
+      assert {:ok, pid} = Pipeline.start(children: children, links: links)
+      perform_test(pid, "aac", out_path)
+    end
   end
 
-  test "demux single AAC track" do
+  test "output pads connected after end_of_stream" do
     out_path = prepare_dir()
+    filename = "test/fixtures/isom/ref_video_fast_start.mp4"
 
-    children = [
-      file: %Membrane.File.Source{location: "test/fixtures/isom/ref_aac_fast_start.mp4"},
-      demuxer: Membrane.MP4.Demuxer.ISOM,
-      sink: %Membrane.File.Sink{location: out_path}
+    spec = %ParentSpec{
+      children: [
+        file: %Membrane.File.Source{
+          location: filename,
+          chunk_size: File.stat!(filename).size
+        },
+        demuxer: Membrane.MP4.Demuxer.ISOM
+      ],
+      links: [link(:file) |> to(:demuxer)]
+    }
+
+    actions = [spec: spec, playback: :playing]
+
+    {:ok, pipeline} = RemotePipeline.start_link()
+    RemotePipeline.exec_actions(pipeline, actions)
+
+    RemotePipeline.subscribe(pipeline, %RemoteMessage.Notification{element: _, data: _, from: _})
+    RemotePipeline.subscribe(pipeline, %RemoteMessage.EndOfStream{element: _, pad: _, from: _})
+
+    assert_receive %RemoteMessage.Notification{
+      element: :demuxer,
+      data: {:new_track, 1, _payload},
+      from: _
+    }
+
+    assert_receive %RemoteMessage.EndOfStream{element: :demuxer, pad: :input, from: _}
+
+    actions = [
+      spec: %ParentSpec{
+        children: [sink: %Membrane.File.Sink{location: out_path}],
+        links: [
+          link(:demuxer)
+          |> via_out(Pad.ref(:output, 1))
+          |> to(:sink)
+        ]
+      }
     ]
 
-    links = [
-      link(:file) |> to(:demuxer),
-      link(:demuxer)
-      |> via_out(Pad.ref(:output, 1))
-      |> to(:sink)
-    ]
+    RemotePipeline.exec_actions(pipeline, actions)
+    assert_receive %RemoteMessage.EndOfStream{element: :sink, pad: :input, from: _}, 2000
 
-    assert {:ok, pid} = Pipeline.start(children: children, links: links)
-    perform_test(pid, "aac", out_path)
+    RemotePipeline.terminate(pipeline, blocking?: true)
+
+    assert_files_equal(out_path, ref_path_for("video"))
   end
 end
