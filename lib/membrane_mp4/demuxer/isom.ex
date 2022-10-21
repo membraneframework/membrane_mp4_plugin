@@ -212,15 +212,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   def handle_pad_added(Pad.ref(:output, track_id), ctx, state) do
     all_pads_connected? = all_pads_connected?(ctx, state)
 
-    actions =
+    {actions, state} =
       if all_pads_connected? do
         {buffer_actions, state} = flush_samples(state, track_id)
         maybe_caps = if state.sample_data != nil, do: get_caps(state), else: []
         maybe_eos = if state.end_of_stream?, do: get_end_of_stream_actions(ctx), else: []
 
-        maybe_caps ++ buffer_actions ++ maybe_eos
+        {maybe_caps ++ buffer_actions ++ maybe_eos, state}
       else
-        []
+        {[], state}
       end
 
     {{:ok, actions}, %{state | all_pads_connected?: all_pads_connected?}}
@@ -232,12 +232,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   def handle_end_of_stream(:input, ctx, %{all_pads_connected?: true} = state) do
-    Enum.each(state.buffered_samples, fn {_track_id, samples} ->
-      if length(samples) > 0 do
-        raise "All samples should have been flushed when EOS and pads connected"
-      end
-    end)
-
     {{:ok, get_end_of_stream_actions(ctx)}, state}
   end
 

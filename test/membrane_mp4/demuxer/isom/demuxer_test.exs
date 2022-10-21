@@ -78,16 +78,91 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     end
   end
 
-  @tag :tmp_dir
-  test "output pads connected after end_of_stream", %{tmp_dir: dir} do
-    out_path = Path.join(dir, "out")
-    filename = "test/fixtures/isom/ref_video_fast_start.mp4"
+  describe "output pad connected after new_track_t() notification" do
+    @tag :tmp_dir
+    test "output pad connected after end_of_stream", %{tmp_dir: dir} do
+      out_path = Path.join(dir, "out")
+      filename = "test/fixtures/isom/ref_video_fast_start.mp4"
 
+      {:ok, pipeline} =
+        start_remote_pipeline(
+          filename: filename,
+          file_source_chunk_size: File.stat!(filename).size
+        )
+
+      assert_receive %RemoteMessage.Notification{
+                       element: :demuxer,
+                       data: {:new_track, 1, _payload},
+                       from: _
+                     },
+                     2000
+
+      assert_receive %RemoteMessage.EndOfStream{element: :demuxer, pad: :input, from: _}, 2000
+
+      actions = [
+        spec: %ParentSpec{
+          children: [sink: %Membrane.File.Sink{location: out_path}],
+          links: [
+            link(:demuxer)
+            |> via_out(Pad.ref(:output, 1))
+            |> to(:sink)
+          ]
+        }
+      ]
+
+      RemotePipeline.exec_actions(pipeline, actions)
+      assert_receive %RemoteMessage.EndOfStream{element: :sink, pad: :input, from: _}, 2000
+
+      RemotePipeline.terminate(pipeline, blocking?: true)
+
+      assert_files_equal(out_path, ref_path_for("video"))
+    end
+
+    @tag :tmp_dir
+    test "output pad connected after moov box has been read", %{tmp_dir: dir} do
+      out_path = Path.join(dir, "out")
+      filename = "test/fixtures/isom/ref_video_fast_start.mp4"
+
+      {:ok, pipeline} =
+        start_remote_pipeline(
+          filename: filename,
+          file_source_chunk_size: File.stat!(filename).size - 1
+        )
+
+      assert_receive %RemoteMessage.Notification{
+                       element: :demuxer,
+                       data: {:new_track, 1, _payload},
+                       from: _
+                     },
+                     2000
+
+      actions = [
+        spec: %ParentSpec{
+          children: [sink: %Membrane.File.Sink{location: out_path}],
+          links: [
+            link(:demuxer)
+            |> via_out(Pad.ref(:output, 1))
+            |> to(:sink)
+          ]
+        }
+      ]
+
+      RemotePipeline.exec_actions(pipeline, actions)
+      assert_receive %RemoteMessage.EndOfStream{element: :demuxer, pad: :input, from: _}, 2000
+      assert_receive %RemoteMessage.EndOfStream{element: :sink, pad: :input, from: _}, 2000
+
+      RemotePipeline.terminate(pipeline, blocking?: true)
+
+      assert_files_equal(out_path, ref_path_for("video"))
+    end
+  end
+
+  defp start_remote_pipeline(opts) do
     spec = %ParentSpec{
       children: [
         file: %Membrane.File.Source{
-          location: filename,
-          chunk_size: File.stat!(filename).size
+          location: opts[:filename],
+          chunk_size: opts[:file_source_chunk_size]
         },
         demuxer: Membrane.MP4.Demuxer.ISOM
       ],
@@ -98,35 +173,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
 
     {:ok, pipeline} = RemotePipeline.start_link()
     RemotePipeline.exec_actions(pipeline, actions)
-
     RemotePipeline.subscribe(pipeline, %RemoteMessage.Notification{element: _, data: _, from: _})
     RemotePipeline.subscribe(pipeline, %RemoteMessage.EndOfStream{element: _, pad: _, from: _})
-
-    assert_receive %RemoteMessage.Notification{
-                     element: :demuxer,
-                     data: {:new_track, 1, _payload},
-                     from: _
-                   },
-                   2000
-
-    assert_receive %RemoteMessage.EndOfStream{element: :demuxer, pad: :input, from: _}, 2000
-
-    actions = [
-      spec: %ParentSpec{
-        children: [sink: %Membrane.File.Sink{location: out_path}],
-        links: [
-          link(:demuxer)
-          |> via_out(Pad.ref(:output, 1))
-          |> to(:sink)
-        ]
-      }
-    ]
-
-    RemotePipeline.exec_actions(pipeline, actions)
-    assert_receive %RemoteMessage.EndOfStream{element: :sink, pad: :input, from: _}, 2000
-
-    RemotePipeline.terminate(pipeline, blocking?: true)
-
-    assert_files_equal(out_path, ref_path_for("video"))
+    {:ok, pipeline}
   end
 end
