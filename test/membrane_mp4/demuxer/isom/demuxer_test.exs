@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
+defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
   use ExUnit.Case, async: true
 
   import Membrane.Testing.Assertions
@@ -103,12 +103,13 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
     RemotePipeline.subscribe(pipeline, %RemoteMessage.EndOfStream{element: _, pad: _, from: _})
 
     assert_receive %RemoteMessage.Notification{
-      element: :demuxer,
-      data: {:new_track, 1, _payload},
-      from: _
-    }
+                     element: :demuxer,
+                     data: {:new_track, 1, _payload},
+                     from: _
+                   },
+                   2000
 
-    assert_receive %RemoteMessage.EndOfStream{element: :demuxer, pad: :input, from: _}
+    assert_receive %RemoteMessage.EndOfStream{element: :demuxer, pad: :input, from: _}, 2000
 
     actions = [
       spec: %ParentSpec{
