@@ -105,51 +105,55 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     {actions, state} =
       if can_read_data_box?(state) do
-        state = %{state | sample_data: SampleData.get_sample_data(state.boxes[:moov])}
-
-        # Parse the data we received so far (partial or the whole mdat box in a single buffer) and
-        # either store or send the data (if all pads are connected)
-
-        data =
-          cond do
-            Keyword.has_key?(state.boxes, :mdat) ->
-              state.boxes[:mdat].content
-
-            state.last_box_header != nil and state.last_box_header.name == :mdat ->
-              <<_header::binary-size(@mdat_header_size), content::binary>> = state.partial
-              content
-
-            true ->
-              <<>>
-          end
-
-        {samples, rest, sample_data} = SampleData.get_samples(state.sample_data, data)
-        state = %{state | sample_data: sample_data, partial: rest}
-
-        all_pads_connected? = all_pads_connected?(ctx, state)
-
-        {buffers, state} =
-          if all_pads_connected? do
-            {get_buffer_actions(samples), state}
-          else
-            {[], store_samples(state, samples)}
-          end
-
-        demand_size =
-          Enum.map(ctx.pads, fn {_pad, pad_data} -> pad_data.demand end)
-          |> Enum.max(fn -> 0 end)
-
-        demand = [demand: {:input, demand_size}]
-        notifications = get_track_notifications(state)
-        caps = if all_pads_connected?, do: get_caps(state), else: []
-
-        {notifications ++ caps ++ buffers ++ demand,
-         %{state | all_pads_connected?: all_pads_connected?}}
+        handle_can_read_mdat_box(ctx, state)
       else
         {[demand: :input], state}
       end
 
     {{:ok, actions}, state}
+  end
+
+  defp handle_can_read_mdat_box(ctx, state) do
+    state = %{state | sample_data: SampleData.get_sample_data(state.boxes[:moov])}
+
+    # Parse the data we received so far (partial or the whole mdat box in a single buffer) and
+    # either store or send the data (if all pads are connected)
+
+    data =
+      cond do
+        Keyword.has_key?(state.boxes, :mdat) ->
+          state.boxes[:mdat].content
+
+        state.last_box_header != nil and state.last_box_header.name == :mdat ->
+          <<_header::binary-size(@mdat_header_size), content::binary>> = state.partial
+          content
+
+        true ->
+          <<>>
+      end
+
+    {samples, rest, sample_data} = SampleData.get_samples(state.sample_data, data)
+    state = %{state | sample_data: sample_data, partial: rest}
+
+    all_pads_connected? = all_pads_connected?(ctx, state)
+
+    {buffers, state} =
+      if all_pads_connected? do
+        {get_buffer_actions(samples), state}
+      else
+        {[], store_samples(state, samples)}
+      end
+
+    demand_size =
+      Enum.map(ctx.pads, fn {_pad, pad_data} -> pad_data.demand end)
+      |> Enum.max(fn -> 0 end)
+
+    demand = [demand: {:input, demand_size}]
+    notifications = get_track_notifications(state)
+    caps = if all_pads_connected?, do: get_caps(state), else: []
+
+    {notifications ++ caps ++ buffers ++ demand,
+     %{state | all_pads_connected?: all_pads_connected?}}
   end
 
   defp store_samples(state, samples) do
@@ -241,8 +245,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     tracks = 1..state.sample_data.tracks_number |> Enum.to_list()
 
     pads =
-      Enum.filter(ctx.pads, &match?({Pad.ref(:output, _id), _data}, &1))
-      |> Enum.map(fn {Pad.ref(:output, pad_id), _data} -> pad_id end)
+      ctx.pads
+      |> Enum.flat_map(fn
+        {Pad.ref(:output, pad_id), _data} -> [pad_id]
+        _pad -> []
+      end)
       |> Enum.sort()
 
     Enum.each(pads, fn pad ->
