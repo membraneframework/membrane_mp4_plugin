@@ -96,43 +96,40 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
       end)
 
     sample_tables =
-      Enum.map(tracks, fn {track_id, boxes} ->
+      Map.new(tracks, fn {track_id, boxes} ->
         {track_id,
          SampleTableBox.unpack(
            boxes[:mdia].children[:minf].children[:stbl],
            boxes[:mdia].children[:mdhd].fields.timescale
          )}
       end)
-      |> Enum.into(%{})
 
     chunk_offsets =
       Enum.flat_map(tracks, fn {track_id, _boxes} ->
-        offsets = sample_tables[track_id].chunk_offsets
-        chunks_with_no = [Enum.to_list(1..length(offsets)), offsets] |> List.zip()
+        chunks_with_no =
+          sample_tables[track_id].chunk_offsets
+          |> Enum.with_index(1)
 
         Enum.map(
           chunks_with_no,
-          fn {chunk_no, offset} ->
+          fn {offset, chunk_no} ->
             %{chunk_no: chunk_no, chunk_offset: offset, track_id: track_id}
           end
         )
       end)
-      |> Enum.sort_by(&Map.get(&1, :chunk_offset), :asc)
+      |> Enum.sort_by(&Map.get(&1, :chunk_offset))
 
-    acc =
-      Enum.map(sample_tables, fn {track_id, sample_table} ->
+    tracks_data =
+      Map.new(sample_tables, fn {track_id, sample_table} ->
         {track_id, Map.take(sample_table, [:decoding_deltas, :sample_sizes, :samples_per_chunk])}
       end)
-      |> Enum.into(%{})
 
-    samples =
-      Enum.reduce(chunk_offsets, {[], acc}, fn %{track_id: track_id} = chunk, {samples, acc} ->
-        {new_samples, track_acc} = get_chunk_samples(chunk, acc[track_id])
-        {[new_samples | samples], %{acc | track_id => track_acc}}
+    {samples, _acc} =
+      chunk_offsets
+      |> Enum.flat_map_reduce(tracks_data, fn %{track_id: track_id} = chunk, tracks_data ->
+        {new_samples, track_data} = get_chunk_samples(chunk, tracks_data[track_id])
+        {new_samples, %{tracks_data | track_id => track_data}}
       end)
-      |> elem(0)
-      |> Enum.reverse()
-      |> List.flatten()
 
     timescales =
       Enum.map(sample_tables, fn {track_id, sample_table} ->
@@ -153,41 +150,56 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
     }
   end
 
-  defp get_chunk_samples(chunk, acc) do
+  defp get_chunk_samples(chunk, track_data) do
     %{chunk_no: chunk_no, track_id: track_id} = chunk
 
-    samples_no = get_samples_no(chunk_no, acc.samples_per_chunk)
+    {track_data, samples_no} = get_samples_no(chunk_no, track_data)
 
-    {samples, acc} =
-      Enum.reduce(1..samples_no, {[], acc}, fn _no, {samples, acc} ->
-        {sample, acc} = get_sample(acc)
-        sample = Map.put(sample, :track_id, track_id)
-        {[sample | samples], acc}
-      end)
-
-    {Enum.reverse(samples), acc}
-  end
-
-  defp get_samples_no(chunk_no, samples_per_chunk) do
-    Enum.reverse(samples_per_chunk)
-    |> Enum.find_value(fn %{first_chunk: first_chunk, samples_per_chunk: samples_no} ->
-      if first_chunk <= chunk_no, do: samples_no
+    Enum.map_reduce(1..samples_no, track_data, fn _no, track_data ->
+      {sample, track_data} = get_sample_description(track_data)
+      sample = Map.put(sample, :track_id, track_id)
+      {sample, track_data}
     end)
   end
 
-  defp get_sample(%{decoding_deltas: deltas, sample_sizes: sample_sizes} = acc) do
+  defp get_samples_no(chunk_no, %{samples_per_chunk: samples_per_chunk} = track) do
+    {samples_per_chunk, samples_no} =
+      case samples_per_chunk do
+        [
+          %{first_chunk: ^chunk_no, samples_per_chunk: samples_no} = first_chunk
+          | [%{first_chunk: first_chunk_second} = second_chunk | samples_per_chunk]
+        ] ->
+          samples_per_chunk =
+            if chunk_no + 1 == first_chunk_second do
+              [second_chunk | samples_per_chunk]
+            else
+              [%{first_chunk | first_chunk: chunk_no + 1} | [second_chunk | samples_per_chunk]]
+            end
+
+          {samples_per_chunk, samples_no}
+
+        [
+          %{first_chunk: ^chunk_no, samples_per_chunk: samples_no} = first_chunk
+        ] ->
+          {[%{first_chunk | first_chunk: chunk_no + 1}], samples_no}
+      end
+
+    {%{track | samples_per_chunk: samples_per_chunk}, samples_no}
+  end
+
+  defp get_sample_description(%{decoding_deltas: deltas, sample_sizes: sample_sizes} = track_data) do
     [size | sample_sizes] = sample_sizes
 
     {delta, deltas} =
-      case hd(deltas) do
-        %{sample_count: 1, sample_delta: delta} ->
-          {delta, tl(deltas)}
+      case deltas do
+        [%{sample_count: 1, sample_delta: delta} | deltas] ->
+          {delta, deltas}
 
-        %{sample_count: count, sample_delta: delta} ->
-          {delta, [%{sample_count: count - 1, sample_delta: delta} | tl(deltas)]}
+        [%{sample_count: count, sample_delta: delta} | deltas] ->
+          {delta, [%{sample_count: count - 1, sample_delta: delta} | deltas]}
       end
 
     {%{size: size, sample_delta: delta},
-     %{acc | decoding_deltas: deltas, sample_sizes: sample_sizes}}
+     %{track_data | decoding_deltas: deltas, sample_sizes: sample_sizes}}
   end
 end
