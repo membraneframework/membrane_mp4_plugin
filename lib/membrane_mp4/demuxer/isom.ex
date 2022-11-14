@@ -59,7 +59,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   @impl true
-  def handle_demand(Pad.ref(:output, _track_id), size, :buffers, _ctx, state) do
+  def handle_demand(Pad.ref(:output, _track_id), _size, :buffers, ctx, state) do
+    size =
+      Enum.map(ctx.pads, fn {_pad, pad_data} -> pad_data.demand end)
+      |> Enum.max(fn -> 0 end)
+
     actions = if state.all_pads_connected?, do: [demand: {:input, size}], else: []
     {{:ok, actions}, state}
   end
@@ -144,15 +148,18 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         {[], store_samples(state, samples)}
       end
 
-    demand_size =
-      Enum.map(ctx.pads, fn {_pad, pad_data} -> pad_data.demand end)
-      |> Enum.max(fn -> 0 end)
+    redemand =
+      Enum.find_value(ctx.pads, [], fn {pad, _pad_data} ->
+        case pad do
+          Pad.ref(:output, _ref) -> [redemand: pad]
+          :input -> false
+        end
+      end)
 
-    demand = [demand: {:input, demand_size}]
     notifications = get_track_notifications(state)
     caps = if all_pads_connected?, do: get_caps(state), else: []
 
-    {notifications ++ caps ++ buffers ++ demand,
+    {notifications ++ caps ++ buffers ++ redemand,
      %{state | all_pads_connected?: all_pads_connected?}}
   end
 
