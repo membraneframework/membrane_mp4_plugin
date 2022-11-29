@@ -1,5 +1,10 @@
 defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
   @moduledoc false
+
+  # This module is responsible for generating a description of samples for a given `mdat` box and then
+  # generating output buffers using that structure.
+  # The samples' description is generated from the the `moov` box, which describes how the data is stored inside the `mdat` box.
+
   alias Membrane.{Buffer, Time}
   alias Membrane.MP4.Container
   alias Membrane.MP4.MovieBox.SampleTableBox
@@ -15,6 +20,13 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
 
   defstruct @enforce_keys
 
+  @typedoc """
+  A struct containing the descriptions of all the samples inside the `mdat` box, as well
+  as some metadata needed to generate the output buffers.
+  The samples' descriptions are ordered in the way they are stored inside the `mdat` box.
+
+  As the data is processed, the processed samples' descriptions are removed from the list.
+  """
   @type t :: %__MODULE__{
           samples: [
             %{
@@ -33,6 +45,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
           sample_tables: %{(track_id :: pos_integer()) => SampleTable.t()}
         }
 
+  @doc """
+  Extracts buffers from the data, based on their description in the sample_data.
+  Returns the processed buffers and the remaining data, which doesn't add up to
+  a whole sample, and has yet to be parsed.
+  """
   @spec get_samples(t, data :: binary()) ::
           {[{Buffer.t(), track_id :: pos_integer()}], rest :: binary, t}
   def get_samples(sample_data, data) do
@@ -86,6 +103,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
     {Ratio.trunc(dts), sample_data}
   end
 
+  @doc """
+  Processes the `moov` box and returns a __MODULE__.t() struct, which describes all the samples which are
+  present in the `mdat` box.
+  The list of samples in the returned struct is used to extract data from the `mdat` box and get output buffers.
+  """
   @spec get_sample_data(%{children: boxes :: Container.t()}) :: t
   def get_sample_data(%{children: boxes}) do
     tracks =
@@ -104,6 +126,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
          )}
       end)
 
+    # Create a list of chunks in the order in which they are stored in the `mdat` box
     chunk_offsets =
       Enum.flat_map(tracks, fn {track_id, _boxes} ->
         chunks_with_no =
@@ -124,6 +147,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
         {track_id, Map.take(sample_table, [:decoding_deltas, :sample_sizes, :samples_per_chunk])}
       end)
 
+    # Create a samples' description list for each chunk and flatten it
     {samples, _acc} =
       chunk_offsets
       |> Enum.flat_map_reduce(tracks_data, fn %{track_id: track_id} = chunk, tracks_data ->
@@ -132,14 +156,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
       end)
 
     timescales =
-      Enum.map(sample_tables, fn {track_id, sample_table} ->
+      Map.new(sample_tables, fn {track_id, sample_table} ->
         {track_id, sample_table.timescale}
       end)
-      |> Enum.into(%{})
 
-    last_dts =
-      Enum.map(tracks, fn {track_id, _boxes} -> {track_id, nil} end)
-      |> Enum.into(%{})
+    last_dts = Map.new(tracks, fn {track_id, _boxes} -> {track_id, nil} end)
 
     %__MODULE__{
       samples: samples,
