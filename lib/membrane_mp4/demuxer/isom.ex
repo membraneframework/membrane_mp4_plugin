@@ -59,13 +59,28 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   @impl true
-  def handle_demand(Pad.ref(:output, _track_id), _size, :buffers, ctx, state) do
-    size =
-      Enum.map(ctx.pads, fn {_pad, pad_data} -> pad_data.demand end)
-      |> Enum.max(fn -> 0 end)
+  def handle_demand(
+        Pad.ref(:output, _track_id),
+        _size,
+        :buffers,
+        _ctx,
+        %{all_pads_connected?: false} = state
+      ) do
+    {:ok, state}
+  end
 
-    actions = if state.all_pads_connected?, do: [demand: {:input, size}], else: []
-    {{:ok, actions}, state}
+  @impl true
+  def handle_demand(
+        Pad.ref(:output, _track_id),
+        _size,
+        :buffers,
+        ctx,
+        %{all_pads_connected?: true} = state
+      ) do
+    {_pad, %{demand: size}} =
+      Enum.max_by(ctx.pads, fn {_pad, pad_data} -> pad_data.demand end, fn -> 0 end)
+
+    {{:ok, [demand: {:input, size}]}, state}
   end
 
   # We are assuming, that after header boxes ([:ftyp, :moov]), there is a single
@@ -249,7 +264,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp all_pads_connected?(_ctx, %{sample_data: nil}), do: false
 
   defp all_pads_connected?(ctx, state) do
-    tracks = 1..state.sample_data.tracks_number |> Enum.to_list()
+    tracks = 1..state.sample_data.tracks_number
 
     pads =
       ctx.pads
@@ -257,7 +272,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         {Pad.ref(:output, pad_id), _data} -> [pad_id]
         _pad -> []
       end)
-      |> Enum.sort()
 
     Enum.each(pads, fn pad ->
       if pad not in tracks do
@@ -265,16 +279,16 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       end
     end)
 
-    tracks == pads
+    Range.size(tracks) == length(pads)
   end
 
   defp flush_samples(state, track_id) do
-    actions =
+    buffers =
       Map.get(state.buffered_samples, track_id, [])
       |> Enum.reverse()
-      |> Enum.map(fn {buffer, track_id} ->
-        {:buffer, {Pad.ref(:output, track_id), buffer}}
-      end)
+      |> Enum.map(fn {buffer, ^track_id} -> buffer end)
+
+    actions = [buffer: {Pad.ref(:output, track_id), buffers}]
 
     {actions, put_in(state, [:buffered_samples, track_id], [])}
   end
