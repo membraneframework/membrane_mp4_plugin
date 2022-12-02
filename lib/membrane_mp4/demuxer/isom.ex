@@ -37,7 +37,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   def handle_init(_options) do
     state = %{
       boxes: [],
-      last_box_header: nil,
+      parsing_mdat?: false,
       partial: <<>>,
       samples_info: nil,
       all_pads_connected?: false,
@@ -120,7 +120,13 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {boxes, rest} = Container.parse!(state.partial <> buffer.payload)
     boxes = state.boxes ++ boxes
 
-    state = %{state | boxes: boxes, partial: rest, last_box_header: parse_header(rest)}
+    parsing_mdat? =
+      case parse_header(rest) do
+        nil -> false
+        header -> header.name == :mdat
+      end
+
+    state = %{state | boxes: boxes, partial: rest, parsing_mdat?: parsing_mdat?}
 
     {actions, state} =
       if can_read_data_box?(state) do
@@ -143,12 +149,9 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         Keyword.has_key?(state.boxes, :mdat) ->
           state.boxes[:mdat].content
 
-        state.last_box_header != nil and state.last_box_header.name == :mdat ->
+        true ->
           <<_header::binary-size(@mdat_header_size), content::binary>> = state.partial
           content
-
-        true ->
-          <<>>
       end
 
     {samples, rest, samples_info} = SamplesInfo.get_samples(state.samples_info, data)
@@ -163,18 +166,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         {[], store_samples(state, samples)}
       end
 
-    redemand =
-      Enum.find_value(ctx.pads, [], fn {pad, _pad_data} ->
-        case pad do
-          Pad.ref(:output, _ref) -> [redemand: pad]
-          :input -> false
-        end
-      end)
+    redemands =
+      ctx.pads
+      |> Enum.filter(fn {pad, _pad_data} -> match?(Pad.ref(:output, _ref), pad) end)
+      |> Enum.flat_map(fn {pad, _pad_data} -> [redemand: pad] end)
 
     notifications = get_track_notifications(state)
     caps = if all_pads_connected?, do: get_caps(state), else: []
 
-    {notifications ++ caps ++ buffers ++ redemand,
+    {notifications ++ caps ++ buffers ++ redemands,
      %{state | all_pads_connected?: all_pads_connected?}}
   end
 
@@ -200,8 +200,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   defp can_read_data_box?(state) do
     Enum.all?(@header_boxes, &Keyword.has_key?(state.boxes, &1)) and
-      ((state.last_box_header != nil and state.last_box_header.name == :mdat) or
-         Keyword.has_key?(state.boxes, :mdat))
+      (state.parsing_mdat? or Keyword.has_key?(state.boxes, :mdat))
   end
 
   defp get_track_notifications(state) do
