@@ -145,13 +145,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     # either store or send the data (if all pads are connected)
 
     data =
-      cond do
-        Keyword.has_key?(state.boxes, :mdat) ->
-          state.boxes[:mdat].content
-
-        true ->
-          <<_header::binary-size(@mdat_header_size), content::binary>> = state.partial
-          content
+      if Keyword.has_key?(state.boxes, :mdat) do
+        state.boxes[:mdat].content
+      else
+        <<_header::binary-size(@mdat_header_size), content::binary>> = state.partial
+        content
       end
 
     {samples, rest, samples_info} = SamplesInfo.get_samples(state.samples_info, data)
