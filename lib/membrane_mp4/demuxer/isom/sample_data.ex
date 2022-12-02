@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
+defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
   @moduledoc false
 
   # This module is responsible for generating a description of samples for a given `mdat` box and then
@@ -52,23 +52,23 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
   """
   @spec get_samples(t, data :: binary()) ::
           {[{Buffer.t(), track_id :: pos_integer()}], rest :: binary, t}
-  def get_samples(sample_data, data) do
-    {sample_data, rest, buffers} = do_get_samples(sample_data, data, [])
+  def get_samples(samples_info, data) do
+    {samples_info, rest, buffers} = do_get_samples(samples_info, data, [])
 
-    {buffers, rest, sample_data}
+    {buffers, rest, samples_info}
   end
 
-  defp do_get_samples(%{samples: []} = sample_data, data, buffers) do
-    {sample_data, data, Enum.reverse(buffers)}
+  defp do_get_samples(%{samples: []} = samples_info, data, buffers) do
+    {samples_info, data, Enum.reverse(buffers)}
   end
 
-  defp do_get_samples(sample_data, data, buffers) do
-    [%{size: size, track_id: track_id} = sample | samples] = sample_data.samples
+  defp do_get_samples(samples_info, data, buffers) do
+    [%{size: size, track_id: track_id} = sample | samples] = samples_info.samples
 
     if size <= byte_size(data) do
       <<payload::binary-size(size), rest::binary>> = data
 
-      {dts, sample_data} = get_dts(sample_data, sample)
+      {dts, samples_info} = get_dts(samples_info, sample)
 
       buffer =
         {%Buffer{
@@ -76,31 +76,31 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
            dts: dts
          }, track_id}
 
-      sample_data = %{sample_data | samples: samples}
-      do_get_samples(sample_data, rest, [buffer | buffers])
+      samples_info = %{samples_info | samples: samples}
+      do_get_samples(samples_info, rest, [buffer | buffers])
     else
-      {sample_data, data, Enum.reverse(buffers)}
+      {samples_info, data, Enum.reverse(buffers)}
     end
   end
 
-  defp get_dts(sample_data, %{sample_delta: delta, track_id: track_id}) do
+  defp get_dts(samples_info, %{sample_delta: delta, track_id: track_id}) do
     use Ratio
 
     dts =
-      case sample_data.last_dts[track_id] do
+      case samples_info.last_dts[track_id] do
         nil ->
           0
 
         last_dts ->
           last_dts +
-            delta / sample_data.timescales[track_id] *
+            delta / samples_info.timescales[track_id] *
               Time.second()
       end
 
-    last_dts = Map.put(sample_data.last_dts, track_id, dts)
-    sample_data = %{sample_data | last_dts: last_dts}
+    last_dts = Map.put(samples_info.last_dts, track_id, dts)
+    samples_info = %{samples_info | last_dts: last_dts}
 
-    {Ratio.trunc(dts), sample_data}
+    {Ratio.trunc(dts), samples_info}
   end
 
   @doc """
@@ -108,8 +108,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
   present in the `mdat` box.
   The list of samples in the returned struct is used to extract data from the `mdat` box and get output buffers.
   """
-  @spec get_sample_data(%{children: boxes :: Container.t()}) :: t
-  def get_sample_data(%{children: boxes}) do
+  @spec get_samples_info(%{children: boxes :: Container.t()}) :: t
+  def get_samples_info(%{children: boxes}) do
     tracks =
       boxes
       |> Enum.filter(fn {type, _content} -> type == :trak end)
@@ -187,22 +187,27 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleData do
     {samples_per_chunk, samples_no} =
       case samples_per_chunk do
         [
-          %{first_chunk: ^chunk_no, samples_per_chunk: samples_no} = first_chunk
-          | [%{first_chunk: first_chunk_second} = second_chunk | samples_per_chunk]
+          %{first_chunk: ^chunk_no, samples_per_chunk: samples_no} = current_chunk_group,
+          %{first_chunk: next_chunk_group_no} = next_chunk_group | samples_per_chunk
         ] ->
           samples_per_chunk =
-            if chunk_no + 1 == first_chunk_second do
-              [second_chunk | samples_per_chunk]
+            if chunk_no + 1 == next_chunk_group_no do
+              # If the currently processed chunk is the last one in its group
+              # we remove this chunk group description
+              [next_chunk_group | samples_per_chunk]
             else
-              [%{first_chunk | first_chunk: chunk_no + 1} | [second_chunk | samples_per_chunk]]
+              [
+                %{current_chunk_group | first_chunk: chunk_no + 1}
+                | [next_chunk_group | samples_per_chunk]
+              ]
             end
 
           {samples_per_chunk, samples_no}
 
         [
-          %{first_chunk: ^chunk_no, samples_per_chunk: samples_no} = first_chunk
+          %{first_chunk: ^chunk_no, samples_per_chunk: samples_no} = current_chunk_group
         ] ->
-          {[%{first_chunk | first_chunk: chunk_no + 1}], samples_no}
+          {[%{current_chunk_group | first_chunk: chunk_no + 1}], samples_no}
       end
 
     {%{track | samples_per_chunk: samples_per_chunk}, samples_no}

@@ -11,7 +11,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   alias Membrane.{MP4, RemoteStream}
   alias Membrane.MP4.Container
-  alias Membrane.MP4.Demuxer.ISOM.SampleData
+  alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
 
   def_input_pad :input,
     caps: {RemoteStream, type: :bytestream, content_format: one_of([nil, MP4])},
@@ -39,7 +39,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       boxes: [],
       last_box_header: nil,
       partial: <<>>,
-      sample_data: nil,
+      samples_info: nil,
       all_pads_connected?: false,
       buffered_samples: %{},
       end_of_stream?: false
@@ -90,32 +90,32 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         :input,
         buffer,
         _ctx,
-        %{all_pads_connected?: true, sample_data: %SampleData{}} = state
+        %{all_pads_connected?: true, samples_info: %SamplesInfo{}} = state
       ) do
-    {samples, rest, sample_data} =
-      SampleData.get_samples(state.sample_data, state.partial <> buffer.payload)
+    {samples, rest, samples_info} =
+      SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
 
     actions = get_buffer_actions(samples)
 
-    {{:ok, actions}, %{state | sample_data: sample_data, partial: rest}}
+    {{:ok, actions}, %{state | samples_info: samples_info, partial: rest}}
   end
 
   def handle_process(
         :input,
         buffer,
         _ctx,
-        %{all_pads_connected?: false, sample_data: %SampleData{}} = state
+        %{all_pads_connected?: false, samples_info: %SamplesInfo{}} = state
       ) do
     # Until all pads are connected we are storing all the samples
-    {samples, rest, sample_data} =
-      SampleData.get_samples(state.sample_data, state.partial <> buffer.payload)
+    {samples, rest, samples_info} =
+      SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
 
     state = store_samples(state, samples)
 
-    {:ok, %{state | sample_data: sample_data, partial: rest}}
+    {:ok, %{state | samples_info: samples_info, partial: rest}}
   end
 
-  def handle_process(:input, buffer, ctx, %{sample_data: nil} = state) do
+  def handle_process(:input, buffer, ctx, %{samples_info: nil} = state) do
     # Parse the boxes we have received
     {boxes, rest} = Container.parse!(state.partial <> buffer.payload)
     boxes = state.boxes ++ boxes
@@ -133,7 +133,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp handle_can_read_mdat_box(ctx, state) do
-    state = %{state | sample_data: SampleData.get_sample_data(state.boxes[:moov])}
+    state = %{state | samples_info: SamplesInfo.get_samples_info(state.boxes[:moov])}
 
     # Parse the data we received so far (partial or the whole mdat box in a single buffer) and
     # either store or send the data (if all pads are connected)
@@ -151,8 +151,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
           <<>>
       end
 
-    {samples, rest, sample_data} = SampleData.get_samples(state.sample_data, data)
-    state = %{state | sample_data: sample_data, partial: rest}
+    {samples, rest, samples_info} = SamplesInfo.get_samples(state.samples_info, data)
+    state = %{state | samples_info: samples_info, partial: rest}
 
     all_pads_connected? = all_pads_connected?(ctx, state)
 
@@ -205,7 +205,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp get_track_notifications(state) do
-    state.sample_data.sample_tables
+    state.samples_info.sample_tables
     |> Enum.map(fn {track_id, table} ->
       content = table.sample_description.content
       {:notify, {:new_track, track_id, content}}
@@ -213,7 +213,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp get_caps(state) do
-    state.sample_data.sample_tables
+    state.samples_info.sample_tables
     |> Enum.map(fn {track_id, table} ->
       caps = %Membrane.MP4.Payload{
         content: table.sample_description.content,
@@ -241,7 +241,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {actions, state} =
       if all_pads_connected? do
         {buffer_actions, state} = flush_samples(state, track_id)
-        maybe_caps = if state.sample_data != nil, do: get_caps(state), else: []
+        maybe_caps = if state.samples_info != nil, do: get_caps(state), else: []
         maybe_eos = if state.end_of_stream?, do: get_end_of_stream_actions(ctx), else: []
 
         {maybe_caps ++ buffer_actions ++ maybe_eos, state}
@@ -261,10 +261,10 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {{:ok, get_end_of_stream_actions(ctx)}, state}
   end
 
-  defp all_pads_connected?(_ctx, %{sample_data: nil}), do: false
+  defp all_pads_connected?(_ctx, %{samples_info: nil}), do: false
 
   defp all_pads_connected?(ctx, state) do
-    tracks = 1..state.sample_data.tracks_number
+    tracks = 1..state.samples_info.tracks_number
 
     pads =
       ctx.pads
