@@ -197,8 +197,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
               [next_chunk_group | samples_per_chunk]
             else
               [
-                %{current_chunk_group | first_chunk: chunk_no + 1}
-                | [next_chunk_group | samples_per_chunk]
+                %{current_chunk_group | first_chunk: chunk_no + 1},
+                next_chunk_group | samples_per_chunk
               ]
             end
 
