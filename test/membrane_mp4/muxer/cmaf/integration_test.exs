@@ -223,7 +223,10 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
   defp assert_mp4_equal(output, ref_file) do
     ref_output = File.read!(Path.join("test/fixtures/cmaf", ref_file))
-    assert {ref_file, Container.parse!(output)} == {ref_file, Container.parse!(ref_output)}
+    {parsed_out, <<>>} = Container.parse!(output)
+    {parsed_ref, <<>>} = Container.parse!(ref_output)
+
+    assert {ref_file, parsed_out} == {ref_file, parsed_ref}
     assert {ref_file, output} == {ref_file, ref_output}
   end
 end

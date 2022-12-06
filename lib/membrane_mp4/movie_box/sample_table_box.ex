@@ -190,20 +190,22 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
   defp assemble_chunk_offsets(%{chunk_offsets: chunk_offsets}),
     do: Enum.map(chunk_offsets, &%{chunk_offset: &1})
 
-  @spec unpack(%{children: Container.t(), fields: map()}) :: SampleTable.t()
-  def unpack(%{children: boxes}) do
+  @spec unpack(%{children: Container.t(), fields: map()}, timescale :: pos_integer()) ::
+          SampleTable.t()
+  def unpack(%{children: boxes}, timescale) do
     %SampleTable{
       sample_description: unpack_sample_description(boxes[:stsd]),
       sample_count: boxes[:stsz].fields.sample_count,
       sample_sizes: unpack_sample_sizes(boxes[:stsz]),
       chunk_offsets: unpack_chunk_offsets(boxes[:stco]),
       decoding_deltas: boxes[:stts].fields.entry_list,
-      samples_per_chunk: boxes[:stsc].fields.entry_list
+      samples_per_chunk: boxes[:stsc].fields.entry_list,
+      timescale: timescale
     }
   end
 
   defp unpack_chunk_offsets(%{fields: %{entry_list: offsets}}) do
-    offsets |> Enum.map(fn %{chunk_offest: offset} -> offset end)
+    offsets |> Enum.map(fn %{chunk_offset: offset} -> offset end)
   end
 
   defp unpack_sample_sizes(%{fields: %{entry_list: sizes}}) do
@@ -215,8 +217,8 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
     %{
       content: unpack_content(codec, data),
-      height: fields.height,
-      width: fields.width
+      height: Map.get(fields, :height, 0),
+      width: Map.get(fields, :width, 0)
     }
   end
 

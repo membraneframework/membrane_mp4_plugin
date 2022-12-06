@@ -161,7 +161,8 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
     header = boxes[:tkhd].fields
     media = boxes[:mdia].children
 
-    sample_table = SampleTableBox.unpack(media[:minf].children[:stbl])
+    sample_table =
+      SampleTableBox.unpack(media[:minf].children[:stbl], media[:mdhd].fields.timescale)
 
     {height, 0} = header.height
     {width, 0} = header.width
