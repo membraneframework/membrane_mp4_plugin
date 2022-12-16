@@ -12,7 +12,7 @@ The package can be installed by adding `membrane_mp4_plugin` to your list of dep
 ```elixir
 defp deps do
 [
-	{:membrane_mp4_plugin, "~> 0.17.0"}
+	{:membrane_mp4_plugin, "~> 0.18.0"}
 ]
 end
 ```
@@ -43,12 +43,7 @@ something quick and simple, you can use Python's [`http.server`](https://docs.py
 ```bash
 python3 -m http.server -d hls_output 8000
 ```
-and open `http://localhost:8000/index.m3u8` in your browser.
-Another way to play the HLS playlist is using the `ffplay` command:
-```bash
-ffplay hls_output/index.m3u8
-```
-Or, if you want to play from an http server:
+and run the following command to play the stream:
 ```bash
 ffplay http://localhost:8000/index.m3u8
 ```
