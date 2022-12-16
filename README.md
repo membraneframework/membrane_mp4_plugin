@@ -25,23 +25,30 @@ For an example of muxing streams to a regular MP4 file, refer to [`examples/muxe
 To run the example, you can use the following command:
  ```bash
 elixir examples/muxer_isom.exs
-``` 
+```
 
-You can use `MP4_OUTPUT_FILE` environment variable to set location of the output file (defaults to `example.mp4`).
+You can expect an `example.mp4` file containing muxed audio and video to be saved in your working directory.
 
 ### `Membrane.MP4.Muxer.CMAF`
 For an example of muxing streams into CMAF format, refer to [`examples/muxer_cmaf.exs`](examples/muxer_cmaf.exs). CMAF requires a special sink, regular `Membrane.File.Sink` will not work correctly. Currently, Membrane Framework has only one sink capable of saving a CMAF stream - `Membrane.HTTPAdaptiveStream.Sink`.
 
 To run the example, use the following command:
 ```bash
-elixir examples/muxer_isom.exs
+elixir examples/muxer_cmaf.exs
 ```
-You can expect `hls_output` folder to appear and be filled with CMAF header and segments, as well as a HLS Playlist.
-To play the stream, you need to serve the contents of the output folder with some sort of HTTP Server. If you are looking for something quick and simple, you can use Python's SimpleHTTPServer:
+
+You can expect `hls_output` folder to appear and be filled with CMAF header and segments, as well as an HLS playlist.
+To play the stream, you need to serve the contents of the output folder with an HTTP Server. If you are looking for
+something quick and simple, you can use Python's [`http.server`](https://docs.python.org/3/library/http.server.html):
 ```bash
-cd hls_output && python -m SimpleHTTPServer 8000
+python3 -m http.server -d hls_output 8000
 ```
-HLS Stream can then be played with
+and open `http://localhost:8000/index.m3u8` in your browser.
+Another way to play the HLS playlist is using the `ffplay` command:
+```bash
+ffplay hls_output/index.m3u8
+```
+Or, if you want to play from an http server:
 ```bash
 ffplay http://localhost:8000/index.m3u8
 ```
