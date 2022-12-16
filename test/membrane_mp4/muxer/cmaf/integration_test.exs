@@ -228,12 +228,21 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     pipeline
   end
 
+  @fixtures_dir "test/fixtures/cmaf"
   defp assert_mp4_equal(output, ref_file) do
-    ref_output = File.read!(Path.join("test/fixtures/cmaf", ref_file))
     {parsed_out, <<>>} = Container.parse!(output)
-    {parsed_ref, <<>>} = Container.parse!(ref_output)
+    {parsed_ref, <<>>} = Path.join(@fixtures_dir, ref_file) |> File.read!() |> Container.parse!()
 
-    assert {ref_file, parsed_out} == {ref_file, parsed_ref}
-    assert {ref_file, output} == {ref_file, ref_output}
+    {out_mdat, out_boxes} = Keyword.pop(parsed_out, :mdat)
+    {ref_mdat, ref_boxes} = Keyword.pop(parsed_ref, :mdat)
+
+    assert out_boxes == ref_boxes
+
+    # compare data separately with an error message, we don't want to print mdat to the console
+    if ref_mdat do
+      assert out_mdat, "The reference container has an mdat box, but its missing from the output!"
+
+      assert out_mdat == ref_mdat, "The media data of the output file differs from the reference!"
+    end
   end
 end

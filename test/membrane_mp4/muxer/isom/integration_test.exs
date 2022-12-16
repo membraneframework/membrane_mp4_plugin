@@ -7,12 +7,20 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
   alias Membrane.Testing.Pipeline
   alias Membrane.Time
 
+  alias Membrane.MP4.Container
+
   # Fixtures used in muxer tests below were generated with `chunk_duration` option set to `Membrane.Time.seconds(1)`.
 
-  defp assert_files_equal(file_a, file_b) do
-    assert {:ok, a} = File.read(file_a)
-    assert {:ok, b} = File.read(file_b)
-    assert a == b
+  defp assert_mp4_equal(output_path, ref_path) do
+    assert {parsed_out, <<>>} = output_path |> File.read!() |> Container.parse!()
+    assert {parsed_ref, <<>>} = ref_path |> File.read!() |> Container.parse!()
+
+    {out_mdat, out_boxes} = Keyword.pop!(parsed_out, :mdat)
+    {ref_mdat, ref_boxes} = Keyword.pop!(parsed_ref, :mdat)
+
+    assert out_boxes == ref_boxes
+    # compare data separately with an error message, we don't want to print mdat to the console
+    assert out_mdat == ref_mdat, "The media data of the output file differs from the reference!"
   end
 
   defp out_path_for(filename), do: "/tmp/out_#{filename}.mp4"
@@ -33,7 +41,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
 
     assert :ok == Pipeline.terminate(pid, blocking?: true)
 
-    assert_files_equal(out_path, ref_path)
+    assert_mp4_equal(out_path, ref_path)
   end
 
   describe "Muxer.ISOM should mux" do
@@ -187,7 +195,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         |> child(:sink, %Membrane.File.Sink{location: "/dev/null"})
       ]
 
-      pid = Pipeline.start_link_supervised!(structure: structure)
+      {:ok, _supervisor_pid, pid} = Pipeline.start(structure: structure)
       monitor_ref = Process.monitor(pid)
 
       assert_receive {:DOWN, ^monitor_ref, :process, ^pid, {:shutdown, :child_crash}}, 1_000

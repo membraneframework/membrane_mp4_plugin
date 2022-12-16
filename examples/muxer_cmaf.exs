@@ -9,6 +9,8 @@ Mix.install([
 defmodule Example do
   use Membrane.Pipeline
 
+  alias Membrane.Time
+  alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange
   alias Membrane.HTTPAdaptiveStream.Sink, as: HLSSink
 
   @samples_url "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/big-buck-bunny/"
@@ -22,7 +24,7 @@ defmodule Example do
     File.mkdir!(@output_dir)
 
     segment_duration_opts = [
-      segment_duration: HLSSink.SegmentDuration.new(Membrane.Time.seconds(6))
+      segment_duration: HLSSink.SegmentDuration.new(Time.seconds(12))
     ]
 
     structure = [
@@ -45,7 +47,10 @@ defmodule Example do
         out_encapsulation: :none
       })
       |> child(:audio_payloader, Membrane.MP4.Payloader.AAC),
-      child(:muxer, Membrane.MP4.Muxer.CMAF)
+      child(:muxer, %Membrane.MP4.Muxer.CMAF{
+        segment_duration_range: SegmentDurationRange.new(Time.seconds(4), Time.seconds(6))
+      })
+      |> via_in(:input, options: segment_duration_opts)
       |> child(:sink, %HLSSink{
         manifest_module: Membrane.HTTPAdaptiveStream.HLS,
         target_window_duration: Membrane.Time.seconds(30),
@@ -55,10 +60,10 @@ defmodule Example do
         }
       }),
       get_child(:audio_payloader)
-      |> via_in(Pad.ref(:input, :audio, options: segment_duration_opts))
+      |> via_in(Pad.ref(:input, :audio))
       |> get_child(:muxer),
       get_child(:video_payloader)
-      |> via_in(Pad.ref(:input, :video, options: segment_duration_opts))
+      |> via_in(Pad.ref(:input, :video))
       |> get_child(:muxer)
     ]
 
