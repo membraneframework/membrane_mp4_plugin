@@ -1,7 +1,8 @@
 defmodule Membrane.MP4.Container.ParseHelper do
   @moduledoc false
   use Bunch
-  use Bitwise
+
+  import Bitwise
 
   alias Membrane.MP4.Container
   alias Membrane.MP4.Container.{Header, Schema}

@@ -1,13 +1,13 @@
 defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
   use ExUnit.Case, async: true
 
+  import Membrane.ChildrenSpec
   import Membrane.Testing.Assertions
-  import Membrane.ParentSpec
 
   require Membrane.Pad
   require Membrane.RemoteControlled.Pipeline
 
-  alias Membrane.{Pad, ParentSpec}
+  alias Membrane.Pad
   alias Membrane.RemoteControlled.Message, as: RemoteMessage
   alias Membrane.RemoteControlled.Pipeline, as: RemotePipeline
   alias Membrane.Testing.Pipeline
@@ -34,47 +34,31 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
 
   describe "Demuxer should demux" do
     @tag :tmp_dir
-    test "demux single H264 track", %{tmp_dir: dir} do
+    test "a single H264 track", %{tmp_dir: dir} do
+      in_path = "test/fixtures/isom/ref_video_fast_start.mp4"
       out_path = Path.join(dir, "out")
 
-      children = [
-        file: %Membrane.File.Source{
-          location: "test/fixtures/isom/ref_video_fast_start.mp4"
-        },
-        demuxer: Membrane.MP4.Demuxer.ISOM,
-        sink: %Membrane.File.Sink{location: out_path}
-      ]
+      pipeline =
+        start_testing_pipeline!(
+          input_file: in_path,
+          output_file: out_path
+        )
 
-      links = [
-        link(:file) |> to(:demuxer),
-        link(:demuxer)
-        |> via_out(Pad.ref(:output, 1))
-        |> to(:sink)
-      ]
-
-      assert {:ok, pid} = Pipeline.start_link(children: children, links: links)
-      perform_test(pid, "video", out_path)
+      perform_test(pipeline, "video", out_path)
     end
 
     @tag :tmp_dir
-    test "demux single AAC track", %{tmp_dir: dir} do
+    test "a single AAC track", %{tmp_dir: dir} do
+      in_path = "test/fixtures/isom/ref_aac_fast_start.mp4"
       out_path = Path.join(dir, "out")
 
-      children = [
-        file: %Membrane.File.Source{location: "test/fixtures/isom/ref_aac_fast_start.mp4"},
-        demuxer: Membrane.MP4.Demuxer.ISOM,
-        sink: %Membrane.File.Sink{location: out_path}
-      ]
+      pipeline =
+        start_testing_pipeline!(
+          input_file: in_path,
+          output_file: out_path
+        )
 
-      links = [
-        link(:file) |> to(:demuxer),
-        link(:demuxer)
-        |> via_out(Pad.ref(:output, 1))
-        |> to(:sink)
-      ]
-
-      assert {:ok, pid} = Pipeline.start(children: children, links: links)
-      perform_test(pid, "aac", out_path)
+      perform_test(pipeline, "aac", out_path)
     end
   end
 
@@ -84,8 +68,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
       out_path = Path.join(dir, "out")
       filename = "test/fixtures/isom/ref_video_fast_start.mp4"
 
-      {:ok, pipeline} =
-        start_remote_pipeline(
+      pipeline =
+        start_remote_pipeline!(
           filename: filename,
           file_source_chunk_size: File.stat!(filename).size
         )
@@ -99,18 +83,13 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
 
       assert_receive %RemoteMessage.EndOfStream{element: :demuxer, pad: :input, from: _}, 2000
 
-      actions = [
-        spec: %ParentSpec{
-          children: [sink: %Membrane.File.Sink{location: out_path}],
-          links: [
-            link(:demuxer)
-            |> via_out(Pad.ref(:output, 1))
-            |> to(:sink)
-          ]
-        }
+      structure = [
+        get_child(:demuxer)
+        |> via_out(Pad.ref(:output, 1))
+        |> child(:sink, %Membrane.File.Sink{location: out_path})
       ]
 
-      RemotePipeline.exec_actions(pipeline, actions)
+      RemotePipeline.exec_actions(pipeline, spec: {structure, []})
       assert_receive %RemoteMessage.EndOfStream{element: :sink, pad: :input, from: _}, 2000
 
       RemotePipeline.terminate(pipeline, blocking?: true)
@@ -123,8 +102,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
       out_path = Path.join(dir, "out")
       filename = "test/fixtures/isom/ref_video_fast_start.mp4"
 
-      {:ok, pipeline} =
-        start_remote_pipeline(
+      pipeline =
+        start_remote_pipeline!(
           filename: filename,
           file_source_chunk_size: File.stat!(filename).size - 1
         )
@@ -136,18 +115,13 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
                      },
                      2000
 
-      actions = [
-        spec: %ParentSpec{
-          children: [sink: %Membrane.File.Sink{location: out_path}],
-          links: [
-            link(:demuxer)
-            |> via_out(Pad.ref(:output, 1))
-            |> to(:sink)
-          ]
-        }
+      structure = [
+        get_child(:demuxer)
+        |> via_out(Pad.ref(:output, 1))
+        |> child(:sink, %Membrane.File.Sink{location: out_path})
       ]
 
-      RemotePipeline.exec_actions(pipeline, actions)
+      RemotePipeline.exec_actions(pipeline, spec: {structure, []})
       assert_receive %RemoteMessage.EndOfStream{element: :demuxer, pad: :input, from: _}, 2000
       assert_receive %RemoteMessage.EndOfStream{element: :sink, pad: :input, from: _}, 2000
 
@@ -157,24 +131,33 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     end
   end
 
-  defp start_remote_pipeline(opts) do
-    spec = %ParentSpec{
-      children: [
-        file: %Membrane.File.Source{
-          location: opts[:filename],
-          chunk_size: opts[:file_source_chunk_size]
-        },
-        demuxer: Membrane.MP4.Demuxer.ISOM
-      ],
-      links: [link(:file) |> to(:demuxer)]
-    }
+  defp start_testing_pipeline!(opts) do
+    structure = [
+      child(:file, %Membrane.File.Source{location: opts[:input_file]})
+      |> child(:demuxer, Membrane.MP4.Demuxer.ISOM),
+      get_child(:demuxer)
+      |> via_out(Pad.ref(:output, 1))
+      |> child(:sink, %Membrane.File.Sink{location: opts[:output_file]})
+    ]
 
-    actions = [spec: spec, playback: :playing]
+    Pipeline.start_link_supervised!(structure: structure)
+  end
 
-    {:ok, pipeline} = RemotePipeline.start_link()
+  defp start_remote_pipeline!(opts) do
+    structure = [
+      child(:file, %Membrane.File.Source{
+        location: opts[:filename],
+        chunk_size: opts[:file_source_chunk_size]
+      })
+      |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
+    ]
+
+    actions = [spec: {structure, []}, playback: :playing]
+
+    pipeline = RemotePipeline.start_link!()
     RemotePipeline.exec_actions(pipeline, actions)
     RemotePipeline.subscribe(pipeline, %RemoteMessage.Notification{element: _, data: _, from: _})
     RemotePipeline.subscribe(pipeline, %RemoteMessage.EndOfStream{element: _, pad: _, from: _})
-    {:ok, pipeline}
+    pipeline
   end
 end
