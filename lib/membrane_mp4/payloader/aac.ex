@@ -7,50 +7,54 @@ defmodule Membrane.MP4.Payloader.AAC do
   """
   use Membrane.Filter
 
-  def_input_pad :input, demand_unit: :buffers, caps: {Membrane.AAC, encapsulation: :none}
+  def_input_pad :input,
+    demand_unit: :buffers,
+    accepted_format: %Membrane.AAC{encapsulation: :none}
 
-  def_output_pad :output, caps: Membrane.MP4.Payload
+  def_output_pad :output, accepted_format: Membrane.MP4.Payload
 
   def_options avg_bit_rate: [
-                type: :integer,
+                spec: non_neg_integer(),
                 default: 0,
                 description: "Average stream bitrate. Should be set to 0 if unknown."
               ],
               max_bit_rate: [
-                type: :integer,
+                spec: non_neg_integer(),
                 default: 0,
                 description: "Maximal stream bitrate. Should be set to 0 if unknown."
               ]
 
   @impl true
-  def handle_caps(:input, caps, _ctx, state) do
-    caps = %Membrane.MP4.Payload{
+  def handle_stream_format(:input, stream_format, _ctx, state) do
+    stream_format = %Membrane.MP4.Payload{
       content: %Membrane.MP4.Payload.AAC{
-        esds: make_esds(caps, state),
-        sample_rate: caps.sample_rate,
-        channels: caps.channels
+        esds: make_esds(stream_format, state),
+        sample_rate: stream_format.sample_rate,
+        channels: stream_format.channels
       },
-      timescale: caps.sample_rate
+      timescale: stream_format.sample_rate
     }
 
-    {{:ok, caps: {:output, caps}}, state}
+    {[stream_format: {:output, stream_format}], state}
   end
 
   @impl true
   def handle_process(:input, buffer, _ctx, state) do
-    {{:ok, buffer: {:output, buffer}}, state}
+    {[buffer: {:output, buffer}], state}
   end
 
   @impl true
   def handle_demand(:output, size, :buffers, _ctx, state) do
-    {{:ok, demand: {:input, size}}, state}
+    {[demand: {:input, size}], state}
   end
 
-  defp make_esds(caps, state) do
-    aot_id = Membrane.AAC.profile_to_aot_id(caps.profile)
-    frequency_id = Membrane.AAC.sample_rate_to_sampling_frequency_id(caps.sample_rate)
-    channel_config_id = Membrane.AAC.channels_to_channel_config_id(caps.channels)
-    frame_length_id = Membrane.AAC.samples_per_frame_to_frame_length_id(caps.samples_per_frame)
+  defp make_esds(stream_format, state) do
+    aot_id = Membrane.AAC.profile_to_aot_id(stream_format.profile)
+    frequency_id = Membrane.AAC.sample_rate_to_sampling_frequency_id(stream_format.sample_rate)
+    channel_config_id = Membrane.AAC.channels_to_channel_config_id(stream_format.channels)
+
+    frame_length_id =
+      Membrane.AAC.samples_per_frame_to_frame_length_id(stream_format.samples_per_frame)
 
     depends_on_core_coder = 0
     extension_flag = 0

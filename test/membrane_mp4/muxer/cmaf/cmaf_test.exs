@@ -33,7 +33,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.HelperTest do
     queue = Enum.reduce(buffers, queue, &Queue.force_push(&2, &1))
 
     state = %{
-      awaiting_caps: nil,
+      awaiting_stream_format: nil,
       segment_duration_range: SegmentDurationRange.new(100),
       pad_to_track_data: %{
         a: %{segment_base_timestamp: 0, parts_duration: 0}

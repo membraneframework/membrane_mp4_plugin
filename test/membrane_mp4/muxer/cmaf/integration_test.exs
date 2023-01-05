@@ -1,17 +1,18 @@
 defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   use ExUnit.Case, async: true
 
+  import Membrane.ChildrenSpec
   import Membrane.Testing.Assertions
 
   alias Membrane.MP4.Container
   alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange
-  alias Membrane.{ParentSpec, Testing, Time}
+  alias Membrane.{Testing, Time}
 
   # Fixtures used in CMAF tests below were generated using `membrane_http_adaptive_stream_plugin`
   # with `muxer_segment_duration` option set to `Membrane.Time.seconds(2)`.
 
   test "video" do
-    assert {:ok, pipeline} = prepare_pipeline(:video)
+    pipeline = prepare_pipeline(:video)
 
     1..2
     |> Enum.map(fn i ->
@@ -26,7 +27,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   end
 
   test "audio" do
-    assert {:ok, pipeline} = prepare_pipeline(:audio)
+    pipeline = prepare_pipeline(:audio)
 
     1..6
     |> Enum.map(fn i ->
@@ -41,33 +42,28 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   end
 
   test "muxed audio and video" do
-    import Membrane.ParentSpec
+    structure = [
+      child(:audio_source, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
+      |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none})
+      |> child(:audio_payloader, Membrane.MP4.Payloader.AAC),
+      child(:video_source, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
+      |> child(:video_parser, %Membrane.H264.FFmpeg.Parser{
+        framerate: {30, 1},
+        attach_nalus?: true,
+        max_frame_reorder: 0
+      })
+      |> child(:video_payloader, Membrane.MP4.Payloader.H264),
+      child(:cmaf, %Membrane.MP4.Muxer.CMAF{
+        segment_duration_range: SegmentDurationRange.new(Time.seconds(2))
+      })
+      |> child(:sink, Membrane.Testing.Sink),
+      get_child(:audio_payloader) |> get_child(:cmaf),
+      get_child(:video_payloader) |> get_child(:cmaf)
+    ]
 
-    assert {:ok, pipeline} =
-             Testing.Pipeline.start_link(
-               children: [
-                 audio_source: %Membrane.File.Source{location: "test/fixtures/in_audio.aac"},
-                 video_source: %Membrane.File.Source{location: "test/fixtures/in_video.h264"},
-                 audio_parser: %Membrane.AAC.Parser{out_encapsulation: :none},
-                 video_parser: %Membrane.H264.FFmpeg.Parser{
-                   framerate: {30, 1},
-                   attach_nalus?: true
-                 },
-                 audio_payloader: Membrane.MP4.Payloader.AAC,
-                 video_payloader: Membrane.MP4.Payloader.H264,
-                 cmaf: %Membrane.MP4.Muxer.CMAF{
-                   segment_duration_range: SegmentDurationRange.new(Time.seconds(2))
-                 },
-                 sink: Membrane.Testing.Sink
-               ],
-               links: [
-                 link(:video_source) |> to(:video_parser) |> to(:video_payloader) |> to(:cmaf),
-                 link(:audio_source) |> to(:audio_parser) |> to(:audio_payloader) |> to(:cmaf),
-                 link(:cmaf) |> to(:sink)
-               ]
-             )
+    pipeline = Testing.Pipeline.start_link_supervised!(structure: structure)
 
-    assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{
+    assert_sink_stream_format(pipeline, :sink, %Membrane.CMAF.Track{
       header: header,
       content_type: content_type
     })
@@ -89,11 +85,11 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   end
 
   test "video partial segments" do
-    assert {:ok, pipeline} =
-             prepare_pipeline(:video,
-               duration_range: new_duration_range(1500, 2000),
-               partial_duration_range: new_duration_range(250, 500)
-             )
+    pipeline =
+      prepare_pipeline(:video,
+        duration_range: new_duration_range(1500, 2000),
+        partial_duration_range: new_duration_range(250, 500)
+      )
 
     independent_buffers =
       1..21
@@ -114,11 +110,11 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   end
 
   test "audio partial segments" do
-    assert {:ok, pipeline} =
-             prepare_pipeline(:audio,
-               duration_range: new_duration_range(1500, 2000),
-               partial_duration_range: new_duration_range(250, 500)
-             )
+    pipeline =
+      prepare_pipeline(:audio,
+        duration_range: new_duration_range(1500, 2000),
+        partial_duration_range: new_duration_range(250, 500)
+      )
 
     0..20
     |> Enum.each(fn _i ->
@@ -134,11 +130,11 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   end
 
   test "video with partial segments should create as many partial segments as possible until reaching a key frame" do
-    assert {:ok, pipeline} =
-             prepare_pipeline(:video,
-               duration_range: new_duration_range(1500, 2000),
-               partial_duration_range: new_duration_range(250, 500)
-             )
+    pipeline =
+      prepare_pipeline(:video,
+        duration_range: new_duration_range(1500, 2000),
+        partial_duration_range: new_duration_range(250, 500)
+      )
 
     # the video has 10 seconds where second keyframe appears after 8 seconds
 
@@ -188,8 +184,15 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
     parser =
       case type do
-        :audio -> %Membrane.AAC.Parser{out_encapsulation: :none}
-        :video -> %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true}
+        :audio ->
+          %Membrane.AAC.Parser{out_encapsulation: :none}
+
+        :video ->
+          %Membrane.H264.FFmpeg.Parser{
+            framerate: {30, 1},
+            attach_nalus?: true,
+            max_frame_reorder: 0
+          }
       end
 
     payloader =
@@ -201,32 +204,45 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     duration_range = Keyword.get(opts, :duration_range, new_duration_range(2000, 2000))
     partial_duration_range = Keyword.get(opts, :partial_duration_range, nil)
 
-    children = [
-      file: %Membrane.File.Source{location: file},
-      parser: parser,
-      payloader: payloader,
-      cmaf: %Membrane.MP4.Muxer.CMAF{
+    structure = [
+      child(:file, %Membrane.File.Source{location: file})
+      |> child(:parser, parser)
+      |> child(:payloader, payloader)
+      |> child(:cmaf, %Membrane.MP4.Muxer.CMAF{
         segment_duration_range: duration_range,
         partial_segment_duration_range: partial_duration_range
-      },
-      sink: Membrane.Testing.Sink
+      })
+      |> child(:sink, Membrane.Testing.Sink)
     ]
 
-    assert {:ok, pipeline} = Testing.Pipeline.start_link(links: ParentSpec.link_linear(children))
-    assert_pipeline_playback_changed(pipeline, _previous_state, :playing)
+    pipeline = Testing.Pipeline.start_link_supervised!(structure: structure)
+    assert_pipeline_play(pipeline)
 
-    assert_sink_caps(pipeline, :sink, %Membrane.CMAF.Track{header: header, content_type: type})
+    assert_sink_stream_format(pipeline, :sink, %Membrane.CMAF.Track{
+      header: header,
+      content_type: type
+    })
+
     assert_mp4_equal(header, Keyword.get(opts, :header_file, "ref_#{type}_header.mp4"))
 
-    {:ok, pipeline}
+    pipeline
   end
 
+  @fixtures_dir "test/fixtures/cmaf"
   defp assert_mp4_equal(output, ref_file) do
-    ref_output = File.read!(Path.join("test/fixtures/cmaf", ref_file))
     {parsed_out, <<>>} = Container.parse!(output)
-    {parsed_ref, <<>>} = Container.parse!(ref_output)
+    {parsed_ref, <<>>} = Path.join(@fixtures_dir, ref_file) |> File.read!() |> Container.parse!()
 
-    assert {ref_file, parsed_out} == {ref_file, parsed_ref}
-    assert {ref_file, output} == {ref_file, ref_output}
+    {out_mdat, out_boxes} = Keyword.pop(parsed_out, :mdat)
+    {ref_mdat, ref_boxes} = Keyword.pop(parsed_ref, :mdat)
+
+    assert out_boxes == ref_boxes
+
+    # compare data separately with an error message, we don't want to print mdat to the console
+    if ref_mdat do
+      assert out_mdat, "The reference container has an mdat box, but its missing from the output!"
+
+      assert out_mdat == ref_mdat, "The media data of the output file differs from the reference!"
+    end
   end
 end

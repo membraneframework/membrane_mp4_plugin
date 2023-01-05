@@ -29,9 +29,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
   def_input_pad :input,
     availability: :on_request,
     demand_unit: :buffers,
-    caps: Membrane.MP4.Payload
+    accepted_format: Membrane.MP4.Payload
 
-  def_output_pad :output, caps: Membrane.CMAF.Track
+  def_output_pad :output, accepted_format: Membrane.CMAF.Track
 
   def_options segment_duration_range: [
                 spec: SegmentDurationRange.t(),
@@ -40,26 +40,30 @@ defmodule Membrane.MP4.Muxer.CMAF do
               partial_segment_duration_range: [
                 spec: SegmentDurationRange.t() | nil,
                 default: nil,
-                description:
-                  "The duration range of partial segments, when set to nil the muxer assumes it should not produce partial segments"
+                description: """
+                The duration range of partial segments.
+
+                If set to `nil`, the muxer assumes it should not produce partial segments
+                """
               ]
 
   @impl true
-  def handle_init(options) do
+  def handle_init(_ctx, options) do
     state =
       options
       |> Map.from_struct()
       |> Map.merge(%{
         seq_num: 0,
-        # Caps waiting to be sent after receiving the next buffer. Holds the structure {caps_timestamp, caps}
-        awaiting_caps: nil,
+        # stream format waiting to be sent after receiving the next buffer.
+        # Holds the structure {stream_format_timestamp, stream_format}
+        awaiting_stream_format: nil,
         pad_to_track_data: %{},
         # ID for the next input track
         next_track_id: 1,
         sample_queues: %{}
       })
 
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
@@ -89,7 +93,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     |> put_in([:sample_queues, pad], %SamplesQueue{
       duration_range: state.partial_segment_duration_range || state.segment_duration_range
     })
-    |> then(&{:ok, &1})
+    |> then(&{[], &1})
   end
 
   @impl true
@@ -100,54 +104,57 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> Enum.reject(fn {_key, timestamp} -> is_nil(timestamp) end)
       |> Enum.min_by(fn {_key, timestamp} -> Ratio.to_float(timestamp) end)
 
-    {{:ok, demand: {pad, 1}}, state}
+    {[demand: {pad, 1}], state}
   end
 
   @impl true
-  def handle_caps(pad, %Membrane.MP4.Payload{} = caps, ctx, state) do
-    ensure_max_one_video_pad!(pad, caps, ctx)
+  def handle_stream_format(pad, %Membrane.MP4.Payload{} = stream_format, ctx, state) do
+    ensure_max_one_video_pad!(pad, stream_format, ctx)
 
-    is_video_pad = is_video(caps)
+    is_video_pad = is_video(stream_format)
 
     state =
       state
-      |> update_in([:pad_to_track_data, pad], &%{&1 | track: caps_to_track(caps, &1.id)})
+      |> update_in(
+        [:pad_to_track_data, pad],
+        &%{&1 | track: stream_format_to_track(stream_format, &1.id)}
+      )
       |> update_in(
         [:sample_queues, pad],
         &%SamplesQueue{&1 | track_with_keyframes?: is_video_pad}
       )
 
-    has_all_input_caps? =
+    has_all_input_stream_formats? =
       ctx.pads
       |> Map.drop([:output, pad])
       |> Map.values()
-      |> Enum.all?(&(&1.caps != nil))
+      |> Enum.all?(&(&1.stream_format != nil))
 
-    if has_all_input_caps? do
-      caps = generate_output_caps(state)
+    if has_all_input_stream_formats? do
+      stream_format = generate_output_stream_format(state)
 
       cond do
-        is_nil(ctx.pads.output.caps) ->
-          {{:ok, caps: {:output, caps}}, state}
+        is_nil(ctx.pads.output.stream_format) ->
+          {[stream_format: {:output, stream_format}], state}
 
-        caps != ctx.pads.output.caps ->
-          {:ok, %{state | awaiting_caps: {{:update_with_next, pad}, caps}}}
+        stream_format != ctx.pads.output.stream_format ->
+          {[], %{state | awaiting_stream_format: {{:update_with_next, pad}, stream_format}}}
 
         true ->
-          {:ok, state}
+          {[], state}
       end
     else
-      {:ok, state}
+      {[], state}
     end
   end
 
-  defp is_video(caps_or_track), do: is_struct(caps_or_track.content, AVC1)
+  defp is_video(stream_format_or_track), do: is_struct(stream_format_or_track.content, AVC1)
 
   defp find_video_pads(ctx) do
     ctx.pads
     |> Enum.filter(fn
       {Pad.ref(:input, _id), data} ->
-        data.caps != nil and is_video(data.caps)
+        data.stream_format != nil and is_video(data.stream_format)
 
       _other ->
         false
@@ -155,8 +162,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
     |> Enum.map(fn {pad, _data} -> pad end)
   end
 
-  defp ensure_max_one_video_pad!(pad, caps, ctx) do
-    is_video_pad = is_video(caps)
+  defp ensure_max_one_video_pad!(pad, stream_format, ctx) do
+    is_video_pad = is_video(stream_format)
 
     if is_video_pad do
       video_pads = find_video_pads(ctx)
@@ -169,8 +176,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
-  defp caps_to_track(caps, track_id) do
-    caps
+  defp stream_format_to_track(stream_format, track_id) do
+    stream_format
     |> Map.from_struct()
     |> Map.take([:width, :height, :content, :timescale])
     |> Map.put(:id, track_id)
@@ -191,41 +198,45 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> maybe_init_segment_base_timestamp(pad, sample)
       |> process_buffer_awaiting_duration(pad, sample)
 
-    state = update_awaiting_caps(state, pad)
+    state = update_awaiting_stream_format(state, pad)
 
-    {caps_action, segment} = collect_segment_samples(state, pad, sample)
+    {stream_format_action, segment} = collect_segment_samples(state, pad, sample)
 
     case segment do
       {:segment, segment, state} ->
         {buffer, state} = generate_segment(segment, ctx, state)
-        actions = [buffer: {:output, buffer}] ++ caps_action ++ [redemand: :output]
-        {{:ok, actions}, state}
+        actions = [buffer: {:output, buffer}] ++ stream_format_action ++ [redemand: :output]
+        {actions, state}
 
       {:no_segment, state} ->
-        {{:ok, redemand: :output}, state}
+        {[redemand: :output], state}
     end
   end
 
-  defp collect_segment_samples(%{awaiting_caps: nil} = state, _pad, nil),
+  defp collect_segment_samples(%{awaiting_stream_format: nil} = state, _pad, nil),
     do: {[], {:no_segment, state}}
 
-  defp collect_segment_samples(%{awaiting_caps: nil} = state, pad, sample),
+  defp collect_segment_samples(%{awaiting_stream_format: nil} = state, pad, sample),
     do: do_collect_segment_samples(state, pad, sample)
 
   defp collect_segment_samples(
-         %{awaiting_caps: {{:update_with_next, _pad}, _caps}} = state,
+         %{awaiting_stream_format: {{:update_with_next, _pad}, _stream_format}} = state,
          pad,
          sample
        ),
        do: do_collect_segment_samples(state, pad, sample)
 
-  defp collect_segment_samples(%{awaiting_caps: {duration, caps}} = state, pad, sample) do
+  defp collect_segment_samples(
+         %{awaiting_stream_format: {duration, stream_format}} = state,
+         pad,
+         sample
+       ) do
     {:segment, segment, state} = Segment.Helper.take_all_samples_for(state, duration)
 
-    state = %{state | awaiting_caps: nil}
+    state = %{state | awaiting_stream_format: nil}
     {[], {:no_segment, state}} = collect_segment_samples(state, pad, sample)
 
-    {[caps: {:output, caps}], {:segment, segment, state}}
+    {[stream_format: {:output, stream_format}], {:segment, segment, state}}
   end
 
   defp do_collect_segment_samples(state, pad, sample) do
@@ -250,9 +261,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     if SamplesQueue.empty?(cache) do
       if processing_finished? do
-        {{:ok, end_of_stream: :output}, state}
+        {[end_of_stream: :output], state}
       else
-        {{:ok, redemand: :output}, state}
+        {[redemand: :output], state}
       end
     else
       generate_end_of_stream_segment(processing_finished?, cache, pad, ctx, state)
@@ -274,18 +285,18 @@ defmodule Membrane.MP4.Muxer.CMAF do
       with {:segment, segment, state} when map_size(segment) > 0 <-
              Segment.Helper.take_all_samples(state) do
         {buffer, state} = generate_segment(segment, ctx, state)
-        {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
+        {[buffer: {:output, buffer}, end_of_stream: :output], state}
       else
-        {:segment, _segment, state} -> {{:ok, end_of_stream: :output}, state}
+        {:segment, _segment, state} -> {[end_of_stream: :output], state}
       end
     else
       state = put_in(state, [:pad_to_track_data, pad, :end_timestamp], nil)
 
-      {{:ok, redemand: :output}, state}
+      {[redemand: :output], state}
     end
   end
 
-  defp generate_output_caps(state) do
+  defp generate_output_stream_format(state) do
     tracks = Enum.map(state.pad_to_track_data, fn {_pad, track_data} -> track_data.track end)
 
     header = Header.serialize(tracks)
@@ -311,7 +322,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       acc
       |> Enum.filter(fn {_pad, samples} -> not Enum.empty?(samples) end)
       |> Enum.map(fn {pad, samples} ->
-        %{timescale: timescale} = ctx.pads[pad].caps
+        %{timescale: timescale} = ctx.pads[pad].stream_format
         first_sample = hd(samples)
         last_sample = List.last(samples)
 
@@ -432,17 +443,20 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   # It is not possible to determine the duration of the segment that is connected with discontinuity before receiving the next sample.
   # This function acts to update the information about the duration of the discontinuity segment that needs to be produced
-  defp update_awaiting_caps(%{awaiting_caps: {{:update_with_next, pad}, caps}} = state, pad) do
+  defp update_awaiting_stream_format(
+         %{awaiting_stream_format: {{:update_with_next, pad}, stream_format}} = state,
+         pad
+       ) do
     use Ratio
 
     duration =
       state.pad_to_track_data[pad].buffer_awaiting_duration.dts -
         SamplesQueue.last_collected_dts(state.sample_queues[pad])
 
-    %{state | awaiting_caps: {duration, caps}}
+    %{state | awaiting_stream_format: {duration, stream_format}}
   end
 
-  defp update_awaiting_caps(state, _pad), do: state
+  defp update_awaiting_stream_format(state, _pad), do: state
 
   defp maybe_init_segment_base_timestamp(state, pad, sample) do
     case state do

@@ -18,10 +18,10 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   def_input_pad :input,
     demand_unit: :buffers,
-    caps: Membrane.MP4.Payload,
+    accepted_format: Membrane.MP4.Payload,
     availability: :on_request
 
-  def_output_pad :output, caps: {RemoteStream, type: :bytestream, content_format: MP4}
+  def_output_pad :output, accepted_format: %RemoteStream{type: :bytestream, content_format: MP4}
 
   def_options fast_start: [
                 spec: boolean(),
@@ -47,7 +47,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
               ]
 
   @impl true
-  def handle_init(options) do
+  def handle_init(_ctx, options) do
     state =
       options
       |> Map.from_struct()
@@ -58,7 +58,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
         pad_to_track: %{}
       })
 
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
@@ -70,52 +70,57 @@ defmodule Membrane.MP4.Muxer.ISOM do
       |> Map.update!(:pad_order, &[pad_ref | &1])
       |> put_in([:pad_to_track, pad_ref], track_id)
 
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
-  def handle_caps(Pad.ref(:input, pad_ref) = pad, %Membrane.MP4.Payload{} = caps, ctx, state) do
+  def handle_stream_format(
+        Pad.ref(:input, pad_ref) = pad,
+        %Membrane.MP4.Payload{} = stream_format,
+        ctx,
+        state
+      ) do
     cond do
-      # Handle receiving very first caps on the given pad
-      is_nil(ctx.pads[pad].caps) ->
+      # Handle receiving the first stream format on the given pad
+      is_nil(ctx.pads[pad].stream_format) ->
         update_in(state, [:pad_to_track, pad_ref], fn track_id ->
-          caps
+          stream_format
           |> Map.take([:width, :height, :content, :timescale])
           |> Map.put(:id, track_id)
           |> Track.new()
         end)
 
-      # Handle receiving all but first caps on the given pad when
-      # inband_parameters? are allowed or caps are duplicated - ignore
-      Map.get(ctx.pads[pad].caps.content, :inband_parameters?, false) ||
-          ctx.pads[pad].caps == caps ->
+      # Handle receiving all but the first stream format on the given pad when
+      # inband_parameters? are allowed or stream format is duplicated - ignore
+      Map.get(ctx.pads[pad].stream_format.content, :inband_parameters?, false) ||
+          ctx.pads[pad].stream_format == stream_format ->
         state
 
       # otherwise we can assume that output will be corrupted
       true ->
-        raise("ISOM Muxer doesn't support variable parameters")
+        raise "ISOM Muxer doesn't support variable parameters"
     end
-    |> then(&{:ok, &1})
+    |> then(&{[], &1})
   end
 
   @impl true
-  def handle_prepared_to_playing(_ctx, state) do
+  def handle_playing(_ctx, state) do
     # dummy mdat header will be overwritten in `finalize_mp4/1`, when media data size is known
     header = [@ftyp, MediaDataBox.assemble(<<>>)] |> Enum.map_join(&Container.serialize!/1)
 
     actions = [
-      caps: {:output, %RemoteStream{content_format: MP4}},
+      stream_format: {:output, %RemoteStream{content_format: MP4}},
       buffer: {:output, %Buffer{payload: header}}
     ]
 
-    {{:ok, actions}, state}
+    {actions, state}
   end
 
   @impl true
   def handle_demand(:output, _size, :buffers, _ctx, state) do
     next_ref = hd(state.pad_order)
 
-    {{:ok, demand: {Pad.ref(:input, next_ref), 1}}, state}
+    {[demand: {Pad.ref(:input, next_ref), 1}], state}
   end
 
   @impl true
@@ -130,7 +135,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
       |> update_in([:pad_to_track, pad_ref], &Track.store_sample(&1, buffer))
       |> maybe_flush_chunk(pad_ref)
 
-    {{:ok, maybe_buffer ++ [redemand: :output]}, state}
+    {maybe_buffer ++ [redemand: :output], state}
   end
 
   @impl true
@@ -139,10 +144,10 @@ defmodule Membrane.MP4.Muxer.ISOM do
     state = Map.update!(state, :pad_order, &List.delete(&1, pad_ref))
 
     if state.pad_order != [] do
-      {{:ok, buffer ++ [redemand: :output]}, state}
+      {buffer ++ [redemand: :output], state}
     else
       actions = finalize_mp4(state)
-      {{:ok, buffer ++ actions ++ [end_of_stream: :output]}, state}
+      {buffer ++ actions ++ [end_of_stream: :output], state}
     end
   end
 

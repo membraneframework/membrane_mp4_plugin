@@ -1,6 +1,6 @@
 defmodule Membrane.MP4.Payloader.Opus do
   @moduledoc """
-  MP4 Payloader for Opus codec
+  MP4 Payloader for Opus codec.
   """
   use Membrane.Filter
 
@@ -9,35 +9,35 @@ defmodule Membrane.MP4.Payloader.Opus do
 
   def_input_pad :input,
     availability: :always,
-    caps: {Opus, self_delimiting?: false},
+    accepted_format: %Opus{self_delimiting?: false},
     demand_unit: :buffers
 
   def_output_pad :output,
     availability: :always,
-    caps: Payload
+    accepted_format: Payload
 
   @impl true
-  def handle_init(_opts) do
-    {:ok, %{}}
+  def handle_init(_ctx, _opts) do
+    {[], %{}}
   end
 
   @impl true
   def handle_demand(:output, size, :buffers, _ctx, state) do
-    {{:ok, demand: {:input, size}}, state}
+    {[demand: {:input, size}], state}
   end
 
   @impl true
-  def handle_caps(:input, caps, _ctx, state) do
-    caps = %Payload{
-      content: caps,
+  def handle_stream_format(:input, stream_format, _ctx, state) do
+    stream_format = %Payload{
+      content: stream_format,
       timescale: 48_000
     }
 
-    {{:ok, caps: {:output, caps}}, state}
+    {[stream_format: {:output, stream_format}], state}
   end
 
   @impl true
   def handle_process(:input, buffer, _ctx, state) do
-    {{:ok, buffer: {:output, buffer}}, state}
+    {[buffer: {:output, buffer}], state}
   end
 end

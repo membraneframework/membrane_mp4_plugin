@@ -14,11 +14,13 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
 
   def_input_pad :input,
-    caps: {RemoteStream, type: :bytestream, content_format: one_of([nil, MP4])},
+    accepted_format:
+      %RemoteStream{type: :bytestream, content_format: content_format}
+      when content_format in [nil, MP4],
     demand_unit: :buffers
 
   def_output_pad :output,
-    caps: Membrane.MP4.Payload,
+    accepted_format: Membrane.MP4.Payload,
     availability: :on_request
 
   @typedoc """
@@ -34,7 +36,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   @mdat_header_size 8
 
   @impl true
-  def handle_init(_options) do
+  def handle_init(_ctx, _options) do
     state = %{
       boxes: [],
       parsing_mdat?: false,
@@ -45,17 +47,17 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       end_of_stream?: false
     }
 
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
-  def handle_prepared_to_playing(_ctx, state) do
-    {{:ok, demand: :input}, state}
+  def handle_playing(_ctx, state) do
+    {[demand: :input], state}
   end
 
   @impl true
-  def handle_caps(:input, _caps, _ctx, state) do
-    {:ok, state}
+  def handle_stream_format(:input, _stream_format, _ctx, state) do
+    {[], state}
   end
 
   @impl true
@@ -66,7 +68,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         _ctx,
         %{all_pads_connected?: false} = state
       ) do
-    {:ok, state}
+    {[], state}
   end
 
   @impl true
@@ -80,7 +82,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {_pad, %{demand: size}} =
       Enum.max_by(ctx.pads, fn {_pad, pad_data} -> pad_data.demand end, fn -> 0 end)
 
-    {{:ok, [demand: {:input, size}]}, state}
+    {[demand: {:input, size}], state}
   end
 
   # We are assuming, that after header boxes ([:ftyp, :moov]), there is a single
@@ -95,9 +97,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {samples, rest, samples_info} =
       SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
 
-    actions = get_buffer_actions(samples)
-
-    {{:ok, actions}, %{state | samples_info: samples_info, partial: rest}}
+    {get_buffer_actions(samples), %{state | samples_info: samples_info, partial: rest}}
   end
 
   def handle_process(
@@ -112,7 +112,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     state = store_samples(state, samples)
 
-    {:ok, %{state | samples_info: samples_info, partial: rest}}
+    {[], %{state | samples_info: samples_info, partial: rest}}
   end
 
   def handle_process(:input, buffer, ctx, %{samples_info: nil} = state) do
@@ -128,14 +128,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     state = %{state | boxes: boxes, partial: rest, parsing_mdat?: parsing_mdat?}
 
-    {actions, state} =
-      if can_read_data_box?(state) do
-        handle_can_read_mdat_box(ctx, state)
-      else
-        {[demand: :input], state}
-      end
-
-    {{:ok, actions}, state}
+    if can_read_data_box?(state) do
+      handle_can_read_mdat_box(ctx, state)
+    else
+      {[demand: :input], state}
+    end
   end
 
   defp handle_can_read_mdat_box(ctx, state) do
@@ -170,9 +167,9 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       |> Enum.flat_map(fn {pad, _pad_data} -> [redemand: pad] end)
 
     notifications = get_track_notifications(state)
-    caps = if all_pads_connected?, do: get_caps(state), else: []
+    stream_format = if all_pads_connected?, do: get_stream_format(state), else: []
 
-    {notifications ++ caps ++ buffers ++ redemands,
+    {notifications ++ stream_format ++ buffers ++ redemands,
      %{state | all_pads_connected?: all_pads_connected?}}
   end
 
@@ -205,27 +202,27 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     state.samples_info.sample_tables
     |> Enum.map(fn {track_id, table} ->
       content = table.sample_description.content
-      {:notify, {:new_track, track_id, content}}
+      {:notify_parent, {:new_track, track_id, content}}
     end)
   end
 
-  defp get_caps(state) do
+  defp get_stream_format(state) do
     state.samples_info.sample_tables
     |> Enum.map(fn {track_id, table} ->
-      caps = %Membrane.MP4.Payload{
+      stream_format = %Membrane.MP4.Payload{
         content: table.sample_description.content,
         timescale: table.timescale,
         height: table.sample_description.height,
         width: table.sample_description.width
       }
 
-      {:caps, {Pad.ref(:output, track_id), caps}}
+      {:stream_format, {Pad.ref(:output, track_id), stream_format}}
     end)
   end
 
   @impl true
   def handle_pad_added(:input, _ctx, state) do
-    {:ok, state}
+    {[], state}
   end
 
   def handle_pad_added(_pad, _ctx, %{all_pads_connected?: true}) do
@@ -238,24 +235,24 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {actions, state} =
       if all_pads_connected? do
         {buffer_actions, state} = flush_samples(state, track_id)
-        maybe_caps = if state.samples_info != nil, do: get_caps(state), else: []
+        maybe_stream_format = if state.samples_info != nil, do: get_stream_format(state), else: []
         maybe_eos = if state.end_of_stream?, do: get_end_of_stream_actions(ctx), else: []
 
-        {maybe_caps ++ buffer_actions ++ maybe_eos, state}
+        {maybe_stream_format ++ buffer_actions ++ maybe_eos, state}
       else
         {[], state}
       end
 
-    {{:ok, actions}, %{state | all_pads_connected?: all_pads_connected?}}
+    {actions, %{state | all_pads_connected?: all_pads_connected?}}
   end
 
   @impl true
   def handle_end_of_stream(:input, _ctx, %{all_pads_connected?: false} = state) do
-    {:ok, %{state | end_of_stream?: true}}
+    {[], %{state | end_of_stream?: true}}
   end
 
   def handle_end_of_stream(:input, ctx, %{all_pads_connected?: true} = state) do
-    {{:ok, get_end_of_stream_actions(ctx)}, state}
+    {get_end_of_stream_actions(ctx), state}
   end
 
   defp all_pads_connected?(_ctx, %{samples_info: nil}), do: false

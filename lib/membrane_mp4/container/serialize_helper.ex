@@ -1,8 +1,8 @@
 defmodule Membrane.MP4.Container.SerializeHelper do
   @moduledoc false
-
   use Bunch
-  use Bitwise
+
+  import Bitwise
 
   alias Membrane.MP4.Container
   alias Membrane.MP4.Container.Schema

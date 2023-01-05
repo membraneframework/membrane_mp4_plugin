@@ -2,7 +2,6 @@ defmodule Membrane.MP4.Payloader.H264 do
   @moduledoc """
   Payloads H264 stream so it can be embedded in MP4.
   """
-  use Bunch
   use Membrane.Filter
 
   alias Membrane.Buffer
@@ -13,29 +12,30 @@ defmodule Membrane.MP4.Payloader.H264 do
 
   def_input_pad :input,
     demand_unit: :buffers,
-    caps: {Membrane.H264, stream_format: :byte_stream, alignment: :au, nalu_in_metadata?: true}
+    accepted_format: %Membrane.H264{alignment: :au, nalu_in_metadata?: true}
 
-  def_output_pad :output, caps: Membrane.MP4.Payload
+  def_output_pad :output, accepted_format: Membrane.MP4.Payload
 
   def_options parameters_in_band?: [
                 spec: boolean(),
                 default: false,
                 description: """
                 Determines whether the parameter type nalus will be removed from the stream.
-                Inband parameters seem to be legal with MP4, but some players don't respond kindly to them, so use at your own risk.
+                Inband parameters seem to be legal with MP4, but some players don't respond
+                kindly to them, so use at your own risk.
 
                 NALUs currently considered to be parameters: #{Enum.map_join(@parameter_nalus, ", ", &inspect/1)}.
                 """
               ]
 
   @impl true
-  def handle_init(%__MODULE__{} = options) do
-    {:ok, %{sps: nil, pps: nil, parameters_in_band?: options.parameters_in_band?}}
+  def handle_init(_ctx, options) do
+    {[], %{sps: nil, pps: nil, parameters_in_band?: options.parameters_in_band?}}
   end
 
   @impl true
   def handle_demand(:output, size, :buffers, _ctx, state) do
-    {{:ok, demand: {:input, size}}, state}
+    {[demand: {:input, size}], state}
   end
 
   @impl true
@@ -54,11 +54,17 @@ defmodule Membrane.MP4.Payloader.H264 do
     pps = Keyword.get_values(grouped_nalus, :pps)
     sps = Keyword.get_values(grouped_nalus, :sps)
 
-    {caps, state} =
+    {maybe_stream_format, state} =
       if (pps != [] and pps != state.pps) or (sps != [] and sps != state.sps) do
         {[
-           caps:
-             {:output, generate_caps(ctx.pads.input.caps, pps, sps, state.parameters_in_band?)}
+           stream_format:
+             {:output,
+              generate_stream_format(
+                ctx.pads.input.stream_format,
+                pps,
+                sps,
+                state.parameters_in_band?
+              )}
          ], %{state | pps: pps, sps: sps}}
       else
         {[], state}
@@ -71,12 +77,12 @@ defmodule Membrane.MP4.Payloader.H264 do
 
     buffer = %Buffer{buffer | payload: payload, metadata: metadata}
 
-    {{:ok, caps ++ [buffer: {:output, buffer}, redemand: :output]}, state}
+    {maybe_stream_format ++ [buffer: {:output, buffer}, redemand: :output], state}
   end
 
   @impl true
-  def handle_caps(:input, _caps, _ctx, state) do
-    {:ok, state}
+  def handle_stream_format(:input, _stream_format, _ctx, state) do
+    {[], state}
   end
 
   defp maybe_remove_parameter_nalus(nalus, %{parameters_in_band?: false}) do
@@ -95,17 +101,17 @@ defmodule Membrane.MP4.Payloader.H264 do
     |> pop_in([:h264, :nalus])
   end
 
-  defp generate_caps(input_caps, pps, sps, inband_parameters?) do
+  defp generate_stream_format(input_stream_format, pps, sps, inband_parameters?) do
     timescale =
-      case input_caps.framerate do
+      case input_stream_format.framerate do
         {0, _denominator} -> 30 * 1024
         {nominator, _denominator} -> nominator * 1024
       end
 
     %Membrane.MP4.Payload{
       timescale: timescale,
-      width: input_caps.width,
-      height: input_caps.height,
+      width: input_stream_format.width,
+      height: input_stream_format.height,
       content: %AVC1{avcc: generate_avcc(pps, sps), inband_parameters?: inband_parameters?}
     }
   end

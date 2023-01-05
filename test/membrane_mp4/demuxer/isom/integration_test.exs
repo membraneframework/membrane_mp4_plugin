@@ -1,7 +1,7 @@
-defmodule Membrane.MP4.Demuxer.ISOM.IntgerationTest do
+defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
   use ExUnit.Case, async: true
 
-  import Membrane.ParentSpec
+  import Membrane.ChildrenSpec
   import Membrane.Testing.Assertions
 
   require Membrane.Pad
@@ -33,28 +33,13 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntgerationTest do
     in_path = "test/fixtures/isom/ref_video_fast_start.mp4"
     out_path = Path.join(dir, "out")
 
-    children = [
-      file: %Membrane.File.Source{
-        location: in_path
-      },
-      demuxer: Membrane.MP4.Demuxer.ISOM,
-      muxer: %Membrane.MP4.Muxer.ISOM{
-        chunk_duration: Membrane.Time.seconds(1),
-        fast_start: true
-      },
-      sink: %Membrane.File.Sink{location: out_path}
-    ]
+    pipeline =
+      start_testing_pipeline!(
+        input_file: in_path,
+        output_file: out_path
+      )
 
-    links = [
-      link(:file) |> to(:demuxer),
-      link(:demuxer)
-      |> via_out(Pad.ref(:output, 1))
-      |> to(:muxer),
-      link(:muxer) |> to(:sink)
-    ]
-
-    assert {:ok, pid} = Pipeline.start_link(children: children, links: links)
-    perform_test(pid, in_path, out_path)
+    perform_test(pipeline, in_path, out_path)
   end
 
   @tag :tmp_dir
@@ -62,27 +47,27 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntgerationTest do
     in_path = "test/fixtures/isom/ref_aac_fast_start.mp4"
     out_path = Path.join(dir, "out")
 
-    children = [
-      file: %Membrane.File.Source{
-        location: in_path
-      },
-      demuxer: Membrane.MP4.Demuxer.ISOM,
-      muxer: %Membrane.MP4.Muxer.ISOM{
+    pipeline =
+      start_testing_pipeline!(
+        input_file: in_path,
+        output_file: out_path
+      )
+
+    perform_test(pipeline, in_path, out_path)
+  end
+
+  defp start_testing_pipeline!(opts) do
+    structure = [
+      child(:file, %Membrane.File.Source{location: opts[:input_file]})
+      |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
+      |> via_out(Pad.ref(:output, 1))
+      |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
         chunk_duration: Membrane.Time.seconds(1),
         fast_start: true
-      },
-      sink: %Membrane.File.Sink{location: out_path}
+      })
+      |> child(:sink, %Membrane.File.Sink{location: opts[:output_file]})
     ]
 
-    links = [
-      link(:file) |> to(:demuxer),
-      link(:demuxer)
-      |> via_out(Pad.ref(:output, 1))
-      |> to(:muxer),
-      link(:muxer) |> to(:sink)
-    ]
-
-    assert {:ok, pid} = Pipeline.start_link(children: children, links: links)
-    perform_test(pid, in_path, out_path)
+    Pipeline.start_link_supervised!(structure: structure)
   end
 end
