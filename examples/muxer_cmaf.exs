@@ -1,9 +1,9 @@
 Mix.install([
-  {:membrane_aac_plugin, "~> 0.13.0"},
-  {:membrane_h264_ffmpeg_plugin, "~> 0.25.0"},
-  {:membrane_hackney_plugin, "~> 0.9.0"},
-  {:membrane_http_adaptive_stream_plugin, "~> 0.10.0"},
-  {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand(), override: true}
+  :membrane_aac_plugin,
+  :membrane_h264_ffmpeg_plugin,
+  :membrane_hackney_plugin,
+  :membrane_http_adaptive_stream_plugin,
+  {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()}
 ])
 
 defmodule Example do
@@ -23,10 +23,6 @@ defmodule Example do
     File.rm_rf(@output_dir)
     File.mkdir!(@output_dir)
 
-    segment_duration_opts = [
-      segment_duration: HLSSink.SegmentDuration.new(Time.seconds(12))
-    ]
-
     structure = [
       child(:video_source, %Membrane.Hackney.Source{
         location: @video_url,
@@ -37,7 +33,9 @@ defmodule Example do
         alignment: :au,
         attach_nalus?: true
       })
-      |> child(:video_payloader, Membrane.MP4.Payloader.H264),
+      |> child(:video_payloader, Membrane.MP4.Payloader.H264)
+      |> via_in(Pad.ref(:input, :video))
+      |> get_child(:muxer),
       child(:audio_source, %Membrane.Hackney.Source{
         location: @audio_url,
         hackney_opts: [follow_redirect: true]
@@ -46,11 +44,13 @@ defmodule Example do
         in_encapsulation: :ADTS,
         out_encapsulation: :none
       })
-      |> child(:audio_payloader, Membrane.MP4.Payloader.AAC),
+      |> child(:audio_payloader, Membrane.MP4.Payloader.AAC)
+      |> via_in(Pad.ref(:input, :audio))
+      |> get_child(:muxer),
       child(:muxer, %Membrane.MP4.Muxer.CMAF{
         segment_duration_range: SegmentDurationRange.new(Time.seconds(4), Time.seconds(6))
       })
-      |> via_in(:input, options: segment_duration_opts)
+      |> via_in(:input, options: [segment_duration: HLSSink.SegmentDuration.new(Time.seconds(12))])
       |> child(:sink, %HLSSink{
         manifest_module: Membrane.HTTPAdaptiveStream.HLS,
         target_window_duration: Membrane.Time.seconds(30),
@@ -58,13 +58,7 @@ defmodule Example do
         storage: %Membrane.HTTPAdaptiveStream.Storages.FileStorage{
           directory: @output_dir
         }
-      }),
-      get_child(:audio_payloader)
-      |> via_in(Pad.ref(:input, :audio))
-      |> get_child(:muxer),
-      get_child(:video_payloader)
-      |> via_in(Pad.ref(:input, :video))
-      |> get_child(:muxer)
+      })
     ]
 
     {[spec: structure, playback: :playing], %{}}

@@ -1,8 +1,8 @@
 Mix.install([
-  {:membrane_aac_plugin, "~> 0.13.0"},
-  {:membrane_h264_ffmpeg_plugin, "~> 0.25.0"},
-  {:membrane_hackney_plugin, "~> 0.9.0"},
-  {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand(), override: true}
+  :membrane_aac_plugin,
+  :membrane_h264_ffmpeg_plugin,
+  :membrane_hackney_plugin,
+  {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()}
 ])
 
 defmodule Example do
