@@ -67,10 +67,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   @impl true
-  def handle_pad_added(_pad, ctx, _state) when ctx.playback_state == :playing,
+  def handle_pad_added(_pad, ctx, _state) when ctx.playback == :playing,
     do:
       raise(
-        "New tracks can be added to #{inspect(__MODULE__)} only before transition to state: :playing"
+        "New tracks can be added to #{inspect(__MODULE__)} only before playback transition to :playing"
       )
 
   @impl true
