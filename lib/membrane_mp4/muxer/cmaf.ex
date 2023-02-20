@@ -20,7 +20,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   require Membrane.Logger
 
-  alias __MODULE__.{Header, Segment, SegmentDurationRange}
+  alias __MODULE__.{Header, Segment, SegmentDurationRange, SegmentHelper}
   alias Membrane.{Buffer, Time}
   alias Membrane.MP4.Payload.AVC1
   alias Membrane.MP4.{Helper, Track}
@@ -227,25 +227,33 @@ defmodule Membrane.MP4.Muxer.CMAF do
        do: do_collect_segment_samples(state, pad, sample)
 
   defp collect_segment_samples(
-         %{awaiting_stream_format: {duration, stream_format}} = state,
+         %{awaiting_stream_format: {_duration, stream_format}} = state,
          pad,
          sample
        ) do
-    {:segment, segment, state} = Segment.Helper.take_all_samples_for(state, duration)
-
     state = %{state | awaiting_stream_format: nil}
-    {[], {:no_segment, state}} = collect_segment_samples(state, pad, sample)
 
-    {[stream_format: {:output, stream_format}], {:segment, segment, state}}
+    result =
+      case collect_segment_samples(state, pad, sample) do
+        {[], {:no_segment, _state}} ->
+          {:segment, _segment, _state} = result = SegmentHelper.take_all_samples(state)
+
+          result
+
+        {[], {:segment, _segment, _state} = result} ->
+          result
+      end
+
+    {[stream_format: {:output, stream_format}], result}
   end
 
   defp do_collect_segment_samples(state, pad, sample) do
     supports_partial_segments? = state.partial_segment_duration_range != nil
 
     if supports_partial_segments? do
-      {[], Segment.Helper.push_partial_segment(state, pad, sample)}
+      {[], SegmentHelper.push_partial_segment(state, pad, sample)}
     else
-      {[], Segment.Helper.push_segment(state, pad, sample)}
+      {[], SegmentHelper.push_segment(state, pad, sample)}
     end
   end
 
@@ -283,7 +291,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     if processing_finished? do
       with {:segment, segment, state} when map_size(segment) > 0 <-
-             Segment.Helper.take_all_samples(state) do
+             SegmentHelper.take_all_samples(state) do
         {buffer, state} = generate_segment(segment, ctx, state)
         {[buffer: {:output, buffer}, end_of_stream: :output], state}
       else

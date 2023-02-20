@@ -255,12 +255,18 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   @spec drain_samples(t()) :: {[Membrane.Buffer.t()], t()}
   def drain_samples(%__MODULE__{collectable?: true} = queue) do
     {queue.target_samples ++ Enum.reverse(queue.excess_samples),
-     %__MODULE__{duration_range: queue.duration_range}}
+     %__MODULE__{
+       track_with_keyframes?: queue.track_with_keyframes?,
+       duration_range: queue.duration_range
+     }}
   end
 
   def drain_samples(%__MODULE__{collectable?: false} = queue) do
     {Enum.reverse(queue.excess_samples ++ queue.target_samples),
-     %__MODULE__{duration_range: queue.duration_range}}
+     %__MODULE__{
+       track_with_keyframes?: queue.track_with_keyframes?,
+       duration_range: queue.duration_range
+     }}
   end
 
   @doc """

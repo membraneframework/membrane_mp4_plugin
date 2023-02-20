@@ -2,8 +2,8 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.HelperTest do
   use ExUnit.Case, async: true
 
   alias Membrane.Buffer
-  alias Membrane.MP4.Muxer.CMAF.Segment.Helper, as: SegmentHelper
   alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange
+  alias Membrane.MP4.Muxer.CMAF.SegmentHelper
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: Queue
 
   test "get_discontinuity_segment works correctly" do
