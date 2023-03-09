@@ -70,19 +70,9 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   end
 
   defp push_partial_video_segment(state, queue, pad, sample) do
-    collected_duration = queue.collected_samples_duration
-
-    total_collected_durations =
-      Map.fetch!(state.pad_to_track_data, pad).parts_duration + collected_duration
-
     base_timestamp = max_segment_base_timestamp(state)
 
-    queue =
-      if total_collected_durations < state.segment_duration_range.min do
-        SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
-      else
-        SamplesQueue.push_until_end(queue, sample, base_timestamp)
-      end
+    queue = SamplesQueue.push_until_end(queue, sample, base_timestamp)
 
     if queue.collectable? do
       pad
