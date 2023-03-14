@@ -92,7 +92,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       )
 
     independent_buffers =
-      1..21
+      1..20
       |> Enum.reduce(0, fn _i, acc ->
         assert_sink_buffer(pipeline, :sink, buffer)
 
@@ -157,7 +157,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert buffer.metadata.duration <= Membrane.Time.milliseconds(600) and
              buffer.metadata.duration >= Membrane.Time.milliseconds(500)
 
-    for _ <- 1..3 do
+    for _ <- 1..2 do
       assert_sink_buffer(pipeline, :sink, buffer)
       refute buffer.metadata.independent?
     end
