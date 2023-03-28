@@ -210,7 +210,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     use Ratio, comparison: true
 
     {excess_samples, target_samples} =
-      Enum.split_while(queue.target_samples, &(&1.dts >= max_duration))
+      Enum.split_while(queue.target_samples, &(&1.dts > max_duration))
 
     result = Enum.reverse(target_samples)
 

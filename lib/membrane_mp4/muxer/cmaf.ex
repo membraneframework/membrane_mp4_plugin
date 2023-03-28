@@ -138,7 +138,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
           {[stream_format: {:output, stream_format}], state}
 
         stream_format != ctx.pads.output.stream_format ->
-          {[], %{state | awaiting_stream_format: {{:update_with_next, pad}, stream_format}}}
+          {[], put_awaiting_stream_format(pad, stream_format, state)}
 
         true ->
           {[], state}
@@ -147,6 +147,23 @@ defmodule Membrane.MP4.Muxer.CMAF do
       {[], state}
     end
   end
+
+  # public for tests 
+  @spec put_awaiting_stream_format(Pad.ref_t(), term(), term()) :: term()
+  def put_awaiting_stream_format(pad, stream_format, state) do
+    %{state | awaiting_stream_format: {{:update_with_next, pad}, stream_format}}
+  end
+
+  # public for tests
+  @spec update_awaiting_stream_format(state :: term(), Pad.ref_t()) :: state :: term()
+  def update_awaiting_stream_format(
+        %{awaiting_stream_format: {{:update_with_next, pad}, stream_format}} = state,
+        pad
+      ) do
+    %{state | awaiting_stream_format: {:stream_format, stream_format}}
+  end
+
+  def update_awaiting_stream_format(state, _pad), do: state
 
   defp is_video(stream_format_or_track), do: is_struct(stream_format_or_track.content, AVC1)
 
@@ -213,36 +230,36 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
-  defp collect_segment_samples(%{awaiting_stream_format: nil} = state, _pad, nil),
+  # public for tests
+  @spec collect_segment_samples(state :: term(), Pad.ref_t(), Membrane.Buffer.t() | nil) ::
+          {actions :: [term()],
+           {:segment, segment :: term(), state :: term()} | {:no_segment, state :: term()}}
+  def collect_segment_samples(%{awaiting_stream_format: nil} = state, _pad, nil),
     do: {[], {:no_segment, state}}
 
-  defp collect_segment_samples(%{awaiting_stream_format: nil} = state, pad, sample),
+  def collect_segment_samples(%{awaiting_stream_format: nil} = state, pad, sample),
     do: do_collect_segment_samples(state, pad, sample)
 
-  defp collect_segment_samples(
-         %{awaiting_stream_format: {{:update_with_next, _pad}, _stream_format}} = state,
-         pad,
-         sample
-       ),
-       do: do_collect_segment_samples(state, pad, sample)
+  def collect_segment_samples(
+        %{awaiting_stream_format: {{:update_with_next, _pad}, _stream_format}} = state,
+        pad,
+        sample
+      ),
+      do: do_collect_segment_samples(state, pad, sample)
 
-  defp collect_segment_samples(
-         %{awaiting_stream_format: {_duration, stream_format}} = state,
-         pad,
-         sample
-       ) do
+  def collect_segment_samples(
+        %{awaiting_stream_format: {:stream_format, stream_format}} = state,
+        pad,
+        sample
+      ) do
     state = %{state | awaiting_stream_format: nil}
 
-    result =
-      case collect_segment_samples(state, pad, sample) do
-        {[], {:no_segment, state}} ->
-          {:segment, _segment, _state} = result = SegmentHelper.take_all_samples(state)
+    unless SegmentHelper.is_key_frame(state.pad_to_track_data[pad].buffer_awaiting_duration) do
+      raise "Video sample received after new stream format must be a key frame"
+    end
 
-          result
-
-        {[], {:segment, _segment, _state} = result} ->
-          result
-      end
+    {:no_segment, state} = force_push_sample(state, pad, sample)
+    {:segment, _segment, _state} = result = SegmentHelper.take_all_samples_until(state, sample)
 
     {[stream_format: {:output, stream_format}], result}
   end
@@ -255,6 +272,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
     else
       {[], SegmentHelper.push_segment(state, pad, sample)}
     end
+  end
+
+  defp force_push_sample(state, pad, sample) do
+    SegmentHelper.force_push_segment(state, pad, sample)
   end
 
   @impl true
@@ -448,23 +469,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
       {prev_sample, state}
     end
   end
-
-  # It is not possible to determine the duration of the segment that is connected with discontinuity before receiving the next sample.
-  # This function acts to update the information about the duration of the discontinuity segment that needs to be produced
-  defp update_awaiting_stream_format(
-         %{awaiting_stream_format: {{:update_with_next, pad}, stream_format}} = state,
-         pad
-       ) do
-    use Ratio
-
-    duration =
-      state.pad_to_track_data[pad].buffer_awaiting_duration.dts -
-        SamplesQueue.last_collected_dts(state.sample_queues[pad])
-
-    %{state | awaiting_stream_format: {duration, stream_format}}
-  end
-
-  defp update_awaiting_stream_format(state, _pad), do: state
 
   defp maybe_init_segment_base_timestamp(state, pad, sample) do
     case state do

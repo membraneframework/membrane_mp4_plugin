@@ -69,6 +69,10 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
     end
   end
 
+  @spec is_key_frame(Membrane.Buffer.t()) :: boolean()
+  def is_key_frame(%{metadata: metadata}),
+    do: Map.get(metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
+
   defp push_partial_video_segment(state, queue, pad, sample) do
     collected_duration = queue.collected_samples_duration
 
@@ -93,10 +97,27 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
     end
   end
 
+  @spec force_push_segment(state_t(), Membrane.Pad.ref_t(), Membrane.Buffer.t()) ::
+          {:no_segment, state_t()}
+  def force_push_segment(state, pad, sample) do
+    queue = Map.fetch!(state.sample_queues, pad)
+
+    queue = SamplesQueue.force_push(queue, sample)
+    {:no_segment, update_queue_for(pad, queue, state)}
+  end
+
   @spec take_all_samples(state_t()) :: {:segment, segment_t(), state_t()}
   def take_all_samples(state) do
     state
     |> do_take_sample(&SamplesQueue.drain_samples/1)
+    |> force_reset_partial_durations()
+  end
+
+  @spec take_all_samples_until(state_t(), Membrane.Buffer.t()) ::
+          {:segment, segment_t(), state_t()}
+  def take_all_samples_until(state, sample) do
+    state
+    |> do_take_sample(&SamplesQueue.force_collect(&1, sample.dts))
     |> force_reset_partial_durations()
   end
 
@@ -256,8 +277,4 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
       |> Map.new(fn {pad, data} -> {pad, Map.replace(data, :parts_duration, 0)} end)
     end)
   end
-
-  @compile {:inline, is_key_frame: 1}
-  defp is_key_frame(%{metadata: metadata}),
-    do: Map.get(metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
 end
