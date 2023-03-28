@@ -235,7 +235,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     result =
       case collect_segment_samples(state, pad, sample) do
-        {[], {:no_segment, _state}} ->
+        {[], {:no_segment, state}} ->
           {:segment, _segment, _state} = result = SegmentHelper.take_all_samples(state)
 
           result

@@ -70,14 +70,24 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   end
 
   defp push_partial_video_segment(state, queue, pad, sample) do
-    base_timestamp = max_segment_base_timestamp(state)
+    collected_duration = queue.collected_samples_duration
 
-    queue = SamplesQueue.push_until_end(queue, sample, base_timestamp)
+    total_collected_durations =
+      Map.fetch!(state.pad_to_track_data, pad).parts_duration + collected_duration
+
+    base_timestamp = state.pad_to_track_data[pad].segment_base_timestamp
+
+    queue =
+      if total_collected_durations < state.segment_duration_range.min do
+        SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
+      else
+        SamplesQueue.push_until_end(queue, sample, base_timestamp)
+      end
 
     if queue.collectable? do
       pad
       |> collect_samples_for_video_track(queue, state)
-      |> maybe_reset_partial_durations()
+      |> maybe_reset_partial_durations(sample)
     else
       {:no_segment, update_queue_for(pad, queue, state)}
     end
@@ -85,14 +95,9 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
 
   @spec take_all_samples(state_t()) :: {:segment, segment_t(), state_t()}
   def take_all_samples(state) do
-    do_take_sample(state, &SamplesQueue.drain_samples/1)
-  end
-
-  @spec take_all_samples_for(state_t(), Membrane.Time.t()) :: {:segment, segment_t(), state_t()}
-  def take_all_samples_for(state, duration) do
-    end_timestamp = max_segment_base_timestamp(state) + duration
-
-    do_take_sample(state, &SamplesQueue.force_collect(&1, end_timestamp))
+    state
+    |> do_take_sample(&SamplesQueue.drain_samples/1)
+    |> force_reset_partial_durations()
   end
 
   defp do_take_sample(state, collect_fun) do
@@ -108,7 +113,6 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
     segment
     |> Map.new()
     |> maybe_return_segment(state)
-    |> maybe_reset_partial_durations()
   end
 
   defp push_partial_audio_segment(state, queue, pad, sample) do
@@ -128,7 +132,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
       if queue.collectable? do
         pad
         |> collect_samples_for_audio_track(queue, state)
-        |> maybe_reset_partial_durations()
+        |> maybe_reset_partial_durations(sample)
       else
         {:no_segment, update_queue_for(pad, queue, state)}
       end
@@ -139,13 +143,13 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
 
   defp collect_samples_for_video_track(pad, queue, state) do
     end_timestamp = SamplesQueue.last_collected_dts(queue)
-
-    {collected, queue} = SamplesQueue.collect(queue)
-
     state = update_queue_for(pad, queue, state)
 
     if tracks_ready_for_collection?(state, end_timestamp) do
+      {collected, queue} = SamplesQueue.collect(queue)
+
       state = update_partial_duration(state, pad, collected)
+      state = update_queue_for(pad, queue, state)
 
       {segment, state} =
         state.sample_queues
@@ -206,23 +210,34 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
     end
   end
 
-  defp maybe_reset_partial_durations({:no_segment, _state} = result), do: result
+  defp maybe_reset_partial_durations(result, next_sample)
 
-  defp maybe_reset_partial_durations({:segment, segment, state}) do
+  defp maybe_reset_partial_durations({:no_segment, _state} = result, _next_sample), do: result
+
+  defp maybe_reset_partial_durations({:segment, segment, state}, next_sample) do
     min_duration = state.segment_duration_range.min
 
-    independent? = Enum.all?(segment, fn {_pad, samples} -> starts_with_keyframe?(samples) end)
+    next_segment_independent? = is_key_frame(next_sample)
 
     enough_duration? =
       Enum.all?(state.pad_to_track_data, fn {pad, data} ->
         data.parts_duration >= min_duration and not (Map.get(segment, pad, []) |> Enum.empty?())
       end)
 
-    if independent? and enough_duration? do
-      maybe_return_segment(segment, reset_partial_durations(state))
-    else
-      maybe_return_segment(segment, state)
-    end
+    state =
+      if next_segment_independent? and enough_duration? do
+        reset_partial_durations(state)
+      else
+        state
+      end
+
+    maybe_return_segment(segment, state)
+  end
+
+  defp force_reset_partial_durations({:no_segment, _state} = result), do: result
+
+  defp force_reset_partial_durations({:segment, segment, state}) do
+    maybe_return_segment(segment, reset_partial_durations(state))
   end
 
   defp max_segment_base_timestamp(state) do
@@ -245,9 +260,4 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   @compile {:inline, is_key_frame: 1}
   defp is_key_frame(%{metadata: metadata}),
     do: Map.get(metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
-
-  defp starts_with_keyframe?([]), do: false
-
-  defp starts_with_keyframe?([target | _rest]),
-    do: is_key_frame(target)
 end
