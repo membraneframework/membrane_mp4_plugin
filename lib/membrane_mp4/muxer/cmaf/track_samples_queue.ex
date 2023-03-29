@@ -31,6 +31,13 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     }
   end
 
+  def force_push(%__MODULE__{collectable?: true} = queue, sample) do
+    %__MODULE__{
+      queue
+      | excess_samples: [sample | queue.excess_samples]
+    }
+  end
+
   @doc """
   Pushes sample into the queue based on the calculated duration of the track that the sample belongs to in
   a simple manner (only cares about the target duration).
