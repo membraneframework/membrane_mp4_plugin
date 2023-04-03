@@ -1,7 +1,6 @@
-defmodule Membrane.MP4.Muxer.CMAF.Segment.HelperTest do
+defmodule Membrane.MP4.Muxer.CMAF.SegmentHelperTest do
   use ExUnit.Case, async: true
 
-  alias Membrane.MP4.Muxer.CMAF
   alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange
   alias Membrane.MP4.Muxer.CMAF.SegmentHelper
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: Queue
@@ -75,7 +74,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.HelperTest do
   end
 
   @stream_format :stream_format
-  test "get_discontinuity_segment works correctly", %{state: state} do
+  test "new stream format forces segment collection", %{state: state} do
     # push first couple of video samples
     state =
       for i <- 1..10, reduce: state do
@@ -94,7 +93,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.HelperTest do
           state
       end
 
-    state = CMAF.put_awaiting_stream_format(:video, @stream_format, state)
+    state = SegmentHelper.put_awaiting_stream_format(:video, @stream_format, state)
 
     # push couple of audio samples after new video stream format
     state =
@@ -105,7 +104,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.HelperTest do
           state
       end
 
-    state = CMAF.update_awaiting_stream_format(state, :video)
+    state = SegmentHelper.update_awaiting_stream_format(state, :video)
 
     # prepare a keyframe
     keyframe_sample =
@@ -118,7 +117,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.HelperTest do
     assert sample.dts == 10
 
     assert {[stream_format: {:output, @stream_format}], {:segment, segment, state}} =
-             CMAF.collect_segment_samples(state, :video, sample)
+             SegmentHelper.collect_segment_samples(state, :video, sample)
 
     assert %{
              audio: audio_buffers,

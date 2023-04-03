@@ -23,7 +23,7 @@ ISOM muxer requires a sink that can handle `Membrane.File.SeekEvent`, e.g. `Memb
 For an example of muxing streams to a regular MP4 file, refer to [`examples/muxer_isom.exs`](examples/muxer_isom.exs).
 
 To run the example, you can use the following command:
- ```bash
+```bash
 elixir examples/muxer_isom.exs
 ```
 

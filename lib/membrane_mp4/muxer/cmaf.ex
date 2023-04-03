@@ -3,18 +3,89 @@ defmodule Membrane.MP4.Muxer.CMAF do
   Puts payloaded stream into [Common Media Application Format](https://www.wowza.com/blog/what-is-cmaf),
   an MP4-based container commonly used in adaptive streaming over HTTP.
 
-  Multiple input streams are supported. If that is the case, they will be muxed into a single CMAF Track.
-  Given that all input streams need to have a keyframe at the beginning of each CMAF Segment, it is recommended
-  that all input streams are renditions of the same content.
+  The element supports up to 2 input tracks that can result in one output:
+    - audio input -> audio output
+    - video input -> video output
+    - video input + audio input -> muxed audio and video output
 
-  The muxer also supports creation of partial segments that do not begin with a key frame
-  when the `partial_segment_duration_range` is specified. The muxer tries to create many partial
-  segments to match the regular segment target duration. When reaching the regular segment's
-  target duration the muxer tries to perform lookaheads of the samples to either create
-  a shorter/longer partial segment so that a new segment can be started (beginning with a keyframe).
+  ## Media objects
+  Accordingly to the spec, the `#{inspect(__MODULE__)}` is able to assemble the following media entities:
+    * `headers` - media initialization object. Contains information necessary to play the media segments (when binary
+    concatenated with a media segment it creates a valid MP4 file). The media header is sent as an output pad's stream format.
 
-  If a stream contains non-key frames (like H264 P or B frames), they should be marked
-  with a `mp4_payload: %{key_frame?: false}` metadata entry.
+  * `segments` - media data that when combined with media headers can be played independently to other segments.
+    Segments due to their nature (video decoding) must start with a key frame (doesn't apply to audio-only tracks) which
+    is a main driver when collecting video samples and deciding when a segment should be created
+
+  * `chunks/partial segments` - fragmented media data that when binary concatenated should make up a regular segment. Partial
+    segments no longer have the requirement to start with a key frame (except for the first partial that starts a new segment)
+    and their main goal is to reduce latency of creating the media segments (chunks can be delivered to a client faster so it can
+    start playing them before a full segment gets assembled)
+
+
+  ## Segment creation
+  A segment gets created based on the duration of currently collected media samples and
+    `:segment_duration_range` options passed when initializing `#{inspect(__MODULE__)}`.
+
+  It is expected that the segment will not be shorter than the range's minimum value
+  and the aim is to reach the range's target duration. Reaching target duration for
+  a track containing a video data is not that obvious as the following segment must begin
+  with a keyframe, meaning that we can't finalize the current segment until a media sample with a keyframe arrives.
+
+  In order to make sure that the segment durations are regular (of a similar length and close to provided duration range),
+  the user must ensure that keyframes arrive in proper intervals, any deviation can potentially result in too
+  long segment durations which can in effect cause player stalls (when serving live media).
+  If a user sets the target duration to 4 seconds but a keyframe arrives every 10 seconds then each
+  segment will be 10 seconds long. Note that this doesn't apply to audio only tracks as with them you
+  can always create a segment withing a single sample bound.
+
+
+  > ### Important for video {: .warning}
+  >
+  > It is user's responsibility to properly set the segment duration range to align with
+  > whatever the keyframe interval of the video input is.
+
+  ## Partial segment creation
+  As previously mentioned, partial segments are not required to start with a key frame except for
+  a first partial of a new segment. Those are once again created based on the duration of the collected
+  samples but this time it has to be smarter as we can't allow the partial to significantly exceed
+  their target duration specified by `:partial_segment_duration_range`.
+
+  Exceeding the partial's target duration can cause unrecoverable player stalls e.g. when
+  playing LL-HLS on Safari, same goes if partial's duration is lower than 85% of target duration
+  when the partial is not last of its parent segment (Safari again). This is why it is important
+  that proper duration gets collected.
+
+  Besides respecting `:partial_segment_duration_range` when creating partials, we needs to take into
+  account the `:segment_duration_range` as eventually partials need to become part of a regular segment.
+
+  The behaviour of creating partials is as follows:
+  * if the duration of the **regular** segment currently being assembled is lower than the minimum then
+    try to collect **partial** with `target` value of `:partial_segment_duration_range` not matter what
+
+  * if the duration of the **regular** segment currently being assembled is greater than the minimum then try to
+    collect **partial** with at least a `minimum` value of `:partial_segment_duration_range`, up to the `target` value
+    but make sure that once a keyframe is encountered the partial immediately gets finalized
+
+  Note that once the `#{inspect(__MODULE__)}` is in a phase of finalizing a **regular** segment, the partial creation
+  needs to perform a lookahead of samples to make sure that we have the minimum duration and up to a target (we want to
+  avoid a situation where a keyframe will be placed before the minimum duration in a partial, therefore getting lost which will result
+  in several more partial getting created for the current segment).
+
+  Similarly to regular segments, if a key frame doesn't arrive for an extended period of time
+  then `#{inspect(__MODULE__)}` will keep on creating partial segments with a behaviour including the lookahead
+  (partial duration won't exceed the target but it may happen that couple of additional parts will get created).
+
+  > ### Important for video {: .warning}
+  >
+  > `:segment_duration_range` should be divisble by `:partial_segment_duration_range` for the best experience.
+  > For example when when a segment target duration is 6 seconds then partial target should be one of: 0.5s, 1s, 2s.
+  >
+  > We also recommend the segment's minimum duration to be slightly greater than the target duration minus the expected keyframe interval.
+
+  > ## Note
+  > If a stream contains non-key frames (like H264 P or B frames), they should be marked
+  > with a `mp4_payload: %{key_frame?: false}` metadata entry.
   """
   use Membrane.Filter
 
@@ -138,7 +209,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
           {[stream_format: {:output, stream_format}], state}
 
         stream_format != ctx.pads.output.stream_format ->
-          {[], put_awaiting_stream_format(pad, stream_format, state)}
+          {[], SegmentHelper.put_awaiting_stream_format(pad, stream_format, state)}
 
         true ->
           {[], state}
@@ -147,23 +218,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
       {[], state}
     end
   end
-
-  # public for tests 
-  @spec put_awaiting_stream_format(Pad.ref_t(), term(), term()) :: term()
-  def put_awaiting_stream_format(pad, stream_format, state) do
-    %{state | awaiting_stream_format: {{:update_with_next, pad}, stream_format}}
-  end
-
-  # public for tests
-  @spec update_awaiting_stream_format(state :: term(), Pad.ref_t()) :: state :: term()
-  def update_awaiting_stream_format(
-        %{awaiting_stream_format: {{:update_with_next, pad}, stream_format}} = state,
-        pad
-      ) do
-    %{state | awaiting_stream_format: {:stream_format, stream_format}}
-  end
-
-  def update_awaiting_stream_format(state, _pad), do: state
 
   defp is_video(stream_format_or_track), do: is_struct(stream_format_or_track.content, AVC1)
 
@@ -215,9 +269,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> maybe_init_segment_base_timestamp(pad, sample)
       |> process_buffer_awaiting_duration(pad, sample)
 
-    state = update_awaiting_stream_format(state, pad)
+    state = SegmentHelper.update_awaiting_stream_format(state, pad)
 
-    {stream_format_action, segment} = collect_segment_samples(state, pad, sample)
+    {stream_format_action, segment} = SegmentHelper.collect_segment_samples(state, pad, sample)
 
     case segment do
       {:segment, segment, state} ->
@@ -228,54 +282,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
       {:no_segment, state} ->
         {[redemand: :output], state}
     end
-  end
-
-  # public for tests
-  @spec collect_segment_samples(state :: term(), Pad.ref_t(), Membrane.Buffer.t() | nil) ::
-          {actions :: [term()],
-           {:segment, segment :: term(), state :: term()} | {:no_segment, state :: term()}}
-  def collect_segment_samples(%{awaiting_stream_format: nil} = state, _pad, nil),
-    do: {[], {:no_segment, state}}
-
-  def collect_segment_samples(%{awaiting_stream_format: nil} = state, pad, sample),
-    do: do_collect_segment_samples(state, pad, sample)
-
-  def collect_segment_samples(
-        %{awaiting_stream_format: {{:update_with_next, _pad}, _stream_format}} = state,
-        pad,
-        sample
-      ),
-      do: do_collect_segment_samples(state, pad, sample)
-
-  def collect_segment_samples(
-        %{awaiting_stream_format: {:stream_format, stream_format}} = state,
-        pad,
-        sample
-      ) do
-    state = %{state | awaiting_stream_format: nil}
-
-    unless SegmentHelper.is_key_frame(state.pad_to_track_data[pad].buffer_awaiting_duration) do
-      raise "Video sample received after new stream format must be a key frame"
-    end
-
-    {:no_segment, state} = force_push_sample(state, pad, sample)
-    {:segment, _segment, _state} = result = SegmentHelper.take_all_samples_until(state, sample)
-
-    {[stream_format: {:output, stream_format}], result}
-  end
-
-  defp do_collect_segment_samples(state, pad, sample) do
-    supports_partial_segments? = state.partial_segment_duration_range != nil
-
-    if supports_partial_segments? do
-      {[], SegmentHelper.push_partial_segment(state, pad, sample)}
-    else
-      {[], SegmentHelper.push_segment(state, pad, sample)}
-    end
-  end
-
-  defp force_push_sample(state, pad, sample) do
-    SegmentHelper.force_push_segment(state, pad, sample)
   end
 
   @impl true
