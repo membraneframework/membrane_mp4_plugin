@@ -1,24 +1,24 @@
 defmodule Membrane.MP4.Muxer.CMAF.SegmentHelperTest do
   use ExUnit.Case, async: true
 
-  alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange
+  alias Membrane.MP4.Muxer.CMAF.DurationRange
   alias Membrane.MP4.Muxer.CMAF.SegmentHelper
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: Queue
 
   setup do
-    part_duration_range = SegmentDurationRange.new(1, 50)
+    chunk_duration_range = DurationRange.new(1, 50)
 
     state = %{
       awaiting_stream_format: nil,
-      segment_duration_range: SegmentDurationRange.new(1000),
-      partial_segment_duration_range: part_duration_range,
+      min_segment_duration: 100,
+      chunk_duration_range: chunk_duration_range,
       pad_to_track_data: %{
-        audio: %{segment_base_timestamp: 0, parts_duration: 0, buffer_awaiting_duration: nil},
-        video: %{segment_base_timestamp: 0, parts_duration: 0, buffer_awaiting_duration: nil}
+        audio: %{segment_base_timestamp: 0, chunks_duration: 0, buffer_awaiting_duration: nil},
+        video: %{segment_base_timestamp: 0, chunks_duration: 0, buffer_awaiting_duration: nil}
       },
       sample_queues: %{
-        audio: %Queue{track_with_keyframes?: false, duration_range: part_duration_range},
-        video: %Queue{track_with_keyframes?: true, duration_range: part_duration_range}
+        audio: %Queue{track_with_keyframes?: false, duration_range: chunk_duration_range},
+        video: %Queue{track_with_keyframes?: true, duration_range: chunk_duration_range}
       }
     }
 
@@ -31,7 +31,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelperTest do
         {:no_segment, state}
 
       {buffer, state} ->
-        SegmentHelper.push_partial_segment(state, pad, buffer)
+        SegmentHelper.push_chunk(state, pad, buffer)
     end
   end
 

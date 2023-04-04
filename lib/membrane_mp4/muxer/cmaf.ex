@@ -17,64 +17,56 @@ defmodule Membrane.MP4.Muxer.CMAF do
     Segments due to their nature (video decoding) must start with a key frame (doesn't apply to audio-only tracks) which
     is a main driver when collecting video samples and deciding when a segment should be created
 
-  * `chunks/partial segments` - fragmented media data that when binary concatenated should make up a regular segment. Partial
-    segments no longer have the requirement to start with a key frame (except for the first partial that starts a new segment)
+  * `chunks` - fragmented media data that when binary concatenated should make up a regular segment. Chunks
+    no longer have the requirement to start with a key frame (except for the first chunk that starts a new segment)
     and their main goal is to reduce the latency of creating the media segments (chunks can be delivered to a client faster so it can
     start playing them before a full segment gets assembled)
 
 
   ## Segment creation
   A segment gets created based on the duration of currently collected media samples and
-    `:segment_duration_range` options passed when initializing `#{inspect(__MODULE__)}`.
+    `:min_segment_duration` options passed when initializing `#{inspect(__MODULE__)}`.
 
-  It is expected that the segment will not be shorter than the range's minimum value
-  and the aim is to reach the range's target duration. Reaching the target duration for
-  a track containing video data is not that obvious as the following segment must begin
-  with a keyframe, meaning that we can't finalize the current segment until a media sample with a keyframe arrives.
-
-  To make sure that the segment durations are regular (of a similar length and close to provided duration range),
-  the user must ensure that keyframes arrive in proper intervals, any deviation can potentially result in too
-  long segment durations which can in effect cause player stalls (when serving live media).
-  If a user sets the target duration to 4 seconds but a keyframe arrives every 10 seconds then each
-  segment will be 10 seconds long. Note that this doesn't apply to audio-only tracks as with them you
-  can always create a segment within a single sample bound.
+  It is expected that the segment will not be shorter than the specified minimum duration value
+  and the aim is to end the segment as soon as the next key frames arrives that will become
+  a part of a new segment.
 
 
-  > ### Important for video {: .warning}
-  >
-  > It is the user's responsibility to properly set the segment duration range to align with
-  > whatever the keyframe interval of the video input is.
+  If a user prefers to have segments of unified durations then he needs to take into consideration
+  the incoming keyframes interval. For instance, if a keyframe interval is 2 seconds and the goal is to have
+  6 seconds segments then the minimum segment duration should be lower than 6 seconds (the key frame at the
+  6-second mark will force the segment finalization).
 
-  ## Partial segment creation
-  As previously mentioned, partial segments are not required to start with a key frame except for
-  a first partial of a new segment. Those are once again created based on the duration of the collected
-  samples but this time it has to be smarter as we can't allow the partial segment to significantly exceed
+  > ### Note
+  > If a key frame comes at irregular intervals, the segment could be much longer than expected as after the minimum
+  > duration muxer will always look for a key frame to finish the segment.
+
+  ## Chunk creation
+  As previously mentioned, chunks are not required to start with a key frame except for
+  a first chunk of a new segment. Those are once again created based on the duration of the collected
+  samples but this time the process needs to be smarter as we can't allow the chunk to significantly exceed
   their target duration.
 
-  Partial segment duration is derived from `:segment_duration_range` and is determined by `:partials_per_segment`
-  parameter. For instance, if the target duration of `:segment_duration_range` is 6 seconds and `:partials_per_segment` is
-  6 then the muxer will try its best to create 1-second partials.
+  Exceeding the chunk's target duration can cause unrecoverable player stalls e.g. when
+  playing LL-HLS on Safari, same goes if the chunk's duration is lower than 85% of the target duration
+  when the chunk is the not last of its parent segment (Safari again). This is why
+  proper duration MUST get collected. The limitation does not apply to the last chunk of a given regular segment.
 
-  Exceeding the partial's target duration can cause unrecoverable player stalls e.g. when
-  playing LL-HLS on Safari, same goes if the partial's duration is lower than 85% of the target duration
-  when the partial is the not last of its parent segment (Safari again). This is why
-  proper duration MUST get collected. The limitation does not apply to the last partial of a given regular segment.
-
-  The behaviour of creating partials is as follows:
+  The behaviour of creating chunk is as follows:
   * if the duration of the **regular** segment currently being assembled is lower than the minimum then
-    try to collect **partial** with the calculated `target` value of partials no matter what
+    try to collect chunk with its given `target` duration value no matter what
 
   * if the duration of the **regular** segment currently being assembled is greater than the minimum then try to
-    finish the partial as fast as possible (without exceeding the partial's target) when encountering a key frame. When such partial
+    finish the chunk as fast as possible (without exceeding the chunk's target) when encountering a key frame. When such chunk
     gets created it also means that its parent segment is also done.
 
   Note that once the `#{inspect(__MODULE__)}` is in a phase of finalizing a **regular** segment, more than one
-  partial segment could get created until a key frame is encountered.
+  chunk could get created until a key frame is encountered.
 
   > ### Important for video {: .warning}
   >
-  > `:partials_per_segment` should be a reasonable value so partials can result in proper durations such as 0.5s, 1s.
-  > The partial duration usability may depend on their use case e.g. for live streaming there is little value for having a higher
+  > `:target_chunk_duration` should be a reasonable value so chunks can result in proper durations such as 0.5s, 1s.
+  > The chunk duration usability may depend on their use case e.g. for live streaming there is little value for having a higher
   > duration than 1s/2s .
 
   > ## Note
@@ -85,8 +77,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   require Membrane.Logger
 
-  alias __MODULE__.{Header, Segment, SegmentDurationRange, SegmentHelper}
-  alias Membrane.{Buffer, Time}
+  alias __MODULE__.{Header, Segment, DurationRange, SegmentHelper}
+  alias Membrane.Buffer
   alias Membrane.MP4.Payload.AVC1
   alias Membrane.MP4.{Helper, Track}
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
@@ -98,17 +90,26 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   def_output_pad :output, accepted_format: Membrane.CMAF.Track
 
-  def_options segment_duration_range: [
-                spec: SegmentDurationRange.t(),
-                default: SegmentDurationRange.new(Time.seconds(2), Time.seconds(2))
+  def_options min_segment_duration: [
+                spec: Membrane.Time.t(),
+                default: Membrane.Time.seconds(2),
+                description: """
+                Minimum duration of a regular media segment.
+
+                When the minimum duration is reached the muxer will try to finalize the segment as soon as
+                a new key frame arrives which will start a new segment.
+                """
               ],
-              partials_per_segment: [
-                spec: pos_integer() | nil,
+              target_chunk_duration: [
+                spec: Membrane.Time.t() | nil,
                 default: nil,
                 desription: """
-                Number of partial segments that should be created as a part of a regular segment.
+                Number of chunks that should be created as a part of a regular segment.
 
-                If set to `nil`, the muxer assumes it should not produce partial segments.
+                Note that when chunks get created, no segments will be emitted. Created chunks
+                are assumed to be part of a segment.
+
+                If set to `nil`, the muxer assumes it should not produce chunks.
                 """
               ]
 
@@ -127,7 +128,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
         next_track_id: 1,
         sample_queues: %{}
       })
-      |> set_partials_duration_range()
+      |> set_chunk_duration_range()
 
     {[], state}
   end
@@ -151,13 +152,13 @@ defmodule Membrane.MP4.Muxer.CMAF do
       segment_base_timestamp: nil,
       end_timestamp: 0,
       buffer_awaiting_duration: nil,
-      parts_duration: Membrane.Time.seconds(0)
+      chunks_duration: Membrane.Time.seconds(0)
     }
 
     state
     |> put_in([:pad_to_track_data, pad], track_data)
     |> put_in([:sample_queues, pad], %SamplesQueue{
-      duration_range: state.partial_segment_duration_range || state.segment_duration_range
+      duration_range: state.chunk_duration_range || DurationRange.new(state.min_segment_duration)
     })
     |> then(&{[], &1})
   end
@@ -481,36 +482,32 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
-  @min_part_duration Membrane.Time.milliseconds(50)
-  defp set_partials_duration_range(
+  @min_chunk_duration Membrane.Time.milliseconds(50)
+  defp set_chunk_duration_range(
          %{
-           partials_per_segment: partials,
-           segment_duration_range: segment_duration_range
+           target_chunk_duration: target_chunk_duration
          } = state
        )
-       when is_integer(partials) and partials > 0 do
-    segment_target = segment_duration_range.target
-    partial_target = trunc(segment_target / partials)
-
-    if partial_target < @min_part_duration do
+       when is_integer(target_chunk_duration) do
+    if target_chunk_duration < @min_chunk_duration do
       raise """
-        Partial target duration is smaller than minimal duration.
-        Duration: #{Membrane.Time.round_to_milliseconds(partial_target)}
-        Minumum: #{Membrane.Time.round_to_milliseconds(@min_part_duration)}
+        Chunk target duration is smaller than minimal duration.
+        Duration: #{Membrane.Time.round_to_milliseconds(target_chunk_duration)}
+        Minumum: #{Membrane.Time.round_to_milliseconds(@min_chunk_duration)}
       """
     end
 
     state
-    |> Map.delete(:partials_per_segment)
+    |> Map.delete(:target_chunk_duration)
     |> Map.put(
-      :partial_segment_duration_range,
-      SegmentDurationRange.new(@min_part_duration, partial_target)
+      :chunk_duration_range,
+      DurationRange.new(@min_chunk_duration, target_chunk_duration)
     )
   end
 
-  defp set_partials_duration_range(state) do
+  defp set_chunk_duration_range(state) do
     state
-    |> Map.delete(:partials_per_segment)
-    |> Map.put(:partial_segment_duration_range, nil)
+    |> Map.delete(:target_chunk_duration)
+    |> Map.put(:chunk_duration_range, nil)
   end
 end

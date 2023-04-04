@@ -1,7 +1,7 @@
 defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   @moduledoc false
 
-  alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange, as: DurationRange
+  alias Membrane.MP4.Muxer.CMAF.DurationRange
 
   defstruct collectable?: false,
             track_with_keyframes?: false,
