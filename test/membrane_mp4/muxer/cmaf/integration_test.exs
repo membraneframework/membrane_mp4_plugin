@@ -5,7 +5,6 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   import Membrane.Testing.Assertions
 
   alias Membrane.MP4.Container
-  alias Membrane.MP4.Muxer.CMAF.DurationRange
   alias Membrane.{Testing, Time}
 
   # Fixtures used in CMAF tests below were generated using `membrane_http_adaptive_stream_plugin`
@@ -54,7 +53,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       })
       |> child(:video_payloader, Membrane.MP4.Payloader.H264),
       child(:cmaf, %Membrane.MP4.Muxer.CMAF{
-        min_segment_duration: Time.seconds(2)
+        segment_min_duration: Time.seconds(2)
       })
       |> child(:sink, Membrane.Testing.Sink),
       get_child(:audio_payloader) |> get_child(:cmaf),
@@ -87,8 +86,8 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   test "video partial segments" do
     pipeline =
       prepare_pipeline(:video,
-        min_segment_duration: Time.seconds(2),
-        target_chunk_duration: Time.milliseconds(500)
+        segment_min_duration: Time.seconds(2),
+        chunk_target_duration: Time.milliseconds(500)
       )
 
     independent_buffers =
@@ -112,8 +111,8 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   test "audio partial segments" do
     pipeline =
       prepare_pipeline(:audio,
-        min_segment_duration: Time.seconds(2),
-        target_chunk_duration: Time.milliseconds(500)
+        segment_min_duration: Time.seconds(2),
+        chunk_target_duration: Time.milliseconds(500)
       )
 
     0..20
@@ -132,8 +131,8 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   test "video with partial segments should create as many partial segments as possible until reaching a key frame" do
     pipeline =
       prepare_pipeline(:video,
-        min_segment_duration: Time.seconds(2),
-        target_chunk_duration: Time.milliseconds(500)
+        segment_min_duration: Time.seconds(2),
+        chunk_target_duration: Time.milliseconds(500)
       )
 
     # the video has 10 seconds where second keyframe appears after 8 seconds
@@ -198,16 +197,16 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
         :video -> Membrane.MP4.Payloader.H264
       end
 
-    min_segment_duration = Keyword.get(opts, :min_segment_duration, Time.seconds(2))
-    target_chunk_duration = Keyword.get(opts, :target_chunk_duration, nil)
+    segment_min_duration = Keyword.get(opts, :segment_min_duration, Time.seconds(2))
+    chunk_target_duration = Keyword.get(opts, :chunk_target_duration, nil)
 
     structure = [
       child(:file, %Membrane.File.Source{location: file})
       |> child(:parser, parser)
       |> child(:payloader, payloader)
       |> child(:cmaf, %Membrane.MP4.Muxer.CMAF{
-        min_segment_duration: min_segment_duration,
-        target_chunk_duration: target_chunk_duration
+        segment_min_duration: segment_min_duration,
+        chunk_target_duration: chunk_target_duration
       })
       |> child(:sink, Membrane.Testing.Sink)
     ]

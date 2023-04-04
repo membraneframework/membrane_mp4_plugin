@@ -25,7 +25,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   ## Segment creation
   A segment gets created based on the duration of currently collected media samples and
-    `:min_segment_duration` options passed when initializing `#{inspect(__MODULE__)}`.
+    `:segment_min_duration` options passed when initializing `#{inspect(__MODULE__)}`.
 
   It is expected that the segment will not be shorter than the specified minimum duration value
   and the aim is to end the segment as soon as the next key frames arrives that will become
@@ -65,9 +65,11 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   > ### Important for video {: .warning}
   >
-  > `:target_chunk_duration` should be a reasonable value so chunks can result in proper durations such as 0.5s, 1s.
-  > The chunk duration usability may depend on their use case e.g. for live streaming there is little value for having a higher
-  > duration than 1s/2s .
+  > `:chunk_target_duration` should be chosen with special care and appropriately for its use case.
+  > It is unnecessary to create chunks when the target use case is not live streaming.
+  >
+  > The chunk duration usability may depend on its use case e.g. for live streaming there is very little value for having duration higher
+  > than 1s/2s, also having really short duration may add a communication overhead for a client (a necessity for downloading many small chunks).
 
   > ## Note
   > If a stream contains non-key frames (like H264 P or B frames), they should be marked
@@ -90,7 +92,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   def_output_pad :output, accepted_format: Membrane.CMAF.Track
 
-  def_options min_segment_duration: [
+  def_options segment_min_duration: [
                 spec: Membrane.Time.t(),
                 default: Membrane.Time.seconds(2),
                 description: """
@@ -100,11 +102,11 @@ defmodule Membrane.MP4.Muxer.CMAF do
                 a new key frame arrives which will start a new segment.
                 """
               ],
-              target_chunk_duration: [
+              chunk_target_duration: [
                 spec: Membrane.Time.t() | nil,
                 default: nil,
                 desription: """
-                Number of chunks that should be created as a part of a regular segment.
+                Target duration for media chunks.
 
                 Note that when chunks get created, no segments will be emitted. Created chunks
                 are assumed to be part of a segment.
@@ -158,7 +160,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     state
     |> put_in([:pad_to_track_data, pad], track_data)
     |> put_in([:sample_queues, pad], %SamplesQueue{
-      duration_range: state.chunk_duration_range || DurationRange.new(state.min_segment_duration)
+      duration_range: state.chunk_duration_range || DurationRange.new(state.segment_min_duration)
     })
     |> then(&{[], &1})
   end
@@ -485,29 +487,29 @@ defmodule Membrane.MP4.Muxer.CMAF do
   @min_chunk_duration Membrane.Time.milliseconds(50)
   defp set_chunk_duration_range(
          %{
-           target_chunk_duration: target_chunk_duration
+           chunk_target_duration: chunk_target_duration
          } = state
        )
-       when is_integer(target_chunk_duration) do
-    if target_chunk_duration < @min_chunk_duration do
+       when is_integer(chunk_target_duration) do
+    if chunk_target_duration < @min_chunk_duration do
       raise """
         Chunk target duration is smaller than minimal duration.
-        Duration: #{Membrane.Time.round_to_milliseconds(target_chunk_duration)}
+        Duration: #{Membrane.Time.round_to_milliseconds(chunk_target_duration)}
         Minumum: #{Membrane.Time.round_to_milliseconds(@min_chunk_duration)}
       """
     end
 
     state
-    |> Map.delete(:target_chunk_duration)
+    |> Map.delete(:chunk_target_duration)
     |> Map.put(
       :chunk_duration_range,
-      DurationRange.new(@min_chunk_duration, target_chunk_duration)
+      DurationRange.new(@min_chunk_duration, chunk_target_duration)
     )
   end
 
   defp set_chunk_duration_range(state) do
     state
-    |> Map.delete(:target_chunk_duration)
+    |> Map.delete(:chunk_target_duration)
     |> Map.put(:chunk_duration_range, nil)
   end
 end

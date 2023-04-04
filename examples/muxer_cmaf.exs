@@ -48,7 +48,7 @@ defmodule Example do
       |> via_in(Pad.ref(:input, :audio))
       |> get_child(:muxer),
       child(:muxer, %Membrane.MP4.Muxer.CMAF{
-        min_segment_duration: Time.seconds(4)
+        segment_min_duration: Time.seconds(4)
       })
       |> via_in(:input, options: [segment_duration: HLSSink.SegmentDuration.new(Time.seconds(12))])
       |> child(:sink, %HLSSink{

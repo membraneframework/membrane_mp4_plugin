@@ -10,7 +10,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelperTest do
 
     state = %{
       awaiting_stream_format: nil,
-      min_segment_duration: 100,
+      segment_min_duration: 100,
       chunk_duration_range: chunk_duration_range,
       pad_to_track_data: %{
         audio: %{segment_base_timestamp: 0, chunks_duration: 0, buffer_awaiting_duration: nil},

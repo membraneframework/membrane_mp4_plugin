@@ -157,7 +157,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
     base_timestamp = state.pad_to_track_data[pad].segment_base_timestamp
 
     queue =
-      if total_collected_durations < state.min_segment_duration do
+      if total_collected_durations < state.segment_min_duration do
         SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
       else
         SamplesQueue.push_until_end(queue, sample, base_timestamp)
@@ -311,7 +311,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   defp maybe_reset_chunk_durations({:no_segment, _state} = result, _next_sample), do: result
 
   defp maybe_reset_chunk_durations({:segment, segment, state}, next_sample) do
-    min_duration = state.min_segment_duration
+    min_duration = state.segment_min_duration
 
     next_segment_independent? = is_key_frame(next_sample)
 
