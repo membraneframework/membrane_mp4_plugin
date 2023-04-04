@@ -1,6 +1,6 @@
 defmodule Membrane.MP4.Muxer.CMAF do
   @moduledoc """
-  Puts payloaded stream into [Common Media Application Format](https://www.wowza.com/blog/what-is-cmaf),
+  Puts a payloaded stream into [Common Media Application Format](https://www.wowza.com/blog/what-is-cmaf),
   an MP4-based container commonly used in adaptive streaming over HTTP.
 
   The element supports up to 2 input tracks that can result in one output:
@@ -19,7 +19,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   * `chunks/partial segments` - fragmented media data that when binary concatenated should make up a regular segment. Partial
     segments no longer have the requirement to start with a key frame (except for the first partial that starts a new segment)
-    and their main goal is to reduce latency of creating the media segments (chunks can be delivered to a client faster so it can
+    and their main goal is to reduce the latency of creating the media segments (chunks can be delivered to a client faster so it can
     start playing them before a full segment gets assembled)
 
 
@@ -28,60 +28,54 @@ defmodule Membrane.MP4.Muxer.CMAF do
     `:segment_duration_range` options passed when initializing `#{inspect(__MODULE__)}`.
 
   It is expected that the segment will not be shorter than the range's minimum value
-  and the aim is to reach the range's target duration. Reaching target duration for
-  a track containing a video data is not that obvious as the following segment must begin
+  and the aim is to reach the range's target duration. Reaching the target duration for
+  a track containing video data is not that obvious as the following segment must begin
   with a keyframe, meaning that we can't finalize the current segment until a media sample with a keyframe arrives.
 
-  In order to make sure that the segment durations are regular (of a similar length and close to provided duration range),
+  To make sure that the segment durations are regular (of a similar length and close to provided duration range),
   the user must ensure that keyframes arrive in proper intervals, any deviation can potentially result in too
   long segment durations which can in effect cause player stalls (when serving live media).
   If a user sets the target duration to 4 seconds but a keyframe arrives every 10 seconds then each
-  segment will be 10 seconds long. Note that this doesn't apply to audio only tracks as with them you
-  can always create a segment withing a single sample bound.
+  segment will be 10 seconds long. Note that this doesn't apply to audio-only tracks as with them you
+  can always create a segment within a single sample bound.
 
 
   > ### Important for video {: .warning}
   >
-  > It is user's responsibility to properly set the segment duration range to align with
+  > It is the user's responsibility to properly set the segment duration range to align with
   > whatever the keyframe interval of the video input is.
 
   ## Partial segment creation
   As previously mentioned, partial segments are not required to start with a key frame except for
   a first partial of a new segment. Those are once again created based on the duration of the collected
-  samples but this time it has to be smarter as we can't allow the partial to significantly exceed
-  their target duration specified by `:partial_segment_duration_range`.
+  samples but this time it has to be smarter as we can't allow the partial segment to significantly exceed
+  their target duration.
+
+  Partial segment duration is derived from `:segment_duration_range` and is determined by `:partials_per_segment`
+  parameter. For instance, if the target duration of `:segment_duration_range` is 6 seconds and `:partials_per_segment` is
+  6 then the muxer will try its best to create 1-second partials.
 
   Exceeding the partial's target duration can cause unrecoverable player stalls e.g. when
-  playing LL-HLS on Safari, same goes if partial's duration is lower than 85% of target duration
-  when the partial is not last of its parent segment (Safari again). This is why it is important
-  that proper duration gets collected.
-
-  Besides respecting `:partial_segment_duration_range` when creating partials, we needs to take into
-  account the `:segment_duration_range` as eventually partials need to become part of a regular segment.
+  playing LL-HLS on Safari, same goes if the partial's duration is lower than 85% of the target duration
+  when the partial is the not last of its parent segment (Safari again). This is why
+  proper duration MUST get collected. The limitation does not apply to the last partial of a given regular segment.
 
   The behaviour of creating partials is as follows:
   * if the duration of the **regular** segment currently being assembled is lower than the minimum then
-    try to collect **partial** with `target` value of `:partial_segment_duration_range` not matter what
+    try to collect **partial** with the calculated `target` value of partials no matter what
 
   * if the duration of the **regular** segment currently being assembled is greater than the minimum then try to
-    collect **partial** with at least a `minimum` value of `:partial_segment_duration_range`, up to the `target` value
-    but make sure that once a keyframe is encountered the partial immediately gets finalized
+    finish the partial as fast as possible (without exceeding the partial's target) when encountering a key frame. When such partial
+    gets created it also means that its parent segment is also done.
 
-  Note that once the `#{inspect(__MODULE__)}` is in a phase of finalizing a **regular** segment, the partial creation
-  needs to perform a lookahead of samples to make sure that we have the minimum duration and up to a target (we want to
-  avoid a situation where a keyframe will be placed before the minimum duration in a partial, therefore getting lost which will result
-  in several more partial getting created for the current segment).
-
-  Similarly to regular segments, if a key frame doesn't arrive for an extended period of time
-  then `#{inspect(__MODULE__)}` will keep on creating partial segments with a behaviour including the lookahead
-  (partial duration won't exceed the target but it may happen that couple of additional parts will get created).
+  Note that once the `#{inspect(__MODULE__)}` is in a phase of finalizing a **regular** segment, more than one
+  partial segment could get created until a key frame is encountered.
 
   > ### Important for video {: .warning}
   >
-  > `:segment_duration_range` should be divisble by `:partial_segment_duration_range` for the best experience.
-  > For example when when a segment target duration is 6 seconds then partial target should be one of: 0.5s, 1s, 2s.
-  >
-  > We also recommend the segment's minimum duration to be slightly greater than the target duration minus the expected keyframe interval.
+  > `:partials_per_segment` should be a reasonable value so partials can result in proper durations such as 0.5s, 1s.
+  > The partial duration usability may depend on their use case e.g. for live streaming there is little value for having a higher
+  > duration than 1s/2s .
 
   > ## Note
   > If a stream contains non-key frames (like H264 P or B frames), they should be marked
@@ -108,13 +102,13 @@ defmodule Membrane.MP4.Muxer.CMAF do
                 spec: SegmentDurationRange.t(),
                 default: SegmentDurationRange.new(Time.seconds(2), Time.seconds(2))
               ],
-              partial_segment_duration_range: [
-                spec: SegmentDurationRange.t() | nil,
+              partials_per_segment: [
+                spec: pos_integer() | nil,
                 default: nil,
-                description: """
-                The duration range of partial segments.
+                desription: """
+                Number of partial segments that should be created as a part of a regular segment.
 
-                If set to `nil`, the muxer assumes it should not produce partial segments
+                If set to `nil`, the muxer assumes it should not produce partial segments.
                 """
               ]
 
@@ -133,6 +127,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
         next_track_id: 1,
         sample_queues: %{}
       })
+      |> set_partials_duration_range()
 
     {[], state}
   end
@@ -484,5 +479,38 @@ defmodule Membrane.MP4.Muxer.CMAF do
       _else ->
         state
     end
+  end
+
+  @min_part_duration Membrane.Time.milliseconds(50)
+  defp set_partials_duration_range(
+         %{
+           partials_per_segment: partials,
+           segment_duration_range: segment_duration_range
+         } = state
+       )
+       when is_integer(partials) and partials > 0 do
+    segment_target = segment_duration_range.target
+    partial_target = trunc(segment_target / partials)
+
+    if partial_target < @min_part_duration do
+      raise """
+        Partial target duration is smaller than minimal duration.
+        Duration: #{Membrane.Time.round_to_milliseconds(partial_target)}
+        Minumum: #{Membrane.Time.round_to_milliseconds(@min_part_duration)}
+      """
+    end
+
+    state
+    |> Map.delete(:partials_per_segment)
+    |> Map.put(
+      :partial_segment_duration_range,
+      SegmentDurationRange.new(@min_part_duration, partial_target)
+    )
+  end
+
+  defp set_partials_duration_range(state) do
+    state
+    |> Map.delete(:partials_per_segment)
+    |> Map.put(:partial_segment_duration_range, nil)
   end
 end

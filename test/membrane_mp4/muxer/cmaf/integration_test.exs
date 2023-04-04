@@ -88,15 +88,15 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     pipeline =
       prepare_pipeline(:video,
         duration_range: new_duration_range(1500, 2000),
-        partial_duration_range: new_duration_range(250, 500)
+        partials_per_segment: 4
       )
 
     independent_buffers =
-      1..20
+      1..21
       |> Enum.reduce(0, fn _i, acc ->
         assert_sink_buffer(pipeline, :sink, buffer)
 
-        assert buffer.metadata.duration < Membrane.Time.milliseconds(650)
+        assert buffer.metadata.duration < Membrane.Time.milliseconds(550)
 
         if buffer.metadata.independent?, do: acc + 1, else: acc
       end)
@@ -113,7 +113,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     pipeline =
       prepare_pipeline(:audio,
         duration_range: new_duration_range(1500, 2000),
-        partial_duration_range: new_duration_range(250, 500)
+        partials_per_segment: 4
       )
 
     0..20
@@ -133,7 +133,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     pipeline =
       prepare_pipeline(:video,
         duration_range: new_duration_range(1500, 2000),
-        partial_duration_range: new_duration_range(250, 500)
+        partials_per_segment: 4
       )
 
     # the video has 10 seconds where second keyframe appears after 8 seconds
@@ -141,23 +141,23 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     # first independent segment
     assert_sink_buffer(pipeline, :sink, buffer)
     assert buffer.metadata.independent?
-    assert buffer.metadata.duration <= Membrane.Time.milliseconds(600)
+    assert buffer.metadata.duration <= Membrane.Time.milliseconds(550)
 
     # partial segments for the following 8 seconds without a keyframe
     for _ <- 1..16 do
       assert_sink_buffer(pipeline, :sink, buffer)
       refute buffer.metadata.independent?
-      assert buffer.metadata.duration <= Membrane.Time.milliseconds(600)
+      assert buffer.metadata.duration <= Membrane.Time.milliseconds(550)
     end
 
     # independent part wth a keyframe
     assert_sink_buffer(pipeline, :sink, buffer)
     assert buffer.metadata.independent?
 
-    assert buffer.metadata.duration <= Membrane.Time.milliseconds(600) and
+    assert buffer.metadata.duration <= Membrane.Time.milliseconds(550) and
              buffer.metadata.duration >= Membrane.Time.milliseconds(500)
 
-    for _ <- 1..2 do
+    for _ <- 1..3 do
       assert_sink_buffer(pipeline, :sink, buffer)
       refute buffer.metadata.independent?
     end
@@ -202,7 +202,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       end
 
     duration_range = Keyword.get(opts, :duration_range, new_duration_range(2000, 2000))
-    partial_duration_range = Keyword.get(opts, :partial_duration_range, nil)
+    partials_per_segment = Keyword.get(opts, :partials_per_segment, nil)
 
     structure = [
       child(:file, %Membrane.File.Source{location: file})
@@ -210,7 +210,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       |> child(:payloader, payloader)
       |> child(:cmaf, %Membrane.MP4.Muxer.CMAF{
         segment_duration_range: duration_range,
-        partial_segment_duration_range: partial_duration_range
+        partials_per_segment: partials_per_segment
       })
       |> child(:sink, Membrane.Testing.Sink)
     ]
