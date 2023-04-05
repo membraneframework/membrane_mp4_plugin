@@ -10,7 +10,7 @@ defmodule Example do
   use Membrane.Pipeline
 
   alias Membrane.Time
-  alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange
+  alias Membrane.MP4.Muxer.CMAF.DurationRange
   alias Membrane.HTTPAdaptiveStream.Sink, as: HLSSink
 
   @samples_url "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/big-buck-bunny/"
@@ -48,7 +48,7 @@ defmodule Example do
       |> via_in(Pad.ref(:input, :audio))
       |> get_child(:muxer),
       child(:muxer, %Membrane.MP4.Muxer.CMAF{
-        segment_duration_range: SegmentDurationRange.new(Time.seconds(4), Time.seconds(6))
+        segment_min_duration: Time.seconds(4)
       })
       |> via_in(:input, options: [segment_duration: HLSSink.SegmentDuration.new(Time.seconds(12))])
       |> child(:sink, %HLSSink{

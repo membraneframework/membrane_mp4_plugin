@@ -1,7 +1,7 @@
 defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
   use ExUnit.Case, async: true
 
-  alias Membrane.MP4.Muxer.CMAF.SegmentDurationRange, as: DurationRange
+  alias Membrane.MP4.Muxer.CMAF.DurationRange
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: Queue
 
   defp with_buffer(opts) do

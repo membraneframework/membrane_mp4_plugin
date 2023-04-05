@@ -1,27 +1,86 @@
 defmodule Membrane.MP4.Muxer.CMAF do
   @moduledoc """
-  Puts payloaded stream into [Common Media Application Format](https://www.wowza.com/blog/what-is-cmaf),
+  Puts a payloaded stream into [Common Media Application Format](https://www.wowza.com/blog/what-is-cmaf),
   an MP4-based container commonly used in adaptive streaming over HTTP.
 
-  Multiple input streams are supported. If that is the case, they will be muxed into a single CMAF Track.
-  Given that all input streams need to have a keyframe at the beginning of each CMAF Segment, it is recommended
-  that all input streams are renditions of the same content.
+  The element supports up to 2 input tracks that can result in one output:
+    - audio input -> audio output
+    - video input -> video output
+    - video input + audio input -> muxed audio and video output
 
-  The muxer also supports creation of partial segments that do not begin with a key frame
-  when the `partial_segment_duration_range` is specified. The muxer tries to create many partial
-  segments to match the regular segment target duration. When reaching the regular segment's
-  target duration the muxer tries to perform lookaheads of the samples to either create
-  a shorter/longer partial segment so that a new segment can be started (beginning with a keyframe).
+  ## Media objects
+  Accordingly to the spec, the `#{inspect(__MODULE__)}` is able to assemble the following media entities:
+    * `headers` - media initialization object. Contains information necessary to play the media segments (when binary
+    concatenated with a media segment it creates a valid MP4 file). The media header is sent as an output pad's stream format.
 
-  If a stream contains non-key frames (like H264 P or B frames), they should be marked
-  with a `mp4_payload: %{key_frame?: false}` metadata entry.
+  * `segments` - media data that when combined with media headers can be played independently to other segments.
+    Segments due to their nature (video decoding) must start with a key frame (doesn't apply to audio-only tracks) which
+    is a main driver when collecting video samples and deciding when a segment should be created
+
+  * `chunks` - fragmented media data that when binary concatenated should make up a regular segment. Chunks
+    no longer have the requirement to start with a key frame (except for the first chunk that starts a new segment)
+    and their main goal is to reduce the latency of creating the media segments (chunks can be delivered to a client faster so it can
+    start playing them before a full segment gets assembled)
+
+
+  ## Segment creation
+  A segment gets created based on the duration of currently collected media samples and
+    `:segment_min_duration` options passed when initializing `#{inspect(__MODULE__)}`.
+
+  It is expected that the segment will not be shorter than the specified minimum duration value
+  and the aim is to end the segment as soon as the next key frames arrives that will become
+  a part of a new segment.
+
+
+  If a user prefers to have segments of unified durations then he needs to take into consideration
+  the incoming keyframes interval. For instance, if a keyframe interval is 2 seconds and the goal is to have
+  6 seconds segments then the minimum segment duration should be lower than 6 seconds (the key frame at the
+  6-second mark will force the segment finalization).
+
+  > ### Note
+  > If a key frame comes at irregular intervals, the segment could be much longer than expected as after the minimum
+  > duration muxer will always look for a key frame to finish the segment.
+
+  ## Chunk creation
+  As previously mentioned, chunks are not required to start with a key frame except for
+  a first chunk of a new segment. Those are once again created based on the duration of the collected
+  samples but this time the process needs to be smarter as we can't allow the chunk to significantly exceed
+  their target duration.
+
+  Exceeding the chunk's target duration can cause unrecoverable player stalls e.g. when
+  playing LL-HLS on Safari, same goes if the chunk's duration is lower than 85% of the target duration
+  when the chunk is the not last of its parent segment (Safari again). This is why
+  proper duration MUST get collected. The limitation does not apply to the last chunk of a given regular segment.
+
+  The behaviour of creating chunk is as follows:
+  * if the duration of the **regular** segment currently being assembled is lower than the minimum then
+    try to collect chunk with its given `target` duration value no matter what
+
+  * if the duration of the **regular** segment currently being assembled is greater than the minimum then try to
+    finish the chunk as fast as possible (without exceeding the chunk's target) when encountering a key frame. When such chunk
+    gets created it also means that its parent segment is also done.
+
+  Note that once the `#{inspect(__MODULE__)}` is in a phase of finalizing a **regular** segment, more than one
+  chunk could get created until a key frame is encountered.
+
+  > ### Important for video {: .warning}
+  >
+  > `:chunk_target_duration` should be chosen with special care and appropriately for its use case.
+  > It is unnecessary to create chunks when the target use case is not live streaming.
+  >
+  > The chunk duration usability may depend on its use case e.g. for live streaming there is very little value for having duration higher
+  > than 1s/2s, also having really short duration may add a communication overhead for a client (a necessity for downloading many small chunks).
+
+  > ## Note
+  > If a stream contains non-key frames (like H264 P or B frames), they should be marked
+  > with a `mp4_payload: %{key_frame?: false}` metadata entry.
   """
   use Membrane.Filter
 
   require Membrane.Logger
 
-  alias __MODULE__.{Header, Segment, SegmentDurationRange}
-  alias Membrane.{Buffer, Time}
+  alias __MODULE__.{Header, Segment, DurationRange, SegmentHelper}
+  alias Membrane.Buffer
   alias Membrane.MP4.Payload.AVC1
   alias Membrane.MP4.{Helper, Track}
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
@@ -33,17 +92,26 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   def_output_pad :output, accepted_format: Membrane.CMAF.Track
 
-  def_options segment_duration_range: [
-                spec: SegmentDurationRange.t(),
-                default: SegmentDurationRange.new(Time.seconds(2), Time.seconds(2))
-              ],
-              partial_segment_duration_range: [
-                spec: SegmentDurationRange.t() | nil,
-                default: nil,
+  def_options segment_min_duration: [
+                spec: Membrane.Time.t(),
+                default: Membrane.Time.seconds(2),
                 description: """
-                The duration range of partial segments.
+                Minimum duration of a regular media segment.
 
-                If set to `nil`, the muxer assumes it should not produce partial segments
+                When the minimum duration is reached the muxer will try to finalize the segment as soon as
+                a new key frame arrives which will start a new segment.
+                """
+              ],
+              chunk_target_duration: [
+                spec: Membrane.Time.t() | nil,
+                default: nil,
+                desription: """
+                Target duration for media chunks.
+
+                Note that when chunks get created, no segments will be emitted. Created chunks
+                are assumed to be part of a segment.
+
+                If set to `nil`, the muxer assumes it should not produce chunks.
                 """
               ]
 
@@ -62,6 +130,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
         next_track_id: 1,
         sample_queues: %{}
       })
+      |> set_chunk_duration_range()
 
     {[], state}
   end
@@ -85,13 +154,13 @@ defmodule Membrane.MP4.Muxer.CMAF do
       segment_base_timestamp: nil,
       end_timestamp: 0,
       buffer_awaiting_duration: nil,
-      parts_duration: Membrane.Time.seconds(0)
+      chunks_duration: Membrane.Time.seconds(0)
     }
 
     state
     |> put_in([:pad_to_track_data, pad], track_data)
     |> put_in([:sample_queues, pad], %SamplesQueue{
-      duration_range: state.partial_segment_duration_range || state.segment_duration_range
+      duration_range: state.chunk_duration_range || DurationRange.new(state.segment_min_duration)
     })
     |> then(&{[], &1})
   end
@@ -138,7 +207,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
           {[stream_format: {:output, stream_format}], state}
 
         stream_format != ctx.pads.output.stream_format ->
-          {[], %{state | awaiting_stream_format: {{:update_with_next, pad}, stream_format}}}
+          {[], SegmentHelper.put_awaiting_stream_format(pad, stream_format, state)}
 
         true ->
           {[], state}
@@ -198,9 +267,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> maybe_init_segment_base_timestamp(pad, sample)
       |> process_buffer_awaiting_duration(pad, sample)
 
-    state = update_awaiting_stream_format(state, pad)
+    state = SegmentHelper.update_awaiting_stream_format(state, pad)
 
-    {stream_format_action, segment} = collect_segment_samples(state, pad, sample)
+    {stream_format_action, segment} = SegmentHelper.collect_segment_samples(state, pad, sample)
 
     case segment do
       {:segment, segment, state} ->
@@ -210,42 +279,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
       {:no_segment, state} ->
         {[redemand: :output], state}
-    end
-  end
-
-  defp collect_segment_samples(%{awaiting_stream_format: nil} = state, _pad, nil),
-    do: {[], {:no_segment, state}}
-
-  defp collect_segment_samples(%{awaiting_stream_format: nil} = state, pad, sample),
-    do: do_collect_segment_samples(state, pad, sample)
-
-  defp collect_segment_samples(
-         %{awaiting_stream_format: {{:update_with_next, _pad}, _stream_format}} = state,
-         pad,
-         sample
-       ),
-       do: do_collect_segment_samples(state, pad, sample)
-
-  defp collect_segment_samples(
-         %{awaiting_stream_format: {duration, stream_format}} = state,
-         pad,
-         sample
-       ) do
-    {:segment, segment, state} = Segment.Helper.take_all_samples_for(state, duration)
-
-    state = %{state | awaiting_stream_format: nil}
-    {[], {:no_segment, state}} = collect_segment_samples(state, pad, sample)
-
-    {[stream_format: {:output, stream_format}], {:segment, segment, state}}
-  end
-
-  defp do_collect_segment_samples(state, pad, sample) do
-    supports_partial_segments? = state.partial_segment_duration_range != nil
-
-    if supports_partial_segments? do
-      {[], Segment.Helper.push_partial_segment(state, pad, sample)}
-    else
-      {[], Segment.Helper.push_segment(state, pad, sample)}
     end
   end
 
@@ -283,7 +316,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     if processing_finished? do
       with {:segment, segment, state} when map_size(segment) > 0 <-
-             Segment.Helper.take_all_samples(state) do
+             SegmentHelper.take_all_samples(state) do
         {buffer, state} = generate_segment(segment, ctx, state)
         {[buffer: {:output, buffer}, end_of_stream: :output], state}
       else
@@ -441,23 +474,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
-  # It is not possible to determine the duration of the segment that is connected with discontinuity before receiving the next sample.
-  # This function acts to update the information about the duration of the discontinuity segment that needs to be produced
-  defp update_awaiting_stream_format(
-         %{awaiting_stream_format: {{:update_with_next, pad}, stream_format}} = state,
-         pad
-       ) do
-    use Ratio
-
-    duration =
-      state.pad_to_track_data[pad].buffer_awaiting_duration.dts -
-        SamplesQueue.last_collected_dts(state.sample_queues[pad])
-
-    %{state | awaiting_stream_format: {duration, stream_format}}
-  end
-
-  defp update_awaiting_stream_format(state, _pad), do: state
-
   defp maybe_init_segment_base_timestamp(state, pad, sample) do
     case state do
       %{pad_to_track_data: %{^pad => %{segment_base_timestamp: nil}}} ->
@@ -466,5 +482,34 @@ defmodule Membrane.MP4.Muxer.CMAF do
       _else ->
         state
     end
+  end
+
+  @min_chunk_duration Membrane.Time.milliseconds(50)
+  defp set_chunk_duration_range(
+         %{
+           chunk_target_duration: chunk_target_duration
+         } = state
+       )
+       when is_integer(chunk_target_duration) do
+    if chunk_target_duration < @min_chunk_duration do
+      raise """
+        Chunk target duration is smaller than minimal duration.
+        Duration: #{Membrane.Time.round_to_milliseconds(chunk_target_duration)}
+        Minumum: #{Membrane.Time.round_to_milliseconds(@min_chunk_duration)}
+      """
+    end
+
+    state
+    |> Map.delete(:chunk_target_duration)
+    |> Map.put(
+      :chunk_duration_range,
+      DurationRange.new(@min_chunk_duration, chunk_target_duration)
+    )
+  end
+
+  defp set_chunk_duration_range(state) do
+    state
+    |> Map.delete(:chunk_target_duration)
+    |> Map.put(:chunk_duration_range, nil)
   end
 end

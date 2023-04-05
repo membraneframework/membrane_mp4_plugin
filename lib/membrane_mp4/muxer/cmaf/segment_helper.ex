@@ -1,9 +1,10 @@
-defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
+defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   @moduledoc false
 
   use Bunch
 
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
+  alias Membrane.Pad
 
   @type pad_t :: Membrane.Pad.ref_t()
   @type state_t :: map()
@@ -11,6 +12,80 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   @type segment_t :: %{
           pad_t() => [Membrane.Buffer.t()]
         }
+
+  @doc """
+  Collects media samples for a segment once they are ready for collection.
+
+  Samples are ready for collection in the following scenarios:
+  - a new stream format has been received (force collect the current segment)
+  - target duration has been collected and no key frame is expected (in case of dependent/partial segments)
+  - minimum futsiyon has been collected and a key frame arrived
+  """
+  @spec collect_segment_samples(state :: term(), Pad.ref_t(), Membrane.Buffer.t() | nil) ::
+          {actions :: [term()],
+           {:segment, segment :: term(), state :: term()} | {:no_segment, state :: term()}}
+  def collect_segment_samples(%{awaiting_stream_format: nil} = state, _pad, nil),
+    do: {[], {:no_segment, state}}
+
+  def collect_segment_samples(%{awaiting_stream_format: nil} = state, pad, sample),
+    do: do_collect_segment_samples(state, pad, sample)
+
+  def collect_segment_samples(
+        %{awaiting_stream_format: {{:update_with_next, _pad}, _stream_format}} = state,
+        pad,
+        sample
+      ),
+      do: do_collect_segment_samples(state, pad, sample)
+
+  def collect_segment_samples(
+        %{awaiting_stream_format: {:stream_format, stream_format}} = state,
+        pad,
+        sample
+      ) do
+    state = %{state | awaiting_stream_format: nil}
+
+    unless is_key_frame(state.pad_to_track_data[pad].buffer_awaiting_duration) do
+      raise "Video sample received after new stream format must be a key frame"
+    end
+
+    {:no_segment, state} = force_push_segment(state, pad, sample)
+
+    {:segment, _segment, _state} = result = take_all_samples_until(state, sample)
+
+    {[stream_format: {:output, stream_format}], result}
+  end
+
+  defp do_collect_segment_samples(state, pad, sample) do
+    supports_partial_segments? = state.chunk_duration_range != nil
+
+    if supports_partial_segments? do
+      {[], push_chunk(state, pad, sample)}
+    else
+      {[], push_segment(state, pad, sample)}
+    end
+  end
+
+  @doc """
+  Puts an awaiting stream format that needs to be handled when
+  a next samples arrives.
+  """
+  @spec put_awaiting_stream_format(Pad.ref_t(), term(), term()) :: term()
+  def put_awaiting_stream_format(pad, stream_format, state) do
+    %{state | awaiting_stream_format: {{:update_with_next, pad}, stream_format}}
+  end
+
+  @doc """
+  Updates the awaiting stream format to a ready state where it can be finally handled.
+  """
+  @spec update_awaiting_stream_format(state :: term(), Pad.ref_t()) :: state :: term()
+  def update_awaiting_stream_format(
+        %{awaiting_stream_format: {{:update_with_next, pad}, stream_format}} = state,
+        pad
+      ) do
+    %{state | awaiting_stream_format: {:stream_format, stream_format}}
+  end
+
+  def update_awaiting_stream_format(state, _pad), do: state
 
   @spec push_segment(state_t(), Membrane.Pad.ref_t(), Membrane.Buffer.t()) ::
           {:no_segment, state_t()} | {:segment, segment_t(), state_t()}
@@ -57,28 +132,32 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     end
   end
 
-  @spec push_partial_segment(state_t(), Membrane.Pad.ref_t(), Membrane.Buffer.t()) ::
+  @spec push_chunk(state_t(), Membrane.Pad.ref_t(), Membrane.Buffer.t()) ::
           {:no_segment, state_t()} | {:segment, segment_t(), state_t()}
-  def push_partial_segment(state, pad, sample) do
+  def push_chunk(state, pad, sample) do
     queue = Map.fetch!(state.sample_queues, pad)
 
     if queue.track_with_keyframes? do
-      push_partial_video_segment(state, queue, pad, sample)
+      push_video_chunk(state, queue, pad, sample)
     else
-      push_partial_audio_segment(state, queue, pad, sample)
+      push_audio_chunk(state, queue, pad, sample)
     end
   end
 
-  defp push_partial_video_segment(state, queue, pad, sample) do
+  @spec is_key_frame(Membrane.Buffer.t()) :: boolean()
+  def is_key_frame(%{metadata: metadata}),
+    do: Map.get(metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
+
+  defp push_video_chunk(state, queue, pad, sample) do
     collected_duration = queue.collected_samples_duration
 
     total_collected_durations =
-      Map.fetch!(state.pad_to_track_data, pad).parts_duration + collected_duration
+      Map.fetch!(state.pad_to_track_data, pad).chunks_duration + collected_duration
 
-    base_timestamp = max_segment_base_timestamp(state)
+    base_timestamp = state.pad_to_track_data[pad].segment_base_timestamp
 
     queue =
-      if total_collected_durations < state.segment_duration_range.min do
+      if total_collected_durations < state.segment_min_duration do
         SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
       else
         SamplesQueue.push_until_end(queue, sample, base_timestamp)
@@ -87,44 +166,52 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     if queue.collectable? do
       pad
       |> collect_samples_for_video_track(queue, state)
-      |> maybe_reset_partial_durations()
+      |> maybe_reset_chunk_durations(sample)
     else
       {:no_segment, update_queue_for(pad, queue, state)}
     end
   end
 
-  @spec take_all_samples(state_t()) :: {:segment, segment_t(), state_t()}
-  def take_all_samples(state) do
-    segment =
-      state.sample_queues
-      |> Enum.reject(fn {_pad, queue} -> SamplesQueue.empty?(queue) end)
-      |> Enum.map(fn {pad, queue} ->
-        {samples, _queue} = SamplesQueue.drain_samples(queue)
+  @spec force_push_segment(state_t(), Membrane.Pad.ref_t(), Membrane.Buffer.t()) ::
+          {:no_segment, state_t()}
+  def force_push_segment(state, pad, sample) do
+    queue = Map.fetch!(state.sample_queues, pad)
 
-        {pad, samples}
-      end)
-      |> Map.new()
-
-    {:segment, segment, state}
+    queue = SamplesQueue.force_push(queue, sample)
+    {:no_segment, update_queue_for(pad, queue, state)}
   end
 
-  @spec take_all_samples_for(state_t(), Membrane.Time.t()) :: {:segment, segment_t(), state_t()}
-  def take_all_samples_for(state, duration) do
-    end_timestamp = max_segment_base_timestamp(state) + duration
+  @spec take_all_samples(state_t()) :: {:segment, segment_t(), state_t()}
+  def take_all_samples(state) do
+    state
+    |> do_take_sample(&SamplesQueue.drain_samples/1)
+    |> force_reset_chunks_duration()
+  end
 
+  @spec take_all_samples_until(state_t(), Membrane.Buffer.t()) ::
+          {:segment, segment_t(), state_t()}
+  def take_all_samples_until(state, sample) do
+    state
+    |> do_take_sample(&SamplesQueue.force_collect(&1, sample.dts))
+    |> force_reset_chunks_duration()
+  end
+
+  defp do_take_sample(state, collect_fun) do
     {segment, state} =
       state.sample_queues
       |> Enum.reject(fn {_pad, queue} -> SamplesQueue.empty?(queue) end)
       |> Enum.map_reduce(state, fn {pad, queue}, state ->
-        {samples, queue} = SamplesQueue.force_collect(queue, end_timestamp)
+        {samples, queue} = collect_fun.(queue)
 
         {{pad, samples}, update_queue_for(pad, queue, state)}
       end)
 
-    maybe_reset_partial_durations({:segment, Map.new(segment), state})
+    segment
+    |> Map.new()
+    |> maybe_return_segment(state)
   end
 
-  defp push_partial_audio_segment(state, queue, pad, sample) do
+  defp push_audio_chunk(state, queue, pad, sample) do
     any_video_tracks? =
       Enum.any?(state.sample_queues, fn {_pad, queue} -> queue.track_with_keyframes? end)
 
@@ -141,7 +228,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
       if queue.collectable? do
         pad
         |> collect_samples_for_audio_track(queue, state)
-        |> maybe_reset_partial_durations()
+        |> maybe_reset_chunk_durations(sample)
       else
         {:no_segment, update_queue_for(pad, queue, state)}
       end
@@ -152,13 +239,13 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
   defp collect_samples_for_video_track(pad, queue, state) do
     end_timestamp = SamplesQueue.last_collected_dts(queue)
-
-    {collected, queue} = SamplesQueue.collect(queue)
-
     state = update_queue_for(pad, queue, state)
 
     if tracks_ready_for_collection?(state, end_timestamp) do
+      {collected, queue} = SamplesQueue.collect(queue)
+
       state = update_partial_duration(state, pad, collected)
+      state = update_queue_for(pad, queue, state)
 
       {segment, state} =
         state.sample_queues
@@ -167,7 +254,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
 
       segment = Map.put(segment, pad, collected)
 
-      {:segment, segment, state}
+      maybe_return_segment(segment, state)
     else
       {:no_segment, update_queue_for(pad, queue, state)}
     end
@@ -180,7 +267,7 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     if tracks_ready_for_collection?(state, end_timestamp) do
       {segment, state} = collect_segment_from_queue(state.sample_queues, end_timestamp, state)
 
-      {:segment, segment, state}
+      maybe_return_segment(segment, state)
     else
       {:no_segment, state}
     end
@@ -208,26 +295,45 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
   defp update_partial_duration(state, pad, samples) do
     duration = Enum.reduce(samples, 0, &(&1.metadata.duration + &2))
 
-    update_in(state, [:pad_to_track_data, pad, :parts_duration], &(&1 + duration))
+    update_in(state, [:pad_to_track_data, pad, :chunks_duration], &(&1 + duration))
   end
 
-  defp maybe_reset_partial_durations({:no_segment, _state} = result), do: result
+  defp maybe_return_segment(segment, state) do
+    if Enum.any?(segment, fn {_pad, samples} -> not Enum.empty?(samples) end) do
+      {:segment, segment, state}
+    else
+      {:no_segment, state}
+    end
+  end
 
-  defp maybe_reset_partial_durations({:segment, segment, state}) do
-    min_duration = state.segment_duration_range.min
+  defp maybe_reset_chunk_durations(result, next_sample)
 
-    independent? = Enum.all?(segment, fn {_pad, samples} -> starts_with_keyframe?(samples) end)
+  defp maybe_reset_chunk_durations({:no_segment, _state} = result, _next_sample), do: result
+
+  defp maybe_reset_chunk_durations({:segment, segment, state}, next_sample) do
+    min_duration = state.segment_min_duration
+
+    next_segment_independent? = is_key_frame(next_sample)
 
     enough_duration? =
       Enum.all?(state.pad_to_track_data, fn {pad, data} ->
-        data.parts_duration >= min_duration and not (Map.get(segment, pad, []) |> Enum.empty?())
+        data.chunks_duration >= min_duration and not (Map.get(segment, pad, []) |> Enum.empty?())
       end)
 
-    if independent? and enough_duration? do
-      {:segment, segment, reset_partial_durations(state)}
-    else
-      {:segment, segment, state}
-    end
+    state =
+      if next_segment_independent? and enough_duration? do
+        reset_chunks_duration(state)
+      else
+        state
+      end
+
+    maybe_return_segment(segment, state)
+  end
+
+  defp force_reset_chunks_duration({:no_segment, _state} = result), do: result
+
+  defp force_reset_chunks_duration({:segment, segment, state}) do
+    maybe_return_segment(segment, reset_chunks_duration(state))
   end
 
   defp max_segment_base_timestamp(state) do
@@ -239,20 +345,11 @@ defmodule Membrane.MP4.Muxer.CMAF.Segment.Helper do
     |> Enum.max()
   end
 
-  defp reset_partial_durations(state) do
+  defp reset_chunks_duration(state) do
     state
     |> Map.update!(:pad_to_track_data, fn entries ->
       entries
-      |> Map.new(fn {pad, data} -> {pad, Map.replace(data, :parts_duration, 0)} end)
+      |> Map.new(fn {pad, data} -> {pad, Map.replace(data, :chunks_duration, 0)} end)
     end)
   end
-
-  @compile {:inline, is_key_frame: 1}
-  defp is_key_frame(%{metadata: metadata}),
-    do: Map.get(metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
-
-  defp starts_with_keyframe?([]), do: false
-
-  defp starts_with_keyframe?([target | _rest]),
-    do: is_key_frame(target)
 end
