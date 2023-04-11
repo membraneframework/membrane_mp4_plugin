@@ -14,12 +14,12 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
         }
 
   @doc """
-  Collects media samples for a segment once they are ready for collection.
+  Collects media samples for a segment/chunk once they are ready for collection.
 
   Samples are ready for collection in the following scenarios:
   - a new stream format has been received (force collect the current segment)
   - target duration has been collected and no key frame is expected (in case of dependent/partial segments)
-  - minimum futsiyon has been collected and a key frame arrived
+  - minimum duration has been collected and a key frame arrived
   """
   @spec collect_segment_samples(state :: term(), Pad.ref_t(), Membrane.Buffer.t() | nil) ::
           {actions :: [term()],
@@ -106,11 +106,11 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
     queue =
       if state.finish_current_segment? do
         # we want to get a segment with any duration
-        new_duration_range = Membrane.MP4.Muxer.CMAF.DurationRange.new(0)
+        tmp_duration_range = Membrane.MP4.Muxer.CMAF.DurationRange.new(0)
 
-        {queue, old_duration_range} = replace_queue_duration_range(queue, new_duration_range)
+        {queue, duration_range} = replace_queue_duration_range(queue, tmp_duration_range)
         queue = SamplesQueue.push_until_target(queue, sample, base_timestamp)
-        {queue, _new_duration_range} = replace_queue_duration_range(queue, old_duration_range)
+        {queue, _tmp_duration_range} = replace_queue_duration_range(queue, duration_range)
 
         queue
       else
