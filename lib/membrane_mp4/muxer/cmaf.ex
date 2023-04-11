@@ -22,6 +22,14 @@ defmodule Membrane.MP4.Muxer.CMAF do
     and their main goal is to reduce the latency of creating the media segments (chunks can be delivered to a client faster so it can
     start playing them before a full segment gets assembled)
 
+  ### Segment/Chunk metadata
+  Each outgoing buffer containing a segment/chunk contains the following fields in the buffer's metadata:
+  * `duration` - the duration of the underlying segment/chunk
+
+  * `independent?` - tells if a segment/chunk can be independently played (starts with a keyframe), it is always true for segments
+
+  * `last_chunk?` - tells if the underlying chunk is the last one of the segment currently being assembled, for segments this flag is always true
+    and has no real meaning
 
   ## Segment creation
   A segment gets created based on the duration of currently collected media samples and
@@ -31,7 +39,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
   and the aim is to end the segment as soon as the next key frames arrives that will become
   a part of a new segment.
 
-
   If a user prefers to have segments of unified durations then he needs to take into consideration
   the incoming keyframes interval. For instance, if a keyframe interval is 2 seconds and the goal is to have
   6 seconds segments then the minimum segment duration should be lower than 6 seconds (the key frame at the
@@ -40,6 +47,13 @@ defmodule Membrane.MP4.Muxer.CMAF do
   > ### Note
   > If a key frame comes at irregular intervals, the segment could be much longer than expected as after the minimum
   > duration muxer will always look for a key frame to finish the segment.
+
+  ## Forcing segment creation
+  It may happen that one may need to create a segment before it reaches the minimum duration (for purposes such as fast AD insertion).
+
+  To instruct the muxer to finalize the current segment as soon as possible one can send `Membrane.MP4.Muxer.CMAF.RequestMediaFinalization`
+  event on the `:output` pad. The event will enforce the muxer to end the current segment as soon as possible (usually on the nearest key frame).
+  After the segment gets generated, the muxer will go back to its normal behaviour of creating segments.
 
   ## Chunk creation
   As previously mentioned, chunks are not required to start with a key frame except for
@@ -128,7 +142,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
         pad_to_track_data: %{},
         # ID for the next input track
         next_track_id: 1,
-        sample_queues: %{}
+        sample_queues: %{},
+        finish_current_segment?: false
       })
       |> set_chunk_duration_range()
 
@@ -274,12 +289,24 @@ defmodule Membrane.MP4.Muxer.CMAF do
     case segment do
       {:segment, segment, state} ->
         {buffer, state} = generate_segment(segment, ctx, state)
+
         actions = [buffer: {:output, buffer}] ++ stream_format_action ++ [redemand: :output]
+
         {actions, state}
 
       {:no_segment, state} ->
         {[redemand: :output], state}
     end
+  end
+
+  @impl true
+  def handle_event(:output, %__MODULE__.RequestMediaFinalization{}, _ctx, state) do
+    {[], %{state | finish_current_segment?: true}}
+  end
+
+  @impl true
+  def handle_event(Pad.ref(:input, _ref), event, _ctx, state) do
+    {[forward: event], state}
   end
 
   @impl true
@@ -355,6 +382,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
       acc
       |> Enum.filter(fn {_pad, samples} -> not Enum.empty?(samples) end)
       |> Enum.map(fn {pad, samples} ->
+        track_data = state.pad_to_track_data[pad]
+
         %{timescale: timescale} = ctx.pads[pad].stream_format
         first_sample = hd(samples)
         last_sample = List.last(samples)
@@ -384,7 +413,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
           id: state.pad_to_track_data[pad].id,
           sequence_number: state.seq_num,
           base_timestamp:
-            Helper.timescalify(state.pad_to_track_data[pad].segment_base_timestamp, timescale)
+            Helper.timescalify(track_data.segment_base_timestamp, timescale)
             |> Ratio.trunc(),
           unscaled_duration: duration,
           duration: Helper.timescalify(duration, timescale),
@@ -406,7 +435,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     metadata = %{
       duration: duration,
-      independent?: is_segment_independent(acc, ctx)
+      independent?: is_segment_independent(acc, ctx),
+      last_chunk?: is_segment_finished(state)
     }
 
     buffer = %Buffer{payload: payload, metadata: metadata}
@@ -417,6 +447,11 @@ defmodule Membrane.MP4.Muxer.CMAF do
         update_in(state, [:pad_to_track_data, pad, :segment_base_timestamp], &(&1 + duration))
       end)
       |> Map.update!(:seq_num, &(&1 + 1))
+      |> Map.update!(:finish_current_segment?, fn finish_current_segment? ->
+        non_ending_chunk? = metadata.last_chunk? == false
+
+        finish_current_segment? and non_ending_chunk?
+      end)
 
     {buffer, state}
   end
@@ -435,6 +470,14 @@ defmodule Membrane.MP4.Muxer.CMAF do
             true
         end
     end
+  end
+
+  defp is_segment_finished(%{pad_to_track_data: data}) do
+    # if `chunk_duration` is set to zero then it means
+    # that a new segment just started and the current one is finished
+    Enum.all?(data, fn {_pad, track_data} ->
+      track_data.chunks_duration == 0
+    end)
   end
 
   defp generate_sample_flags(metadata) do
