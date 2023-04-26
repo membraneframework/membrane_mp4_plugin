@@ -4,10 +4,9 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
   import Membrane.ChildrenSpec
   import Membrane.Testing.Assertions
 
+  alias Membrane.MP4.Container
   alias Membrane.Testing.Pipeline
   alias Membrane.Time
-
-  alias Membrane.MP4.Container
 
   # Fixtures used in muxer tests below were generated with `chunk_duration` option set to `Membrane.Time.seconds(1)`.
 

@@ -14,12 +14,12 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
         }
 
   @doc """
-  Collects media samples for a segment once they are ready for collection.
+  Collects media samples for a segment/chunk once they are ready for collection.
 
   Samples are ready for collection in the following scenarios:
   - a new stream format has been received (force collect the current segment)
   - target duration has been collected and no key frame is expected (in case of dependent/partial segments)
-  - minimum futsiyon has been collected and a key frame arrived
+  - minimum duration has been collected and a key frame arrived
   """
   @spec collect_segment_samples(state :: term(), Pad.ref_t(), Membrane.Buffer.t() | nil) ::
           {actions :: [term()],
@@ -103,7 +103,19 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   defp push_video_segment(state, queue, pad, sample) do
     base_timestamp = max_segment_base_timestamp(state)
 
-    queue = SamplesQueue.push_until_target(queue, sample, base_timestamp)
+    queue =
+      if state.finish_current_segment? do
+        # we want to get a segment with any duration
+        tmp_duration_range = Membrane.MP4.Muxer.CMAF.DurationRange.new(0)
+
+        {queue, duration_range} = replace_queue_duration_range(queue, tmp_duration_range)
+        queue = SamplesQueue.push_until_target(queue, sample, base_timestamp)
+        {queue, _tmp_duration_range} = replace_queue_duration_range(queue, duration_range)
+
+        queue
+      else
+        SamplesQueue.push_until_target(queue, sample, base_timestamp)
+      end
 
     if queue.collectable? do
       collect_samples_for_video_track(pad, queue, state)
@@ -157,10 +169,15 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
     base_timestamp = state.pad_to_track_data[pad].segment_base_timestamp
 
     queue =
-      if total_collected_durations < state.segment_min_duration do
-        SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
-      else
-        SamplesQueue.push_until_end(queue, sample, base_timestamp)
+      cond do
+        state.finish_current_segment? ->
+          SamplesQueue.push_until_end(queue, sample, base_timestamp)
+
+        total_collected_durations < state.segment_min_duration ->
+          SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
+
+        true ->
+          SamplesQueue.push_until_end(queue, sample, base_timestamp)
       end
 
     if queue.collectable? do
@@ -292,6 +309,13 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
     end)
   end
 
+  defp replace_queue_duration_range(
+         %SamplesQueue{duration_range: old_duration_range} = queue,
+         duration_range
+       ) do
+    {%SamplesQueue{queue | duration_range: duration_range}, old_duration_range}
+  end
+
   defp update_partial_duration(state, pad, samples) do
     duration = Enum.reduce(samples, 0, &(&1.metadata.duration + &2))
 
@@ -321,7 +345,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
       end)
 
     state =
-      if next_segment_independent? and enough_duration? do
+      if next_segment_independent? and (state.finish_current_segment? or enough_duration?) do
         reset_chunks_duration(state)
       else
         state
