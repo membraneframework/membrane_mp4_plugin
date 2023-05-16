@@ -44,6 +44,7 @@ defmodule Membrane.MP4.Plugin.MixProject do
       {:membrane_h264_format, "~> 0.5.0"},
       {:membrane_opus_format, "~> 0.3.0"},
       {:membrane_file_plugin, "~> 0.13.2"},
+      {:membrane_h264_plugin, "~> 0.2.1"},
       {:bunch, "~> 1.5"},
       {:membrane_h264_ffmpeg_plugin, "~> 0.25.3", only: :test},
       {:membrane_aac_plugin, "~> 0.13.0", only: :test},
