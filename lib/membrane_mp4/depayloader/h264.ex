@@ -5,8 +5,8 @@ defmodule Membrane.MP4.Depayloader.H264 do
 
   use Membrane.Bin
 
-  alias Membrane.MP4.Depayloader
   alias Membrane.H264.Parser
+  alias Membrane.MP4.Depayloader
 
   def_input_pad :input,
     demand_unit: :buffers,

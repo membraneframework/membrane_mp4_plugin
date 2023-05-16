@@ -20,6 +20,7 @@ defmodule Membrane.MP4.Depayloader.AAC do
     {[], %{}}
   end
 
+  @impl true
   def handle_stream_format(:input, stream_format, _ctx, state) do
     content = stream_format.content
     esds_content = get_esds_content(content.esds)
