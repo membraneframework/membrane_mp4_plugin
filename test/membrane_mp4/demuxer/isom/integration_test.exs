@@ -56,6 +56,39 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
     perform_test(pipeline, in_path, out_path)
   end
 
+  @tag :tmp_dir
+  test "single aac track payloaded and depayloaded", %{tmp_dir: dir} do
+    in_path = "test/fixtures/in_audio.aac"
+    out_path = Path.join(dir, "out")
+
+    structure =
+      child(:file, %Membrane.File.Source{location: in_path})
+      |> child({:parser, :in}, %Membrane.AAC.Parser{
+        in_encapsulation: :ADTS,
+        out_encapsulation: :none
+      })
+      |> child(:payloader, Membrane.MP4.Payloader.AAC)
+      |> child(:depayloader, Membrane.MP4.Depayloader.AAC)
+      |> child({:parser, :out}, %Membrane.AAC.Parser{
+        in_encapsulation: :none,
+        out_encapsulation: :ADTS
+      })
+      |> child(:sink, %Membrane.File.Sink{location: out_path})
+
+    pipeline = Pipeline.start_link_supervised!(structure: structure)
+
+    assert_end_of_stream(pipeline, :sink, :input, 6000)
+    refute_sink_buffer(pipeline, :sink, _buffer, 0)
+
+    assert :ok == Pipeline.terminate(pipeline, blocking?: true)
+
+    in_aac = File.read!(in_path)
+    out_aac = File.read!(out_path)
+
+    # there are some different single bytes in the depayloaded file
+    assert byte_size(in_aac) == byte_size(out_aac)
+  end
+
   defp start_testing_pipeline!(opts) do
     structure = [
       child(:file, %Membrane.File.Source{location: opts[:input_file]})
