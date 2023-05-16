@@ -22,6 +22,7 @@ defmodule Membrane.MP4.Depayloader.H264 do
       |> child(:remote_stream_depayloader, Depayloader.H264.RemoteStream)
       |> child(:parser, Parser)
       |> bin_output()
+
     {[spec: spec], %{}}
   end
 end

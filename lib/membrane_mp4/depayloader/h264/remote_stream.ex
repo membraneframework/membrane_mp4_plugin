@@ -31,23 +31,26 @@ defmodule Membrane.MP4.Depayloader.H264.RemoteStream do
 
   defp get_nalu_length_size(avcc) do
     <<1, _profile, _compatibility, _level, 0b111111::6, nalu_length_size_minus_one::2-integer,
-    _rest::binary>> = avcc
-    nalu_length_size_minus_one+1
+      _rest::binary>> = avcc
+
+    nalu_length_size_minus_one + 1
   end
 
   defp decode_pss(avcc) do
-    <<1, _profile, _compatibility, _level, 0b111111::6, _nalu_length_size_minus_one::2-integer, 0b111::3,
-      num_of_seq_params_sets::5-integer, rest::binary>> = avcc
-    {annex_b_list_of_sps, rest} = to_annex_b(rest, 2, num_of_seq_params_sets)
+    <<1, _profile, _compatibility, _level, 0b111111::6, _nalu_length_size_minus_one::2-integer,
+      0b111::3, num_of_seq_params_sets::5-integer, rest::binary>> = avcc
+
+    nalu_length_byte_size = 2
+    {annex_b_list_of_sps, rest} = to_annex_b(rest, nalu_length_byte_size, num_of_seq_params_sets)
     <<num_of_pic_params_sets::8-integer, rest::binary>> = rest
-    {annex_b_list_of_pps, rest} = to_annex_b(rest, 2, num_of_seq_params_sets)
+    {annex_b_list_of_pps, rest} = to_annex_b(rest, nalu_length_byte_size, num_of_seq_params_sets)
     {annex_b_list_of_sps, annex_b_list_of_pps}
   end
 
   @impl true
   def handle_process(:input, buffer, _ctx, state) do
     {annex_b_payload, <<>>} = to_annex_b(buffer.payload, state.nalu_length_size)
-    buffer = %Buffer{buffer | payload: state.sps<>state.pps<>annex_b_payload}
+    buffer = %Buffer{buffer | payload: state.sps <> state.pps <> annex_b_payload}
 
     state = %{state | sps: <<>>, pps: <<>>}
     {[buffer: {:output, buffer}], state}
@@ -65,8 +68,9 @@ defmodule Membrane.MP4.Depayloader.H264.RemoteStream do
     iterations_left =
       case iterations_left do
         :infinity -> :infinity
-        _ -> iterations_left - 1
+        iterations_left -> iterations_left - 1
       end
+
     <<nalu_size::integer-size(nalu_length_size)-unit(8), rest::binary>> = au_payload
     <<nalu::binary-size(nalu_size), rest::binary>> = rest
     {annex_b, out_of_iterations_rest} = to_annex_b(rest, nalu_length_size, iterations_left)
