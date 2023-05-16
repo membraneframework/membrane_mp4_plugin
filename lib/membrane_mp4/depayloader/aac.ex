@@ -1,5 +1,7 @@
 defmodule Membrane.MP4.Depayloader.AAC do
-  @moduledoc false
+  @moduledoc """
+  Depayloads AAC stream.
+  """
   use Membrane.Filter
 
   alias Membrane.AAC
