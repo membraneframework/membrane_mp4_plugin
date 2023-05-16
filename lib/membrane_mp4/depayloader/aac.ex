@@ -46,7 +46,7 @@ defmodule Membrane.MP4.Depayloader.AAC do
     <<^elementary_stream_id::16, ^stream_priority, rest::binary>> = esds
 
     {section_4, esds_section_6} = unpack_esds_section(rest, 4)
-    {_section_6, <<>>} = unpack_esds_section(esds_section_6, 6)
+    {<<2>>, <<>>} = unpack_esds_section(esds_section_6, 6)
 
     # 64 = mpeg4-audio
     object_type_id = 64
