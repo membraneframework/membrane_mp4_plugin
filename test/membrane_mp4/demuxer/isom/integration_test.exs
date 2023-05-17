@@ -23,6 +23,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       demand_mode: :auto,
       accepted_format: _any
 
+    @impl true
     def handle_process(:input, buffer, _ctx, state) do
       # IO.inspect(buffer, label: :buffer)
       {[buffer: {:output, buffer}], state}
@@ -85,6 +86,12 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       child(:file, %Membrane.File.Source{location: in_path})
       |> child(:parser, %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true})
       |> child(:payloader, Membrane.MP4.Payloader.H264)
+      |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
+        chunk_duration: Membrane.Time.seconds(1),
+        fast_start: true
+      })
+      |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
+      |> via_out(Pad.ref(:output, 1))
       |> child(:depayloader, Membrane.MP4.Depayloader.H264)
       |> child(:sink, %Membrane.File.Sink{location: out_path})
     ]

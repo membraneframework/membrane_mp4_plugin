@@ -21,6 +21,7 @@ defmodule Membrane.MP4.Depayloader.H264.RemoteStream do
     {[], %{nalu_length_size: nil, sps: <<>>, pps: <<>>}}
   end
 
+  @impl true
   def handle_stream_format(:input, stream_format, _ctx, state) do
     avcc = stream_format.content.avcc
     state = %{state | nalu_length_size: get_nalu_length_size(avcc)}
@@ -43,7 +44,7 @@ defmodule Membrane.MP4.Depayloader.H264.RemoteStream do
     nalu_length_byte_size = 2
     {annex_b_list_of_sps, rest} = to_annex_b(rest, nalu_length_byte_size, num_of_seq_params_sets)
     <<num_of_pic_params_sets::8-integer, rest::binary>> = rest
-    {annex_b_list_of_pps, rest} = to_annex_b(rest, nalu_length_byte_size, num_of_pic_params_sets)
+    {annex_b_list_of_pps, _rest} = to_annex_b(rest, nalu_length_byte_size, num_of_pic_params_sets)
     {annex_b_list_of_sps, annex_b_list_of_pps}
   end
 
@@ -56,6 +57,8 @@ defmodule Membrane.MP4.Depayloader.H264.RemoteStream do
     {[buffer: {:output, buffer}], state}
   end
 
+  defp to_annex_b(au_payload, nalu_length_size, iterations_left \\ :infinity)
+
   defp to_annex_b(au_payload, _nalu_length_size, 0 = _iterations_left) do
     {<<>>, au_payload}
   end
@@ -64,7 +67,7 @@ defmodule Membrane.MP4.Depayloader.H264.RemoteStream do
     {<<>>, au_payload}
   end
 
-  defp to_annex_b(au_payload, nalu_length_size, iterations_left \\ :infinity) do
+  defp to_annex_b(au_payload, nalu_length_size, iterations_left) do
     iterations_left =
       case iterations_left do
         :infinity -> :infinity
