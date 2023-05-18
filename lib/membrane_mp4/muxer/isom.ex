@@ -1,11 +1,6 @@
 defmodule Membrane.MP4.Muxer.ISOM do
   @moduledoc """
   Puts payloaded streams into an MPEG-4 container.
-
-  Due to the structure of MPEG-4 containers, the muxer has to be used along with
-  `Membrane.File.Sink` or any other sink that can handle `Membrane.File.SeekEvent`.
-  The event is used to fill in `mdat` box size after processing all incoming buffers
-  and, if `fast_start` is set to `true`, to insert `moov` box at the beginning of the file.
   """
   use Membrane.Filter
 
@@ -32,6 +27,9 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
                 When set to `true`, the container metadata (`moov` atom) will be placed before media
                 data (`mdat` atom). The equivalent of FFmpeg's `-movflags faststart` option.
+                [IMPORTANT] Due to the structure of MPEG-4 containers, the muxer with `fast_start: true`
+                has to be used along with `Membrane.File.Sink` or any other sink that can handle `Membrane.File.SeekEvent`,
+                since that event is used to insert `moov` box at the beginning of the file.
                 """
               ],
               chunk_duration: [
