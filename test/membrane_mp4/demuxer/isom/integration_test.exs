@@ -56,6 +56,42 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
     perform_test(pipeline, in_path, out_path)
   end
 
+  @tag :tmp_dir
+  test "single aac track payloaded and depayloaded", %{tmp_dir: dir} do
+    in_path = "test/fixtures/in_audio.aac"
+    out_path = Path.join(dir, "out")
+    in_changed_encapsulation_path = Path.join(dir, "out_orig")
+
+    structure = [
+      child(:file, %Membrane.File.Source{location: in_path})
+      |> child({:parser, :in}, %Membrane.AAC.Parser{
+        in_encapsulation: :ADTS,
+        out_encapsulation: :none
+      })
+      |> child(:split, Membrane.Tee.Parallel)
+      |> child(:payloader, Membrane.MP4.Payloader.AAC)
+      |> child(:depayloader, Membrane.MP4.Depayloader.AAC)
+      |> child({:sink, :depayloaded}, %Membrane.File.Sink{location: out_path}),
+      # :ADTS -> :none -> :ADTS operation is not lossless so we need to compare
+      # depayloaded file with the content with changed encapsulation
+      get_child(:split)
+      |> child({:sink, :original}, %Membrane.File.Sink{location: in_changed_encapsulation_path})
+    ]
+
+    pipeline = Pipeline.start_link_supervised!(structure: structure)
+
+    assert_end_of_stream(pipeline, {:sink, :depayloaded}, :input, 6000)
+    assert_end_of_stream(pipeline, {:sink, :original}, :input, 6000)
+    refute_sink_buffer(pipeline, {:sink, :depayloaded}, _buffer, 0)
+
+    assert :ok == Pipeline.terminate(pipeline, blocking?: true)
+
+    in_aac = File.read!(in_changed_encapsulation_path)
+    out_aac = File.read!(out_path)
+
+    assert in_aac == out_aac
+  end
+
   defp start_testing_pipeline!(opts) do
     structure = [
       child(:file, %Membrane.File.Source{location: opts[:input_file]})
