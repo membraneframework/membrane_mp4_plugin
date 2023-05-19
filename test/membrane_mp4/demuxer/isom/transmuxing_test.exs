@@ -11,11 +11,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.TransmuxingTest do
 
   alias Membrane.Testing.Pipeline
 
-  defp perform_test(pid, in_path, out_path) do
-    assert_end_of_stream(pid, :sink, :input, 6000)
-    refute_sink_buffer(pid, :sink, _buffer, 0)
+  defp perform_test(pipeline, in_path, out_path) do
+    assert_end_of_stream(pipeline, :sink, :input, 6000)
+    refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    assert :ok == Pipeline.terminate(pid, blocking?: true)
+    assert :ok == Pipeline.terminate(pipeline, blocking?: true)
 
     {in_mp4, <<>>} = File.read!(in_path) |> Container.parse!()
     {out_mp4, <<>>} = File.read!(out_path) |> Container.parse!()

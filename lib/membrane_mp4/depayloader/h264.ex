@@ -19,7 +19,7 @@ defmodule Membrane.MP4.Depayloader.H264 do
   def handle_init(_ctx, _opts) do
     spec =
       bin_input()
-      |> child(:remote_stream_depayloader, Depayloader.H264.RemoteStream)
+      |> child(:remote_stream_depayloader, Depayloader.H264.Filter)
       |> child(:parser, Parser)
       |> bin_output()
 

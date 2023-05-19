@@ -51,7 +51,6 @@ defmodule Membrane.MP4.Plugin.MixProject do
        git: "https://github.com/membraneframework/membrane_aac_plugin",
        branch: "better_stream_format_and_adts_parsing",
        only: :test},
-      {:membrane_tee_plugin, "~> 0.10.1", only: :test},
       {:membrane_opus_plugin, "~> 0.16.0", only: :test},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
       {:dialyxir, ">= 0.0.0", only: :dev, runtime: false},
