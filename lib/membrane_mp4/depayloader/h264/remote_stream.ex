@@ -68,14 +68,14 @@ defmodule Membrane.MP4.Depayloader.H264.RemoteStream do
   end
 
   defp to_annex_b(au_payload, nalu_length_size, iterations_left) do
+    <<nalu_size::integer-size(nalu_length_size)-unit(8), rest::binary>> = au_payload
+    <<nalu::binary-size(nalu_size), rest::binary>> = rest
+    
     iterations_left =
       case iterations_left do
         :infinity -> :infinity
         iterations_left -> iterations_left - 1
       end
-
-    <<nalu_size::integer-size(nalu_length_size)-unit(8), rest::binary>> = au_payload
-    <<nalu::binary-size(nalu_size), rest::binary>> = rest
     {annex_b, out_of_iterations_rest} = to_annex_b(rest, nalu_length_size, iterations_left)
     {@annex_b_prefix <> nalu <> annex_b, out_of_iterations_rest}
   end
