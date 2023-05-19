@@ -43,11 +43,14 @@ defmodule Membrane.MP4.Plugin.MixProject do
       {:membrane_aac_format, "~> 0.7.0"},
       {:membrane_h264_format, "~> 0.5.0"},
       {:membrane_opus_format, "~> 0.3.0"},
-      {:membrane_file_plugin, "~> 0.13.2"},
+      {:membrane_file_plugin, "~> 0.13.3"},
       {:membrane_h264_plugin, "~> 0.2.1"},
       {:bunch, "~> 1.5"},
       {:membrane_h264_ffmpeg_plugin, "~> 0.25.3", only: :test},
-      {:membrane_aac_plugin, "~> 0.13.0", only: :test},
+      {:membrane_aac_plugin,
+       git: "https://github.com/membraneframework/membrane_aac_plugin",
+       branch: "better_stream_format_and_adts_parsing",
+       only: :test},
       {:membrane_tee_plugin, "~> 0.10.1", only: :test},
       {:membrane_opus_plugin, "~> 0.16.0", only: :test},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
@@ -101,3 +104,10 @@ defmodule Membrane.MP4.Plugin.MixProject do
     ]
   end
 end
+
+# defmodule X do
+#   def get(content) do
+#     <<a::12, b::1, c::2, d::1, e::2, f::4, g::1, h::3, i::1, j::1, k::1, l::1, m::13, rest::bitstring>> = content
+#     %{a: a, b: b, c: c, d: d, e: e, f: f, g: g, h: h, i: i, j: j, k: k, l: l, m: m}
+#   end
+# end
