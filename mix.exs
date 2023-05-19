@@ -104,10 +104,3 @@ defmodule Membrane.MP4.Plugin.MixProject do
     ]
   end
 end
-
-# defmodule X do
-#   def get(content) do
-#     <<a::12, b::1, c::2, d::1, e::2, f::4, g::1, h::3, i::1, j::1, k::1, l::1, m::13, rest::bitstring>> = content
-#     %{a: a, b: b, c: c, d: d, e: e, f: f, g: g, h: h, i: i, j: j, k: k, l: l, m: m}
-#   end
-# end
