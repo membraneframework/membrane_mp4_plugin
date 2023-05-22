@@ -12,6 +12,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   alias Membrane.{MP4, RemoteStream}
   alias Membrane.MP4.Container
   alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
+  alias Membrane.File.SeekEvent
 
   def_input_pad :input,
     accepted_format:
@@ -44,7 +45,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       samples_info: nil,
       all_pads_connected?: false,
       buffered_samples: %{},
-      end_of_stream?: false
+      end_of_stream?: false,
+      has_seen_moov?: false
     }
 
     {[], state}
@@ -96,7 +98,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       ) do
     {samples, rest, samples_info} =
       SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
-
     {get_buffer_actions(samples), %{state | samples_info: samples_info, partial: rest}}
   end
 
@@ -117,27 +118,37 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   def handle_process(:input, buffer, ctx, %{samples_info: nil} = state) do
     # Parse the boxes we have received
-    {boxes, rest} = Container.parse!(state.partial <> buffer.payload)
+    to_parse = state.partial <> buffer.payload
+    {boxes, rest} = Container.parse!(to_parse)
     boxes = state.boxes ++ boxes
-
-    parsing_mdat? =
-      case parse_header(rest) do
+    IO.inspect(boxes)
+    has_seen_moov? = Keyword.has_key?(boxes, :moov)
+    parsed_header = parse_header(rest)
+    is_trying_to_parse_mdat? =
+      case parsed_header do
         nil -> false
         header -> header.name == :mdat
       end
 
-    state = %{state | boxes: boxes, partial: rest, parsing_mdat?: parsing_mdat?}
-
-    if can_read_data_box?(state) do
-      handle_can_read_mdat_box(ctx, state)
+    if is_trying_to_parse_mdat? and not has_seen_moov? do
+      state = %{state | boxes: [], partial: <<>>}
+      {[event: {:input, %SeekEvent{position: {:cur, parsed_header.content_size-byte_size(rest)}}}, demand: :input], state}
     else
-      {[demand: :input], state}
+      state = %{state | boxes: boxes, partial: rest, parsing_mdat?: is_trying_to_parse_mdat?, has_seen_moov?: has_seen_moov?}
+      if can_read_data_box?(state) do
+        handle_can_read_mdat_box(ctx, state)
+      else
+        {[demand: :input], state}
+      end
     end
+
+
+
+
   end
 
   defp handle_can_read_mdat_box(ctx, state) do
     state = %{state | samples_info: SamplesInfo.get_samples_info(state.boxes[:moov])}
-
     # Parse the data we received so far (partial or the whole mdat box in a single buffer) and
     # either store or send the data (if all pads are connected)
 
@@ -231,7 +242,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   def handle_pad_added(Pad.ref(:output, track_id), ctx, state) do
     all_pads_connected? = all_pads_connected?(ctx, state)
-
     {actions, state} =
       if all_pads_connected? do
         {buffer_actions, state} = flush_samples(state, track_id)
@@ -259,7 +269,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   defp all_pads_connected?(ctx, state) do
     tracks = 1..state.samples_info.tracks_number
-
     pads =
       ctx.pads
       |> Enum.flat_map(fn

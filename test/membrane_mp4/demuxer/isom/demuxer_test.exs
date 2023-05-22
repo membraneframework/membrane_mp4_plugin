@@ -48,6 +48,20 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     end
 
     @tag :tmp_dir
+    test "a single H264 track without fast_start flag", %{tmp_dir: dir} do
+      in_path = "test/fixtures/isom/ref_video.mp4"
+      out_path = Path.join(dir, "out")
+
+      pipeline =
+        start_testing_pipeline!(
+          input_file: in_path,
+          output_file: out_path
+        )
+
+      perform_test(pipeline, "video", out_path)
+    end
+
+    @tag :tmp_dir
     test "a single AAC track", %{tmp_dir: dir} do
       in_path = "test/fixtures/isom/ref_aac_fast_start.mp4"
       out_path = Path.join(dir, "out")
@@ -134,8 +148,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
   defp start_testing_pipeline!(opts) do
     structure = [
       child(:file, %Membrane.File.Source{location: opts[:input_file]})
-      |> child(:demuxer, Membrane.MP4.Demuxer.ISOM),
-      get_child(:demuxer)
+      |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
       |> via_out(Pad.ref(:output, 1))
       |> child(:sink, %Membrane.File.Sink{location: opts[:output_file]})
     ]
