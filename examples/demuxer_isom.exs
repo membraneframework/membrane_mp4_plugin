@@ -42,7 +42,7 @@ defmodule Example do
     state = %{state | children_with_eos: MapSet.put(state.children_with_eos, element)}
 
     actions =
-      if Enum.all?([:sink_video, :sink_audio], &MapSet.member?(state.children_with_eos, &1)),
+      if Enum.all?([:sink_video, :sink_audio], & &1 in state.children_with_eos),
         do: [terminate: :shutdown],
         else: []
 
