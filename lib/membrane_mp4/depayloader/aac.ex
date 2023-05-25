@@ -38,12 +38,10 @@ defmodule Membrane.MP4.Depayloader.AAC do
   end
 
   defp get_esds_content(esds) do
-    elementary_stream_id = 1
     stream_priority = 0
 
     {esds, <<>>} = unpack_esds_section(esds, 3)
-
-    <<^elementary_stream_id::16, ^stream_priority, rest::binary>> = esds
+    <<_elementary_stream_id::16, ^stream_priority, rest::binary>> = esds
 
     {section_4, esds_section_6} = unpack_esds_section(rest, 4)
     {<<2>>, <<>>} = unpack_esds_section(esds_section_6, 6)
