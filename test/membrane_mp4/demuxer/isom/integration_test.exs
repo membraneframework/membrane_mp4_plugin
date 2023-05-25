@@ -6,68 +6,150 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
 
   require Membrane.Pad
 
-  alias Membrane.MP4.Container
   alias Membrane.Pad
-
   alias Membrane.Testing.Pipeline
 
-  defp perform_test(pid, in_path, out_path) do
-    assert_end_of_stream(pid, :sink, :input, 6000)
-    refute_sink_buffer(pid, :sink, _buffer, 0)
+  describe "Demuxer and depayloader should allow for reading of" do
+    @tag :tmp_dir
+    test "a single H264 track", %{tmp_dir: dir} do
+      in_path = "test/fixtures/in_video.h264"
+      mp4_path = Path.join(dir, "out.mp4")
+      out_path = Path.join(dir, "out_video.h264")
 
-    assert :ok == Pipeline.terminate(pid, blocking?: true)
+      muxing_spec = [
+        child(:file, %Membrane.File.Source{location: in_path})
+        |> child(:parser, %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true})
+        |> child(:payloader, Membrane.MP4.Payloader.H264)
+        |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
+          chunk_duration: Membrane.Time.seconds(1),
+          fast_start: true
+        })
+        |> child(:sink, %Membrane.File.Sink{location: mp4_path})
+      ]
 
-    {in_mp4, <<>>} = File.read!(in_path) |> Container.parse!()
-    {out_mp4, <<>>} = File.read!(out_path) |> Container.parse!()
+      Pipeline.start_link_supervised!(structure: muxing_spec) |> wait_for_pipeline_termination()
 
-    assert out_mp4[:moov].children[:mvhd] == in_mp4[:moov].children[:mvhd]
+      demuxing_spec = [
+        child(:file, %Membrane.File.Source{location: mp4_path})
+        |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
+        |> via_out(Pad.ref(:output, 1))
+        |> child(:depayloader, Membrane.MP4.Depayloader.H264)
+        |> child(:sink, %Membrane.File.Sink{location: out_path})
+      ]
 
-    assert out_mp4[:moov].children[:trak].children[:thkd] ==
-             in_mp4[:moov].children[:trak].children[:thkd]
+      Pipeline.start_link_supervised!(structure: demuxing_spec) |> wait_for_pipeline_termination()
 
-    assert out_mp4[:mdat] == in_mp4[:mdat]
+      assert_files_equal(out_path, in_path)
+    end
+
+    @tag :tmp_dir
+    test "a single AAC track", %{tmp_dir: dir} do
+      in_path = "test/fixtures/in_audio.aac"
+      mp4_path = Path.join(dir, "out.mp4")
+      out_path = Path.join(dir, "out_audio.aac")
+
+      muxing_spec = [
+        child(:file, %Membrane.File.Source{location: in_path})
+        |> child(:parser, %Membrane.AAC.Parser{
+          in_encapsulation: :ADTS,
+          out_encapsulation: :none
+        })
+        |> child(:payloader, Membrane.MP4.Payloader.AAC)
+        |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
+          chunk_duration: Membrane.Time.seconds(1),
+          fast_start: true
+        })
+        |> child(:sink, %Membrane.File.Sink{location: mp4_path})
+      ]
+
+      Pipeline.start_link_supervised!(structure: muxing_spec) |> wait_for_pipeline_termination()
+
+      demuxing_spec = [
+        child(:file, %Membrane.File.Source{location: mp4_path})
+        |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
+        |> via_out(Pad.ref(:output, 1))
+        |> child(:depayloader, Membrane.MP4.Depayloader.AAC)
+        |> child(:parser, %Membrane.AAC.Parser{
+          in_encapsulation: :none,
+          out_encapsulation: :ADTS
+        })
+        |> child(:sink, %Membrane.File.Sink{location: out_path})
+      ]
+
+      Pipeline.start_link_supervised!(structure: demuxing_spec) |> wait_for_pipeline_termination()
+
+      assert_files_equal(out_path, in_path)
+    end
+
+    @tag :tmp_dir
+    test "H264 and AAC tracks", %{tmp_dir: dir} do
+      in_video_path = "test/fixtures/in_video.h264"
+      in_audio_path = "test/fixtures/in_audio.aac"
+
+      mp4_path = Path.join(dir, "out.mp4")
+
+      out_video_path = Path.join(dir, "out_video.h264")
+      out_audio_path = Path.join(dir, "out_audio.aac")
+
+      muxing_spec = [
+        child(:file_video, %Membrane.File.Source{location: in_video_path})
+        |> child(:video_parser, %Membrane.H264.FFmpeg.Parser{
+          framerate: {30, 1},
+          attach_nalus?: true
+        })
+        |> child(:video_payloader, Membrane.MP4.Payloader.H264)
+        |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
+          chunk_duration: Membrane.Time.seconds(1),
+          fast_start: true
+        })
+        |> child(:sink, %Membrane.File.Sink{location: mp4_path}),
+        child(:file_audio, %Membrane.File.Source{location: in_audio_path})
+        |> child(:audio_parser, %Membrane.AAC.Parser{
+          in_encapsulation: :ADTS,
+          out_encapsulation: :none
+        })
+        |> child(:audio_payloader, Membrane.MP4.Payloader.AAC)
+        |> get_child(:muxer)
+      ]
+
+      Pipeline.start_link_supervised!(structure: muxing_spec) |> wait_for_pipeline_termination()
+
+      demuxing_spec = [
+        child(:file, %Membrane.File.Source{location: mp4_path})
+        |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
+        |> via_out(Pad.ref(:output, 1))
+        |> child(:depayloader_video, Membrane.MP4.Depayloader.H264)
+        |> child(:sink_video, %Membrane.File.Sink{location: out_video_path}),
+        get_child(:demuxer)
+        |> via_out(Pad.ref(:output, 2))
+        |> child(:depayloader_audio, Membrane.MP4.Depayloader.AAC)
+        |> child(:audio_parser, %Membrane.AAC.Parser{
+          in_encapsulation: :none,
+          out_encapsulation: :ADTS
+        })
+        |> child(:sink_audio, %Membrane.File.Sink{location: out_audio_path})
+      ]
+
+      Pipeline.start_link_supervised!(structure: demuxing_spec)
+      |> wait_for_pipeline_termination([:sink_audio, :sink_video])
+
+      assert_files_equal(out_video_path, in_video_path)
+      assert_files_equal(out_audio_path, in_audio_path)
+    end
   end
 
-  @tag :tmp_dir
-  test "single H264 track", %{tmp_dir: dir} do
-    in_path = "test/fixtures/isom/ref_video_fast_start.mp4"
-    out_path = Path.join(dir, "out")
+  defp wait_for_pipeline_termination(pipeline, sink_names \\ [:sink]) do
+    Enum.each(sink_names, fn sink_name ->
+      assert_end_of_stream(pipeline, ^sink_name, :input)
+      refute_sink_buffer(pipeline, sink_name, _buffer, 0)
+    end)
 
-    pipeline =
-      start_testing_pipeline!(
-        input_file: in_path,
-        output_file: out_path
-      )
-
-    perform_test(pipeline, in_path, out_path)
+    Pipeline.terminate(pipeline, blocking?: true)
   end
 
-  @tag :tmp_dir
-  test "single AAC track", %{tmp_dir: dir} do
-    in_path = "test/fixtures/isom/ref_aac_fast_start.mp4"
-    out_path = Path.join(dir, "out")
-
-    pipeline =
-      start_testing_pipeline!(
-        input_file: in_path,
-        output_file: out_path
-      )
-
-    perform_test(pipeline, in_path, out_path)
-  end
-
-  defp start_testing_pipeline!(opts) do
-    structure = [
-      child(:file, %Membrane.File.Source{location: opts[:input_file]})
-      |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
-      |> via_out(Pad.ref(:output, 1))
-      |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
-        chunk_duration: Membrane.Time.seconds(1),
-        fast_start: true
-      })
-      |> child(:sink, %Membrane.File.Sink{location: opts[:output_file]})
-    ]
-
-    Pipeline.start_link_supervised!(structure: structure)
+  defp assert_files_equal(file_a, file_b) do
+    assert {:ok, a} = File.read(file_a)
+    assert {:ok, b} = File.read(file_b)
+    assert a == b
   end
 end

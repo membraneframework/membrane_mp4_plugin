@@ -32,7 +32,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     assert_files_equal(out_path, ref_path)
   end
 
-  describe "Demuxer should demux" do
+  describe "Demuxer should allow for transmuxing of" do
     @tag :tmp_dir
     test "a single H264 track", %{tmp_dir: dir} do
       in_path = "test/fixtures/isom/ref_video_fast_start.mp4"
