@@ -33,26 +33,18 @@ defmodule Example do
       |> child(:sink_audio, %Membrane.File.Sink{location: @output_audio})
     ]
 
-    {[spec: structure, playback: :playing], %{audio_processed?: false, video_processed?: false}}
+    {[spec: structure, playback: :playing], %{children_with_eos: MapSet.new()}}
   end
 
   # The rest of the module is used only for pipeline self-termination after processing finishes
   @impl true
-  def handle_element_end_of_stream(:sink_video, _pad, _ctx, state) do
-    state = %{state | video_processed?: true}
+  def handle_element_end_of_stream(element, _pad, _ctx, state) do
+    state = %{state | children_with_eos: MapSet.put(state.children_with_eos, element)}
 
     actions =
-      if state.audio_processed? and state.video_processed?, do: [terminate: :shutdown], else: []
-
-    {actions, state}
-  end
-
-  @impl true
-  def handle_element_end_of_stream(:sink_audio, _pad, _ctx, state) do
-    state = %{state | audio_processed?: true}
-
-    actions =
-      if state.audio_processed? and state.video_processed?, do: [terminate: :shutdown], else: []
+      if Enum.all?([:sink_video, :sink_audio], &MapSet.member?(state.children_with_eos, &1)),
+        do: [terminate: :shutdown],
+        else: []
 
     {actions, state}
   end
