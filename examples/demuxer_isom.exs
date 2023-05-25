@@ -48,11 +48,6 @@ defmodule Example do
 
     {actions, state}
   end
-
-  @impl true
-  def handle_element_end_of_stream(_child, _pad, _ctx, state) do
-    {[], state}
-  end
 end
 
 # Start and monitor the pipeline
