@@ -138,6 +138,27 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
     end
   end
 
+  @tag :tmp_dir
+  test "the PTS and DTS are properly read", %{tmp_dir: dir} do
+    input_path = "test/fixtures/isom/ref_video_fast_start.mp4"
+    out_path = Path.join(dir, "out.ms")
+    ref_path = "test/fixtures/demuxed_and_depayloaded_video.ms"
+
+    demuxing_spec = [
+      child(:file, %Membrane.File.Source{location: input_path})
+      |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
+      |> via_out(Pad.ref(:output, 1))
+      |> child(:depayloader_video, Membrane.MP4.Depayloader.H264)
+      |> child(:serializer, Membrane.Stream.Serializer)
+      |> child(:sink, %Membrane.File.Sink{location: out_path})
+    ]
+
+    Pipeline.start_link_supervised!(structure: demuxing_spec)
+    |> wait_for_pipeline_termination([:sink])
+
+    assert_files_equal(out_path, ref_path)
+  end
+
   defp wait_for_pipeline_termination(pipeline, sink_names \\ [:sink]) do
     Enum.each(sink_names, fn sink_name ->
       assert_end_of_stream(pipeline, ^sink_name, :input)
