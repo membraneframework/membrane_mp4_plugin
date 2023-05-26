@@ -90,6 +90,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
          sample_composition_offset: sample_composition_offset
        }) do
     use Ratio
+    timescale = samples_info.timescales[track_id]
 
     {dts, pts} =
       case samples_info.last_dts[track_id] do
@@ -97,18 +98,19 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
           {0, 0}
 
         last_dts ->
-          {last_dts +
-             delta / samples_info.timescales[track_id] *
-               Time.second(),
+          {last_dts + scalify(delta, timescale),
            last_dts +
-             (delta + sample_composition_offset) / samples_info.timescales[track_id] *
-               Time.second()}
+             scalify(delta + sample_composition_offset, timescale)}
       end
 
     last_dts = Map.put(samples_info.last_dts, track_id, dts)
     samples_info = %{samples_info | last_dts: last_dts}
 
     {Ratio.trunc(dts), Ratio.trunc(pts), samples_info}
+  end
+
+  defp scalify(delta, timescale) do
+    delta / timescale * Time.second()
   end
 
   @doc """
@@ -152,7 +154,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
 
     tracks_data =
       Map.new(sample_tables, fn {track_id, sample_table} ->
-        # HERE
         {track_id,
          Map.take(sample_table, [
            :decoding_deltas,
@@ -246,7 +247,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
           {delta, [%{sample_count: count - 1, sample_delta: delta} | deltas]}
       end
 
-    {composition_offset, composition_offsets} =
+    {sample_composition_offset, composition_offsets} =
       case composition_offsets do
         [%{sample_count: 1, sample_offset: offset} | composition_offsets] ->
           {offset, composition_offsets}
@@ -255,7 +256,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
           {offset, [%{sample_count: count - 1, sample_offset: offset} | composition_offsets]}
       end
 
-    {%{size: size, sample_delta: delta, sample_composition_offset: composition_offset},
+    {%{size: size, sample_delta: delta, sample_composition_offset: sample_composition_offset},
      %{
        track_data
        | decoding_deltas: deltas,
