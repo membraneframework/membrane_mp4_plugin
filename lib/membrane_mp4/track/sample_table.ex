@@ -26,6 +26,12 @@ defmodule Membrane.MP4.Track.SampleTable do
               sample_count: pos_integer
             }
           ],
+          composition_offsets: [
+            %{
+              sample_offset: Ratio.t(),
+              sample_count: pos_integer
+            }
+          ],
           samples_per_chunk: [
             %{
               first_chunk: pos_integer,
@@ -47,6 +53,7 @@ defmodule Membrane.MP4.Track.SampleTable do
                 sync_samples: [],
                 chunk_offsets: [],
                 decoding_deltas: [],
+                composition_offsets: [],
                 samples_per_chunk: []
               ]
 
