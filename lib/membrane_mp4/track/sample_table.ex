@@ -47,6 +47,7 @@ defmodule Membrane.MP4.Track.SampleTable do
                 sync_samples: [],
                 chunk_offsets: [],
                 decoding_deltas: [],
+                composition_offsets: [],
                 samples_per_chunk: []
               ]
 

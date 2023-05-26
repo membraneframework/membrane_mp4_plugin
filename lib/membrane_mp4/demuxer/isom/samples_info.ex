@@ -68,12 +68,13 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
     if size <= byte_size(data) do
       <<payload::binary-size(size), rest::binary>> = data
 
-      {dts, samples_info} = get_dts(samples_info, sample)
+      {dts, pts, samples_info} = get_dts_and_pts(samples_info, sample)
 
       buffer =
         {%Buffer{
            payload: payload,
-           dts: dts
+           dts: dts,
+           pts: pts
          }, track_id}
 
       samples_info = %{samples_info | samples: samples}
@@ -83,24 +84,31 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
     end
   end
 
-  defp get_dts(samples_info, %{sample_delta: delta, track_id: track_id}) do
+  defp get_dts_and_pts(samples_info, %{
+         sample_delta: delta,
+         track_id: track_id,
+         sample_composition_offset: sample_composition_offset
+       }) do
     use Ratio
 
-    dts =
+    {dts, pts} =
       case samples_info.last_dts[track_id] do
         nil ->
-          0
+          {0, 0}
 
         last_dts ->
-          last_dts +
-            delta / samples_info.timescales[track_id] *
-              Time.second()
+          {last_dts +
+             delta / samples_info.timescales[track_id] *
+               Time.second(),
+           last_dts +
+             (delta + sample_composition_offset) / samples_info.timescales[track_id] *
+               Time.second()}
       end
 
     last_dts = Map.put(samples_info.last_dts, track_id, dts)
     samples_info = %{samples_info | last_dts: last_dts}
 
-    {Ratio.trunc(dts), samples_info}
+    {Ratio.trunc(dts), Ratio.trunc(pts), samples_info}
   end
 
   @doc """
@@ -144,7 +152,14 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
 
     tracks_data =
       Map.new(sample_tables, fn {track_id, sample_table} ->
-        {track_id, Map.take(sample_table, [:decoding_deltas, :sample_sizes, :samples_per_chunk])}
+        # HERE
+        {track_id,
+         Map.take(sample_table, [
+           :decoding_deltas,
+           :sample_sizes,
+           :samples_per_chunk,
+           :composition_offsets
+         ])}
       end)
 
     # Create a samples' description list for each chunk and flatten it
@@ -213,7 +228,13 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
     {%{track | samples_per_chunk: samples_per_chunk}, samples_no}
   end
 
-  defp get_sample_description(%{decoding_deltas: deltas, sample_sizes: sample_sizes} = track_data) do
+  defp get_sample_description(
+         %{
+           decoding_deltas: deltas,
+           sample_sizes: sample_sizes,
+           composition_offsets: composition_offsets
+         } = track_data
+       ) do
     [size | sample_sizes] = sample_sizes
 
     {delta, deltas} =
@@ -225,7 +246,21 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
           {delta, [%{sample_count: count - 1, sample_delta: delta} | deltas]}
       end
 
-    {%{size: size, sample_delta: delta},
-     %{track_data | decoding_deltas: deltas, sample_sizes: sample_sizes}}
+    {composition_offset, composition_offsets} =
+      case composition_offsets do
+        [%{sample_count: 1, sample_offset: offset} | composition_offsets] ->
+          {offset, composition_offsets}
+
+        [%{sample_count: count, sample_offset: offset} | composition_offsets] ->
+          {offset, [%{sample_count: count - 1, sample_offset: offset} | composition_offsets]}
+      end
+
+    {%{size: size, sample_delta: delta, sample_composition_offset: composition_offset},
+     %{
+       track_data
+       | decoding_deltas: deltas,
+         sample_sizes: sample_sizes,
+         composition_offsets: composition_offsets
+     }}
   end
 end
