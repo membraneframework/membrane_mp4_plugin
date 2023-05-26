@@ -206,11 +206,11 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
   end
 
   defp get_composition_offsets(boxes) do
-    # if no :ctts box is available, assume that the offset between composition time and
-    # the decoding time is equal to 0
     if :ctts in Keyword.keys(boxes) do
       boxes[:ctts].fields.entry_list
     else
+      # if no :ctts box is available, assume that the offset between
+      # composition time and the decoding time is equal to 0
       Enum.map(boxes[:stts].fields.entry_list, fn entry ->
         %{sample_count: entry.sample_count, sample_offset: 0}
       end)

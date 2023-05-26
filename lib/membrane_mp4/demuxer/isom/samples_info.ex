@@ -238,6 +238,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
        ) do
     [size | sample_sizes] = sample_sizes
 
+    # TODO - these two clauses could be unified so that not to repeat the code
     {delta, deltas} =
       case deltas do
         [%{sample_count: 1, sample_delta: delta} | deltas] ->
