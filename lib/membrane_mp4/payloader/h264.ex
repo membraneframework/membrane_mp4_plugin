@@ -106,6 +106,7 @@ defmodule Membrane.MP4.Payloader.H264 do
       case input_stream_format.framerate do
         {0, _denominator} -> 30 * 1024
         {nominator, _denominator} -> nominator * 1024
+        nil -> 30 * 1024
       end
 
     %Membrane.MP4.Payload{
