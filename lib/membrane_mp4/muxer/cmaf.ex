@@ -400,7 +400,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
                   timescale
                 )
                 |> Ratio.trunc(),
-              sample_offset: Ratio.floor((sample.pts - sample.dts) / timescale)
+              sample_offset: Helper.timescalify(sample.pts - sample.dts, timescale)
             }
           end)
 
