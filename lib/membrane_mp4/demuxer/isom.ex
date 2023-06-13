@@ -91,13 +91,20 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   def handle_process(
         :input,
         buffer,
-        _ctx,
+        ctx,
         %{all_pads_connected?: true, samples_info: %SamplesInfo{}} = state
       ) do
     {samples, rest, samples_info} =
       SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
 
-    {get_buffer_actions(samples), %{state | samples_info: samples_info, partial: rest}}
+    buffers = get_buffer_actions(samples)
+
+    redemands =
+      ctx.pads
+      |> Enum.filter(fn {pad, _pad_data} -> match?(Pad.ref(:output, _ref), pad) end)
+      |> Enum.flat_map(fn {pad, _pad_data} -> [redemand: pad] end)
+
+    {buffers ++ redemands, %{state | samples_info: samples_info, partial: rest}}
   end
 
   def handle_process(
@@ -199,11 +206,14 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp get_track_notifications(state) do
-    state.samples_info.sample_tables
-    |> Enum.map(fn {track_id, table} ->
-      content = table.sample_description.content
-      {:notify_parent, {:new_track, track_id, content}}
-    end)
+    new_tracks =
+      state.samples_info.sample_tables
+      |> Enum.map(fn {track_id, table} ->
+        content = table.sample_description.content
+        {track_id, content}
+      end)
+
+    [{:notify_parent, {:new_tracks, new_tracks}}]
   end
 
   defp get_stream_format(state) do
