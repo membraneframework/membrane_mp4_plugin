@@ -40,6 +40,7 @@ defmodule Membrane.MP4.Depayloader.H264.Filter do
   defp decode_pss(avcc) do
     <<1, _profile, _compatibility, _level, 0b111111::6, _nalu_length_size_minus_one::2-integer,
       0b111::3, num_of_seq_params_sets::5-integer, rest::binary>> = avcc
+
     nalu_length_byte_size = 2
     {annex_b_list_of_sps, rest} = to_annex_b(rest, nalu_length_byte_size, num_of_seq_params_sets)
     <<num_of_pic_params_sets::8-integer, rest::binary>> = rest
