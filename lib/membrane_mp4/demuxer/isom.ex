@@ -3,7 +3,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   A Membrane Element for demuxing an MP4.
 
   The MP4 must have `fast start` enabled, i.e. the `moov` box must precede the `mdat` box.
-  Once the Demuxer identifies the tracks in the MP4, `t:new_track_t/0` notification is sent for each of the tracks.
+  Once the Demuxer identifies the tracks in the MP4, `t:new_tracks_t/0` notification is sent for each of the tracks.
 
   All the tracks in the MP4 must have a corresponding output pad linked (`Pad.ref(:output, track_id)`).
   """
@@ -24,13 +24,14 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     availability: :on_request
 
   @typedoc """
-  Notification sent when a new track is identified in the MP4.
+  Notification sent when the tracks are identified in the MP4.
 
-  Upon receiving the notification a `Pad.ref(:output, track_id)` pad should be linked.
+  Upon receiving the notification, `Pad.ref(:output, track_id)` pads should be linked
+  for all the `track_id` in the list.
   The `content` field describes the kind of `Membrane.MP4.Payload` which is contained in the track.
   """
-  @type new_track_t() ::
-          {:new_track, track_id :: integer(), content :: struct()}
+  @type new_tracks_t() ::
+          {:new_tracks, [{track_id :: integer(), content :: struct()}]}
 
   @header_boxes [:ftyp, :moov]
   @mdat_header_size 8
