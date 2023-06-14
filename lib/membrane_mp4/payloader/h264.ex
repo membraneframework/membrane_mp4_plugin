@@ -8,7 +8,7 @@ defmodule Membrane.MP4.Payloader.H264 do
   alias Membrane.MP4.Payload.AVC1
 
   @nalu_length_size 4
-  @parameter_nalus [:sps, :pps, :aus]
+  @parameter_nalus [:sps, :pps, :aud]
 
   def_input_pad :input,
     demand_unit: :buffers,

@@ -62,7 +62,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     end
   end
 
-  describe "output pad connected after new_track_t() notification" do
+  describe "output pad connected after new_tracks_t() notification" do
     @tag :tmp_dir
     test "output pad connected after end_of_stream", %{tmp_dir: dir} do
       out_path = Path.join(dir, "out")
@@ -76,7 +76,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
 
       assert_receive %RemoteMessage.Notification{
                        element: :demuxer,
-                       data: {:new_track, 1, _payload},
+                       data: {:new_tracks, [{1, _payload}]},
                        from: _
                      },
                      2000
@@ -110,7 +110,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
 
       assert_receive %RemoteMessage.Notification{
                        element: :demuxer,
-                       data: {:new_track, 1, _payload},
+                       data: {:new_tracks, [{1, _payload}]},
                        from: _
                      },
                      2000

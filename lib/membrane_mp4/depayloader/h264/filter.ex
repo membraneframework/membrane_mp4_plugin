@@ -44,7 +44,8 @@ defmodule Membrane.MP4.Depayloader.H264.Filter do
     nalu_length_byte_size = 2
     {annex_b_list_of_sps, rest} = to_annex_b(rest, nalu_length_byte_size, num_of_seq_params_sets)
     <<num_of_pic_params_sets::8-integer, rest::binary>> = rest
-    {annex_b_list_of_pps, <<>>} = to_annex_b(rest, nalu_length_byte_size, num_of_pic_params_sets)
+
+    {annex_b_list_of_pps, _rest} = to_annex_b(rest, nalu_length_byte_size, num_of_pic_params_sets)
     {annex_b_list_of_sps, annex_b_list_of_pps}
   end
 
