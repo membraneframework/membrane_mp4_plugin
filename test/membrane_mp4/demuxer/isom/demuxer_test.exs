@@ -5,11 +5,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
   import Membrane.Testing.Assertions
 
   require Membrane.Pad
-  require Membrane.RemoteControlled.Pipeline
+  require Membrane.RCPipeline
 
   alias Membrane.Pad
-  alias Membrane.RemoteControlled.Message, as: RemoteMessage
-  alias Membrane.RemoteControlled.Pipeline, as: RemotePipeline
+  alias Membrane.RCMessage
+  alias Membrane.RCPipeline
   alias Membrane.Testing.Pipeline
 
   # Fixtures used in demuxer tests below were generated with `chunk_duration` option set to `Membrane.Time.seconds(1)`.
@@ -74,14 +74,14 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
           file_source_chunk_size: File.stat!(filename).size
         )
 
-      assert_receive %RemoteMessage.Notification{
+      assert_receive %RCMessage.Notification{
                        element: :demuxer,
                        data: {:new_tracks, [{1, _payload}]},
                        from: _
                      },
                      2000
 
-      assert_receive %RemoteMessage.EndOfStream{element: :demuxer, pad: :input, from: _}, 2000
+      assert_receive %RCMessage.EndOfStream{element: :demuxer, pad: :input, from: _}, 2000
 
       structure = [
         get_child(:demuxer)
@@ -89,10 +89,10 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
         |> child(:sink, %Membrane.File.Sink{location: out_path})
       ]
 
-      RemotePipeline.exec_actions(pipeline, spec: {structure, []})
-      assert_receive %RemoteMessage.EndOfStream{element: :sink, pad: :input, from: _}, 2000
+      RCPipeline.exec_actions(pipeline, spec: {structure, []})
+      assert_receive %RCMessage.EndOfStream{element: :sink, pad: :input, from: _}, 2000
 
-      RemotePipeline.terminate(pipeline, blocking?: true)
+      RCPipeline.terminate(pipeline, blocking?: true)
 
       assert_files_equal(out_path, ref_path_for("video"))
     end
@@ -108,7 +108,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
           file_source_chunk_size: File.stat!(filename).size - 1
         )
 
-      assert_receive %RemoteMessage.Notification{
+      assert_receive %RCMessage.Notification{
                        element: :demuxer,
                        data: {:new_tracks, [{1, _payload}]},
                        from: _
@@ -121,11 +121,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
         |> child(:sink, %Membrane.File.Sink{location: out_path})
       ]
 
-      RemotePipeline.exec_actions(pipeline, spec: {structure, []})
-      assert_receive %RemoteMessage.EndOfStream{element: :demuxer, pad: :input, from: _}, 2000
-      assert_receive %RemoteMessage.EndOfStream{element: :sink, pad: :input, from: _}, 2000
+      RCPipeline.exec_actions(pipeline, spec: {structure, []})
+      assert_receive %RCMessage.EndOfStream{element: :demuxer, pad: :input, from: _}, 2000
+      assert_receive %RCMessage.EndOfStream{element: :sink, pad: :input, from: _}, 2000
 
-      RemotePipeline.terminate(pipeline, blocking?: true)
+      RCPipeline.terminate(pipeline, blocking?: true)
 
       assert_files_equal(out_path, ref_path_for("video"))
     end
@@ -154,10 +154,10 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
 
     actions = [spec: {structure, []}, playback: :playing]
 
-    pipeline = RemotePipeline.start_link!()
-    RemotePipeline.exec_actions(pipeline, actions)
-    RemotePipeline.subscribe(pipeline, %RemoteMessage.Notification{element: _, data: _, from: _})
-    RemotePipeline.subscribe(pipeline, %RemoteMessage.EndOfStream{element: _, pad: _, from: _})
+    pipeline = RCPipeline.start_link!()
+    RCPipeline.exec_actions(pipeline, actions)
+    RCPipeline.subscribe(pipeline, %RCMessage.Notification{element: _, data: _, from: _})
+    RCPipeline.subscribe(pipeline, %RCMessage.EndOfStream{element: _, pad: _, from: _})
     pipeline
   end
 end
