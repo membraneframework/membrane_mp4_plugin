@@ -80,8 +80,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         ctx,
         %{all_pads_connected?: true} = state
       ) do
-    {_pad, %{demand: size}} =
-      Enum.max_by(ctx.pads, fn {_pad, pad_data} -> pad_data.demand end, fn -> 0 end)
+    size =
+      Map.values(ctx.pads)
+      |> Enum.filter(& &1.direction == :output)
+      |> Enum.map(& &1.demand_snapshot)
+      |> Enum.max()
 
     {[demand: {:input, size}], state}
   end
