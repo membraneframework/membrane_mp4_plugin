@@ -37,7 +37,7 @@ defmodule Membrane.MP4.Plugin.MixProject do
 
   defp deps do
     [
-      {:membrane_core, "~> 0.12.0"},
+      {:membrane_core, "~> 0.12.2"},
       {:membrane_mp4_format, "~> 0.7.0"},
       {:membrane_cmaf_format, "~> 0.6.0"},
       {:membrane_aac_format, "~> 0.7.0"},
