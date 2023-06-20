@@ -11,7 +11,6 @@ The package can be installed by adding `membrane_mp4_plugin` to your list of dep
 
 ```elixir
 defp deps do
-<<<<<<< HEAD
   [
     {:membrane_mp4_plugin, "~> 0.24.0"}
   ]
