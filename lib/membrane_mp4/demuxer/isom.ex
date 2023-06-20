@@ -82,7 +82,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       ) do
     size =
       Map.values(ctx.pads)
-      |> Enum.filter(& &1.direction == :output)
+      |> Enum.filter(&(&1.direction == :output))
       |> Enum.map(& &1.demand_snapshot)
       |> Enum.max()
 
