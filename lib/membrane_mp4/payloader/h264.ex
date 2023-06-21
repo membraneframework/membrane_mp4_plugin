@@ -51,8 +51,8 @@ defmodule Membrane.MP4.Payloader.H264 do
       |> Enum.take_while(&(&1.metadata.h264.type in [:sei, :sps, :pps, :aud]))
       |> Enum.map(&{&1.metadata.h264.type, &1.payload})
 
-    pps = Keyword.get_values(grouped_nalus, :pps)
-    sps = Keyword.get_values(grouped_nalus, :sps)
+    pps = Keyword.get_values(grouped_nalus, :pps) |> Enum.uniq()
+    sps = Keyword.get_values(grouped_nalus, :sps) |> Enum.uniq()
 
     {maybe_stream_format, state} =
       if (pps != [] and pps != state.pps) or (sps != [] and sps != state.sps) do
