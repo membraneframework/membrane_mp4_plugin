@@ -39,7 +39,10 @@ defmodule Membrane.MP4.Plugin.MixProject do
     [
       {:membrane_core, "~> 0.12.3"},
       {:membrane_mp4_format, "~> 0.7.0"},
-      {:membrane_cmaf_format, "~> 0.6.0"},
+      # {:membrane_cmaf_format, "~> 0.6.0"},
+      {:membrane_cmaf_format,
+       github: "membraneframework/membrane_cmaf_format",
+       branch: "feature/extend_cmaf_stream_format"},
       {:membrane_aac_format, "~> 0.7.0"},
       {:membrane_h264_format, "~> 0.5.0"},
       {:membrane_opus_format, "~> 0.3.0"},

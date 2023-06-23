@@ -68,6 +68,81 @@ defmodule Membrane.MP4.Track do
     |> Map.update!(:sample_table, &SampleTable.reverse/1)
   end
 
+  @spec get_encoding_info(__MODULE__.t()) ::
+          {:avc1, %{aot_id: binary(), channels: integer(), frequency: integer()}}
+          | {:mp4a, %{profile: binary(), compatibiliy: binary(), level: binary()}}
+          | nil
+
+  def get_encoding_info(%__MODULE__{
+        content: %Membrane.MP4.Payload.AAC{
+          esds: esds
+        }
+      }) do
+    with <<_elementary_stream_id::16, _priority::8, rest::binary>> <- find_esds_section(3, esds),
+         <<_section_4::binary-size(13), rest::binary>> <- find_esds_section(4, rest),
+         <<aot_id::5, frequency_id::4, channel_config_id::4, _rest::bitstring>> <-
+           find_esds_section(5, rest) do
+      map = %{
+        aot_id: aot_id,
+        channels: channel_config_id,
+        frequency: get_frequency(frequency_id)
+      }
+
+      {:mp4a, map}
+    end
+  end
+
+  def get_encoding_info(%__MODULE__{
+        content: %Membrane.MP4.Payload.AVC1{
+          avcc: <<1, profile, compatibility, level, _rest::binary>>
+        }
+      }) do
+    map = %{
+      profile: profile,
+      compatibility: compatibility,
+      level: level
+    }
+
+    {:avc1, map}
+  end
+
+  def get_encoding_info(_unknown), do: nil
+
+  defp find_esds_section(section_number, payload) do
+    case payload do
+      <<^section_number::8, 128, 128, 128, section_size::8, payload::binary-size(section_size),
+        __rest::binary>> ->
+        payload
+
+      <<_other_section::8, 128, 128, 128, section_size::8, _payload::binary-size(section_size),
+        rest::binary>> ->
+        find_esds_section(section_number, rest)
+
+      _other ->
+        nil
+    end
+  end
+
+  defp get_frequency(id) do
+    %{
+      0 => 96_000,
+      1 => 88_200,
+      2 => 64_000,
+      3 => 48_000,
+      4 => 44_100,
+      5 => 32_000,
+      6 => 24_000,
+      7 => 22_050,
+      8 => 16_000,
+      9 => 12_000,
+      10 => 11_025,
+      11 => 8_000,
+      12 => 7_350,
+      15 => :explicit
+    }
+    |> Map.fetch!(id)
+  end
+
   defp put_durations(track, movie_timescale) do
     use Ratio
 
