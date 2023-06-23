@@ -9,7 +9,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   """
   use Membrane.Filter
 
-  alias Hex.API.Key
   alias Membrane.{MP4, RemoteStream}
   alias Membrane.MP4.Container
   alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
@@ -213,18 +212,16 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp update_fsm_state(
-         %{
-           fsm_state: :searching_for_metadata,
-           optimize_for_non_fast_start?: true,
-           mdat_beginning: mdat_beginning
-         } = state
-       )
+  defp update_fsm_state(%{
+         fsm_state: :searching_for_metadata,
+         optimize_for_non_fast_start?: true,
+         mdat_beginning: mdat_beginning
+       })
        when mdat_beginning != nil do
     :skipping_mdat
   end
 
-  defp update_fsm_state(%{fsm_state: :skipping_mdat} = state) do
+  defp update_fsm_state(%{fsm_state: :skipping_mdat}) do
     :searching_for_metadata2
   end
 
@@ -263,10 +260,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp handle_non_fast_start_optimization(%{fsm_state: :metadata_present} = state) do
     state = %{state | fsm_state: :started_parsing_mdat}
     seek(state, state.mdat_beginning, state.mdat_size + @header_size, true)
-  end
-
-  defp handle_non_fast_start_optimization(%{fsm_state: :started_parsing_mdat}, state) do
-    {[demand: :input], state}
   end
 
   defp seek(state, start, size_to_read, last?) do
@@ -338,11 +331,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       {:ok, header, _rest} -> header
       {:error, :not_enough_data} -> nil
     end
-  end
-
-  defp can_read_data_box?(state) do
-    Enum.all?(@header_boxes, &Keyword.has_key?(state.boxes, &1)) and
-      (state.started_parsing_mdat? or Keyword.has_key?(state.boxes, :mdat))
   end
 
   defp get_track_notifications(state) do
