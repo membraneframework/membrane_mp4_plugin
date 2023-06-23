@@ -23,6 +23,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     accepted_format: Membrane.MP4.Payload,
     availability: :on_request
 
+  def_options optimize_for_non_fast_start?: [default: false]
+
   @typedoc """
   Notification sent when the tracks are identified in the MP4.
 
@@ -37,7 +39,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   @mdat_header_size 8
 
   @impl true
-  def handle_init(_ctx, _options) do
+  def handle_init(_ctx, options) do
     state = %{
       boxes: [],
       parsing_mdat?: false,
@@ -45,7 +47,12 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       samples_info: nil,
       all_pads_connected?: false,
       buffered_samples: %{},
-      end_of_stream?: false
+      end_of_stream?: false,
+      optimize_for_non_fast_start?: options.optimize_for_non_fast_start?,
+      should_drop?: false,
+      how_many_bytes_read: 0,
+      mdat_beginning: nil,
+      mdat_size: nil
     }
 
     {[], state}
@@ -53,8 +60,39 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   @impl true
   def handle_playing(_ctx, state) do
-    {[demand: :input], state}
+    actions =
+      [demand: :input] ++
+        if state.optimize_for_non_fast_start? do
+          [event: {:input, %Membrane.File.SeekSourceEvent{start: :bof, size_to_read: :infinity}}]
+        else
+          []
+        end
+
+    {actions, state}
   end
+
+  @impl true
+  def handle_event(
+        :input,
+        %Membrane.File.NewSeekEvent{},
+        _ctx,
+        %{optimize_for_non_fast_start?: true} = state
+      ) do
+    {[], %{state | should_drop?: false}}
+  end
+
+  @impl true
+  def handle_event(
+        :input,
+        %Membrane.File.NewSeekEvent{},
+        _ctx,
+        %{optimize_for_non_fast_start?: false}
+      ) do
+    raise "In order to work with a seekable source the demuxer must have the `optimize_for_non_fast_start?: true` option."
+  end
+
+  @impl true
+  def handle_event(_pad, event, _context, state), do: {[forward: event], state}
 
   @impl true
   def handle_stream_format(:input, _stream_format, _ctx, state) do
@@ -89,6 +127,18 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {[demand: {:input, size}], state}
   end
 
+  def handle_process(
+        :input,
+        _buffer,
+        _ctx,
+        %{
+          optimize_for_non_fast_start?: true,
+          should_drop?: true
+        } = state
+      ) do
+    {[demand: :input], state}
+  end
+
   # We are assuming, that after header boxes ([:ftyp, :moov]), there is a single
   # mdat box, which contains all the data
   @impl true
@@ -96,7 +146,10 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         :input,
         buffer,
         ctx,
-        %{all_pads_connected?: true, samples_info: %SamplesInfo{}} = state
+        %{
+          all_pads_connected?: true,
+          samples_info: %SamplesInfo{}
+        } = state
       ) do
     {samples, rest, samples_info} =
       SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
@@ -128,21 +181,57 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   def handle_process(:input, buffer, ctx, %{samples_info: nil} = state) do
     # Parse the boxes we have received
-    {boxes, rest} = Container.parse!(state.partial <> buffer.payload)
-    boxes = state.boxes ++ boxes
+    state = %{state | how_many_bytes_read: state.how_many_bytes_read + byte_size(buffer.payload)}
 
-    parsing_mdat? =
-      case parse_header(rest) do
-        nil -> false
-        header -> header.name == :mdat
-      end
+    {new_boxes, rest} = Container.parse!(state.partial <> buffer.payload)
+    boxes = state.boxes ++ new_boxes
 
-    state = %{state | boxes: boxes, partial: rest, parsing_mdat?: parsing_mdat?}
-
-    if can_read_data_box?(state) do
-      handle_can_read_mdat_box(ctx, state)
+    if :moov in Keyword.keys(new_boxes) and state.optimize_for_non_fast_start? do
+      {[
+         event:
+           {:input,
+            %Membrane.File.SeekSourceEvent{
+              start: state.mdat_beginning,
+              size_to_read: state.mdat_size + 8,
+              last?: true
+            }},
+         demand: :input
+       ], %{state | boxes: boxes, partial: rest, should_drop?: true}}
     else
-      {[demand: :input], state}
+      maybe_header = parse_header(rest)
+
+      parsing_mdat? =
+        case maybe_header do
+          nil -> false
+          header -> header.name == :mdat
+        end
+
+      if state.optimize_for_non_fast_start? and parsing_mdat? and
+           not Keyword.has_key?(boxes, :moov) do
+        mdat_beginning = state.how_many_bytes_read - byte_size(rest)
+        # 8 is mdat's header size
+        start = mdat_beginning + 8 + maybe_header.content_size
+
+        {[
+           event: {:input, %Membrane.File.SeekSourceEvent{start: start, size_to_read: :infinity}},
+           demand: :input
+         ],
+         %{
+           state
+           | boxes: boxes,
+             should_drop?: true,
+             mdat_beginning: mdat_beginning,
+             mdat_size: maybe_header.content_size
+         }}
+      else
+        state = %{state | boxes: boxes, partial: rest, parsing_mdat?: parsing_mdat?}
+
+        if can_read_data_box?(state) do
+          handle_can_read_mdat_box(ctx, state)
+        else
+          {[demand: :input], state}
+        end
+      end
     end
   end
 

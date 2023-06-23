@@ -28,7 +28,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
                 When set to `true`, the container metadata (`moov` atom) will be placed before media
                 data (`mdat` atom). The equivalent of FFmpeg's `-movflags faststart` option.
                 [IMPORTANT] Due to the structure of MPEG-4 containers, the muxer with `fast_start: true`
-                has to be used along with `Membrane.File.Sink` or any other sink that can handle `Membrane.File.SeekEvent`,
+                has to be used along with `Membrane.File.Sink` or any other sink that can handle `Membrane.File.SeekSinkEvent`,
                 since that event is used to insert `moov` box at the beginning of the file.
                 """
               ],
@@ -181,7 +181,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
     mdat_total_size = @mdat_header_size + state.mdat_size
 
     update_mdat_actions = [
-      event: {:output, %File.SeekEvent{position: after_ftyp}},
+      event: {:output, %File.SeekSinkEvent{position: after_ftyp}},
       buffer: {:output, %Buffer{payload: <<mdat_total_size::32>>}}
     ]
 
@@ -190,7 +190,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
       update_mdat_actions ++
         [
-          event: {:output, %File.SeekEvent{position: after_ftyp, insert?: true}},
+          event: {:output, %File.SeekSinkEvent{position: after_ftyp, insert?: true}},
           buffer: {:output, %Buffer{payload: moov}}
         ]
     else
