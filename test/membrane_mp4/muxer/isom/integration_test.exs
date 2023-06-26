@@ -197,9 +197,10 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       {:ok, _supervisor_pid, pid} = Pipeline.start(structure: structure)
       monitor_ref = Process.monitor(pid)
 
-      # in the line below, `_child` should be replaced with `:muxer`, but, for some reason,
+      # In the line below, `_child` should be replaced with `:muxer`, but, for some reason,
       # on CircleCI, :sink raises before :muxer, with reason:
       # Failed to truncate file #PID<0.1000.0>: :einval
+      # Link to Jira ticket: https://membraneframework.atlassian.net/browse/MS-602
       assert_receive {:DOWN, ^monitor_ref, :process, ^pid, {:membrane_child_crash, _child}}, 1_000
     end
 
