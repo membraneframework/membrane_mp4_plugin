@@ -199,7 +199,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       end
 
     fsm_state = update_fsm_state(state, started_parsing_mdat?: started_parsing_mdat?)
-    partial = if fsm_state in [:skip_mdat, :go_back_to_mdat] , do: <<>>, else: rest
+    partial = if fsm_state in [:skip_mdat, :go_back_to_mdat], do: <<>>, else: rest
     state = %{state | fsm_state: fsm_state, partial: partial}
 
     cond do
