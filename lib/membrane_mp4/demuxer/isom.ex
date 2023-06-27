@@ -42,18 +42,17 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   def handle_init(_ctx, options) do
     state = %{
       boxes: [],
-      started_parsing_mdat?: false,
       partial: <<>>,
       samples_info: nil,
       all_pads_connected?: false,
       buffered_samples: %{},
       end_of_stream?: false,
       optimize_for_non_fast_start?: options.optimize_for_non_fast_start?,
-      # TODO: unify `should_drop?` with the `fsm_state`
       should_drop?: options.optimize_for_non_fast_start?,
-      how_many_bytes_read: 0,
+      boxes_size: 0,
       mdat_beginning: nil,
       mdat_size: nil,
+      # Question for reviewers - how should this field be called?
       fsm_state: :searching_for_metadata
     }
 
@@ -182,9 +181,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   def handle_process(:input, buffer, ctx, %{samples_info: nil} = state) do
-    state = %{state | how_many_bytes_read: state.how_many_bytes_read + byte_size(buffer.payload)}
     {new_boxes, rest} = Container.parse!(state.partial <> buffer.payload)
-    state = %{state | boxes: state.boxes ++ new_boxes}
+
+    state = %{
+      state
+      | boxes: state.boxes ++ new_boxes,
+        boxes_size:
+          state.boxes_size + byte_size(state.partial <> buffer.payload) - byte_size(rest)
+    }
+
     maybe_header = parse_header(rest)
 
     started_parsing_mdat? =
@@ -193,86 +198,107 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         header -> header.name == :mdat
       end
 
-    state =
-      if started_parsing_mdat? do
-        mdat_beginning = state.how_many_bytes_read - byte_size(rest)
-        %{state | mdat_beginning: mdat_beginning, mdat_size: maybe_header.content_size}
-      else
-        state
-      end
-
-    fsm_state = update_fsm_state(state)
-    partial = if fsm_state == :skipping_mdat, do: <<>>, else: rest
+    fsm_state = update_fsm_state(state, started_parsing_mdat?: started_parsing_mdat?)
+    partial = if fsm_state in [:skip_mdat, :go_back_to_mdat] , do: <<>>, else: rest
     state = %{state | fsm_state: fsm_state, partial: partial}
 
     cond do
-      fsm_state == :started_parsing_mdat -> handle_can_read_mdat_box(ctx, state)
-      state.optimize_for_non_fast_start? -> handle_non_fast_start_optimization(state)
-      true -> {[demand: :input], state}
+      fsm_state == :parsing_mdat ->
+        handle_can_read_mdat_box(ctx, state)
+
+      state.optimize_for_non_fast_start? ->
+        state =
+          if state.fsm_state == :skip_mdat,
+            do: %{state | mdat_beginning: state.boxes_size, mdat_size: maybe_header.content_size},
+            else: state
+
+        handle_non_fast_start_optimization(state)
+
+      true ->
+        {[demand: :input], state}
     end
   end
 
-  defp update_fsm_state(%{
-         fsm_state: :searching_for_metadata,
-         optimize_for_non_fast_start?: true,
-         mdat_beginning: mdat_beginning
-       })
-       when mdat_beginning != nil do
-    :skipping_mdat
+  defp update_fsm_state(%{fsm_state: :searching_for_metadata} = state, context) do
+    cond do
+      Enum.all?(@header_boxes, &Keyword.has_key?(state.boxes, &1)) ->
+        update_fsm_state(%{state | fsm_state: :searching_for_mdat}, context)
+
+      Keyword.get(context, :started_parsing_mdat?, false) and state.optimize_for_non_fast_start? ->
+        :skip_mdat
+
+      true ->
+        :searching_for_metadata
+    end
   end
 
-  defp update_fsm_state(%{fsm_state: :skipping_mdat}) do
-    :searching_for_metadata2
+  defp update_fsm_state(%{fsm_state: :skip_mdat} = state, context) do
+    if Keyword.get(context, :seeked?, false) do
+      update_fsm_state(%{state | fsm_state: :continue_searching_for_metadata}, context)
+    else
+      :skip_mdat
+    end
   end
 
-  defp update_fsm_state(%{fsm_state: fsm_state} = state)
-       when fsm_state in [:searching_for_metadata, :searching_for_metadata2] do
+  defp update_fsm_state(%{fsm_state: :continue_searching_for_metadata} = state, _context) do
     if Enum.all?(@header_boxes, &Keyword.has_key?(state.boxes, &1)) do
-      update_fsm_state(%{state | fsm_state: :metadata_present})
+      :go_back_to_mdat
     else
-      fsm_state
+      :continue_searching_for_metadata
     end
   end
 
-  defp update_fsm_state(%{fsm_state: :metadata_present} = state) do
-    if state.started_parsing_mdat? or Keyword.has_key?(state.boxes, :mdat) do
-      update_fsm_state(%{state | fsm_state: :started_parsing_mdat})
+  defp update_fsm_state(%{fsm_state: :go_back_to_mdat} = state, context) do
+    if Keyword.get(context, :seeked?, false) do
+      update_fsm_state(%{state | fsm_state: :searching_for_mdat}, context)
     else
-      :metadata_present
+      :go_back_to_mdat
     end
   end
 
-  defp update_fsm_state(%{fsm_state: :started_parsing_mdat}) do
-    :started_parsing_mdat
+  defp update_fsm_state(%{fsm_state: :searching_for_mdat} = state, context) do
+    if Keyword.get(context, :started_parsing_mdat?, false) or :mdat in Keyword.keys(state.boxes) do
+      :parsing_mdat
+    else
+      :searching_for_mdat
+    end
   end
 
-  defp handle_non_fast_start_optimization(%{fsm_state: :skipping_mdat} = state) do
+  defp update_fsm_state(%{fsm_state: :parsing_mdat}, _context) do
+    :parsing_mdat
+  end
+
+  defp handle_non_fast_start_optimization(%{fsm_state: :skip_mdat} = state) do
     box_after_mdat_beginning = state.mdat_beginning + @header_size + state.mdat_size
-    state = %{state | fsm_state: :searching_for_metadata2}
     seek(state, box_after_mdat_beginning, :infinity, false)
   end
 
   defp handle_non_fast_start_optimization(%{fsm_state: fsm_state} = state)
-       when fsm_state in [:searching_for_metadata, :searching_for_metadata2] do
+       when fsm_state in [
+              :searching_for_metadata,
+              :continue_searching_for_metadata,
+              :searching_for_mdat
+            ] do
     {[demand: :input], state}
   end
 
-  defp handle_non_fast_start_optimization(%{fsm_state: :metadata_present} = state) do
-    state = %{state | fsm_state: :started_parsing_mdat}
+  defp handle_non_fast_start_optimization(%{fsm_state: :go_back_to_mdat} = state) do
     seek(state, state.mdat_beginning, state.mdat_size + @header_size, true)
   end
 
   defp seek(state, start, size_to_read, last?) do
+    state = %{
+      state
+      | should_drop?: true,
+        fsm_state: update_fsm_state(state, seeked?: true)
+    }
+
     {[
        event:
          {:input,
           %Membrane.File.SeekSourceEvent{start: start, size_to_read: size_to_read, last?: last?}},
        demand: :input
-     ],
-     %{
-       state
-       | should_drop?: true
-     }}
+     ], state}
   end
 
   defp handle_can_read_mdat_box(ctx, state) do
