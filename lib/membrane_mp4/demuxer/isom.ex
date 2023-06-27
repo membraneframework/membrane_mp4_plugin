@@ -48,7 +48,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       buffered_samples: %{},
       end_of_stream?: false,
       optimize_for_non_fast_start?: options.optimize_for_non_fast_start?,
-      should_drop?: options.optimize_for_non_fast_start?,
+      should_drop_buffers?: options.optimize_for_non_fast_start?,
       boxes_size: 0,
       mdat_beginning: nil,
       mdat_size: nil,
@@ -61,15 +61,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   @impl true
   def handle_playing(_ctx, state) do
-    actions =
-      [demand: :input] ++
-        if state.optimize_for_non_fast_start? do
-          [event: {:input, %Membrane.File.SeekSourceEvent{start: :bof, size_to_read: :infinity}}]
-        else
-          []
-        end
-
-    {actions, state}
+    if state.optimize_for_non_fast_start? do
+      seek(state, :bof, :infinity, false)
+    else
+      {[demand: :input], state}
+    end
   end
 
   @impl true
@@ -77,9 +73,9 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         :input,
         %Membrane.File.NewSeekEvent{},
         _ctx,
-        %{optimize_for_non_fast_start?: true, should_drop?: true} = state
+        %{optimize_for_non_fast_start?: true, should_drop_buffers?: true} = state
       ) do
-    {[], %{state | should_drop?: false}}
+    {[], %{state | should_drop_buffers?: false}}
   end
 
   @impl true
@@ -134,7 +130,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         _ctx,
         %{
           optimize_for_non_fast_start?: true,
-          should_drop?: true
+          should_drop_buffers?: true
         } = state
       ) do
     {[demand: :input], state}
@@ -289,7 +285,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp seek(state, start, size_to_read, last?) do
     state = %{
       state
-      | should_drop?: true,
+      | should_drop_buffers?: true,
         fsm_state: update_fsm_state(state, seeked?: true)
     }
 
