@@ -361,11 +361,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     resolution =
       tracks
-      |> Enum.map(fn
+      |> Enum.find_value(fn
         %Track{width: 0} -> nil
         track -> {track.width, track.height}
       end)
-      |> Enum.find(&(not is_nil(&1)))
 
     codecs = Map.new(tracks, fn track -> Track.get_encoding_info(track) end)
 
