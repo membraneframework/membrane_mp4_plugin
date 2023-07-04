@@ -8,6 +8,7 @@ defmodule Membrane.MP4.Track do
   """
   alias __MODULE__.SampleTable
   alias Membrane.MP4.Helper
+  alias Membrane.AAC
 
   @type t :: %__MODULE__{
           id: pos_integer,
@@ -85,7 +86,7 @@ defmodule Membrane.MP4.Track do
       map = %{
         aot_id: aot_id,
         channels: channel_config_id,
-        frequency: get_frequency(frequency_id)
+        frequency: AAC.sampling_frequency_id_to_sample_rate(frequency_id)
       }
 
       {:mp4a, map}
@@ -121,26 +122,6 @@ defmodule Membrane.MP4.Track do
       _other ->
         nil
     end
-  end
-
-  defp get_frequency(id) do
-    %{
-      0 => 96_000,
-      1 => 88_200,
-      2 => 64_000,
-      3 => 48_000,
-      4 => 44_100,
-      5 => 32_000,
-      6 => 24_000,
-      7 => 22_050,
-      8 => 16_000,
-      9 => 12_000,
-      10 => 11_025,
-      11 => 8_000,
-      12 => 7_350,
-      15 => :explicit
-    }
-    |> Map.fetch!(id)
   end
 
   defp put_durations(track, movie_timescale) do
