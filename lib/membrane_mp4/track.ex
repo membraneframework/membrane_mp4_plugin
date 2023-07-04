@@ -7,8 +7,8 @@ defmodule Membrane.MP4.Track do
   can be flushed later in form of chunks.
   """
   alias __MODULE__.SampleTable
-  alias Membrane.MP4.Helper
   alias Membrane.AAC
+  alias Membrane.MP4.Helper
 
   @type t :: %__MODULE__{
           id: pos_integer,
