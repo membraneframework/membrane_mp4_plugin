@@ -65,12 +65,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       buffered_samples: %{},
       end_of_stream?: false,
       optimize_for_non_fast_start?: options.optimize_for_non_fast_start?,
-      should_drop_buffers?: options.optimize_for_non_fast_start?,
       boxes_size: 0,
       mdat_beginning: nil,
       mdat_size: nil,
-      # Question for reviewers - how should this field be called?
-      fsm_state: :searching_for_metadata
+      fsm_state: :metadata_reading,
+      started_parsing_mdat?: false
     }
 
     {[], state}
@@ -90,9 +89,10 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         :input,
         %Membrane.File.NewSeekEvent{},
         _ctx,
-        %{optimize_for_non_fast_start?: true, should_drop_buffers?: true} = state
-      ) do
-    {[], %{state | should_drop_buffers?: false}}
+        %{fsm_state: fsm_state} = state
+      )
+      when fsm_state in [:mdat_skipping, :going_back_to_mdat] do
+    {[], %{state | fsm_state: update_fsm_state(state)}}
   end
 
   @impl true
@@ -146,10 +146,10 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         _buffer,
         _ctx,
         %{
-          optimize_for_non_fast_start?: true,
-          should_drop_buffers?: true
+          fsm_state: fsm_state
         } = state
-      ) do
+      )
+      when fsm_state in [:mdat_skipping, :going_back_to_mdat] do
     {[demand: :input], state}
   end
 
@@ -165,6 +165,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
           samples_info: %SamplesInfo{}
         } = state
       ) do
+
     {samples, rest, samples_info} =
       SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
 
@@ -206,17 +207,20 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     maybe_header = parse_header(rest)
 
     started_parsing_mdat? =
-      case maybe_header do
-        nil -> false
-        header -> header.name == :mdat
+      cond do
+        :mdat in Keyword.keys(state.boxes) -> true
+        maybe_header == nil -> false
+        maybe_header.name == :mdat -> true
+        true -> false
       end
 
-    fsm_state = update_fsm_state(state, started_parsing_mdat?: started_parsing_mdat?)
+    state = %{state | started_parsing_mdat?: started_parsing_mdat?}
+    fsm_state = update_fsm_state(state)
     partial = if fsm_state in [:skip_mdat, :go_back_to_mdat], do: <<>>, else: rest
     state = %{state | fsm_state: fsm_state, partial: partial}
 
     cond do
-      fsm_state == :parsing_mdat ->
+      fsm_state == :mdat_reading ->
         handle_can_read_mdat_box(ctx, state)
 
       state.optimize_for_non_fast_start? ->
@@ -232,53 +236,47 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp update_fsm_state(%{fsm_state: :searching_for_metadata} = state, context) do
-    cond do
-      Enum.all?(@header_boxes, &Keyword.has_key?(state.boxes, &1)) ->
-        update_fsm_state(%{state | fsm_state: :searching_for_mdat}, context)
+  defp update_fsm_state(%{fsm_state: :metadata_reading} = state) do
+    all_headers_read? = Enum.all?(@header_boxes, &Keyword.has_key?(state.boxes, &1))
 
-      Keyword.get(context, :started_parsing_mdat?, false) and state.optimize_for_non_fast_start? ->
+    cond do
+      state.started_parsing_mdat? and all_headers_read? ->
+        :mdat_reading
+
+      state.started_parsing_mdat? and not all_headers_read? ->
         :skip_mdat
 
       true ->
-        :searching_for_metadata
+        :metadata_reading
     end
   end
 
-  defp update_fsm_state(%{fsm_state: :skip_mdat} = state, context) do
-    if Keyword.get(context, :seeked?, false) do
-      update_fsm_state(%{state | fsm_state: :continue_searching_for_metadata}, context)
-    else
-      :skip_mdat
-    end
+  defp update_fsm_state(%{fsm_state: :skip_mdat}) do
+    :mdat_skipping
   end
 
-  defp update_fsm_state(%{fsm_state: :continue_searching_for_metadata} = state, _context) do
+  defp update_fsm_state(%{fsm_state: :mdat_skipping}) do
+    :metadata_reading_continuation
+  end
+
+  defp update_fsm_state(%{fsm_state: :metadata_reading_continuation} = state) do
     if Enum.all?(@header_boxes, &Keyword.has_key?(state.boxes, &1)) do
       :go_back_to_mdat
     else
-      :continue_searching_for_metadata
+      :metadata_reading_continuation
     end
   end
 
-  defp update_fsm_state(%{fsm_state: :go_back_to_mdat} = state, context) do
-    if Keyword.get(context, :seeked?, false) do
-      update_fsm_state(%{state | fsm_state: :searching_for_mdat}, context)
-    else
-      :go_back_to_mdat
-    end
+  defp update_fsm_state(%{fsm_state: :go_back_to_mdat}) do
+    :going_back_to_mdat
   end
 
-  defp update_fsm_state(%{fsm_state: :searching_for_mdat} = state, context) do
-    if Keyword.get(context, :started_parsing_mdat?, false) or :mdat in Keyword.keys(state.boxes) do
-      :parsing_mdat
-    else
-      :searching_for_mdat
-    end
+  defp update_fsm_state(%{fsm_state: :going_back_to_mdat}) do
+    :mdat_reading
   end
 
-  defp update_fsm_state(%{fsm_state: :parsing_mdat}, _context) do
-    :parsing_mdat
+  defp update_fsm_state(%{fsm_state: :mdat_reading}) do
+    :mdat_reading
   end
 
   defp handle_non_fast_start_optimization(%{fsm_state: :skip_mdat} = state) do
@@ -286,24 +284,19 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     seek(state, box_after_mdat_beginning, :infinity, false)
   end
 
-  defp handle_non_fast_start_optimization(%{fsm_state: fsm_state} = state)
-       when fsm_state in [
-              :searching_for_metadata,
-              :continue_searching_for_metadata,
-              :searching_for_mdat
-            ] do
-    {[demand: :input], state}
-  end
-
   defp handle_non_fast_start_optimization(%{fsm_state: :go_back_to_mdat} = state) do
     seek(state, state.mdat_beginning, state.mdat_size + @header_size, true)
   end
 
+  defp handle_non_fast_start_optimization(state) do
+    {[demand: :input], state}
+  end
+
+
   defp seek(state, start, size_to_read, last?) do
     state = %{
       state
-      | should_drop_buffers?: true,
-        fsm_state: update_fsm_state(state, seeked?: true)
+      | fsm_state: update_fsm_state(state)
     }
 
     {[
