@@ -89,10 +89,19 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         :input,
         %Membrane.File.NewSeekEvent{},
         _ctx,
-        %{fsm_state: fsm_state} = state
-      )
-      when fsm_state in [:mdat_skipping, :going_back_to_mdat] do
+        %{fsm_state: :mdat_skipping} = state
+      ) do
     {[], %{state | fsm_state: update_fsm_state(state)}}
+  end
+
+  @impl true
+  def handle_event(
+        :input,
+        %Membrane.File.NewSeekEvent{},
+        _ctx,
+        %{fsm_state: :going_back_to_mdat} = state
+      ) do
+    {[], %{state | started_parsing_mdat?: true, fsm_state: update_fsm_state(state)}}
   end
 
   @impl true
@@ -165,7 +174,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
           samples_info: %SamplesInfo{}
         } = state
       ) do
-
     {samples, rest, samples_info} =
       SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
 
@@ -209,8 +217,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     started_parsing_mdat? =
       cond do
         :mdat in Keyword.keys(state.boxes) -> true
-        maybe_header == nil -> false
-        maybe_header.name == :mdat -> true
+        maybe_header != nil -> maybe_header.name == :mdat
         true -> false
       end
 
@@ -291,7 +298,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp handle_non_fast_start_optimization(state) do
     {[demand: :input], state}
   end
-
 
   defp seek(state, start, size_to_read, last?) do
     state = %{
