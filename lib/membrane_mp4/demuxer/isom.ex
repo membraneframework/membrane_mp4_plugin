@@ -65,10 +65,10 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       buffered_samples: %{},
       end_of_stream?: false,
       optimize_for_non_fast_start?: options.optimize_for_non_fast_start?,
+      fsm_state: :metadata_reading,
       boxes_size: 0,
       mdat_beginning: nil,
       mdat_size: nil,
-      fsm_state: :metadata_reading,
       started_parsing_mdat?: false
     }
 
@@ -127,19 +127,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         Pad.ref(:output, _track_id),
         _size,
         :buffers,
-        _ctx,
-        %{all_pads_connected?: false} = state
-      ) do
-    {[], state}
-  end
-
-  @impl true
-  def handle_demand(
-        Pad.ref(:output, _track_id),
-        _size,
-        :buffers,
         ctx,
-        %{all_pads_connected?: true} = state
+        %{fsm_state: :samples_info_present_and_all_pads_connected} = state
       ) do
     size =
       Map.values(ctx.pads)
@@ -148,6 +137,17 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       |> Enum.max()
 
     {[demand: {:input, size}], state}
+  end
+
+  @impl true
+  def handle_demand(
+        Pad.ref(:output, _track_id),
+        _size,
+        :buffers,
+        _ctx,
+        state
+      ) do
+    {[], state}
   end
 
   def handle_process(
@@ -162,16 +162,13 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {[demand: :input], state}
   end
 
-  # We are assuming, that after header boxes ([:ftyp, :moov]), there is a single
-  # mdat box, which contains all the data
   @impl true
   def handle_process(
         :input,
         buffer,
         ctx,
         %{
-          all_pads_connected?: true,
-          samples_info: %SamplesInfo{}
+          fsm_state: :samples_info_present_and_all_pads_connected
         } = state
       ) do
     {samples, rest, samples_info} =
@@ -191,7 +188,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         :input,
         buffer,
         _ctx,
-        %{all_pads_connected?: false, samples_info: %SamplesInfo{}} = state
+        %{fsm_state: :samples_info_present} = state
       ) do
     # Until all pads are connected we are storing all the samples
     {samples, rest, samples_info} =
@@ -282,8 +279,20 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     :mdat_reading
   end
 
-  defp update_fsm_state(%{fsm_state: :mdat_reading}) do
-    :mdat_reading
+  defp update_fsm_state(%{fsm_state: :mdat_reading} = state) do
+    if state.samples_info != nil do
+      :samples_info_present
+    else
+      :mdat_reading
+    end
+  end
+
+  defp update_fsm_state(%{fsm_state: :samples_info_present} = state) do
+    if state.all_pads_connected? do
+      :samples_info_present_and_all_pads_connected
+    else
+      :samples_info_present
+    end
   end
 
   defp handle_non_fast_start_optimization(%{fsm_state: :skip_mdat} = state) do
@@ -315,6 +324,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   defp handle_can_read_mdat_box(ctx, state) do
     state = %{state | samples_info: SamplesInfo.get_samples_info(state.boxes[:moov])}
+    state = %{state | fsm_state: update_fsm_state(state)}
 
     # Parse the data we received so far (partial or the whole mdat box in a single buffer) and
     # either store or send the data (if all pads are connected)
@@ -347,8 +357,9 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     notifications = get_track_notifications(state)
     stream_format = if all_pads_connected?, do: get_stream_format(state), else: []
 
-    {notifications ++ stream_format ++ buffers ++ redemands,
-     %{state | all_pads_connected?: all_pads_connected?}}
+    state = %{state | all_pads_connected?: all_pads_connected?}
+    state = %{state | fsm_state: update_fsm_state(state)}
+    {notifications ++ stream_format ++ buffers ++ redemands, state}
   end
 
   defp store_samples(state, samples) do
@@ -419,7 +430,9 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         {[], state}
       end
 
-    {actions, %{state | all_pads_connected?: all_pads_connected?}}
+    state = %{state | all_pads_connected?: all_pads_connected?}
+    state = %{state | fsm_state: update_fsm_state(state)}
+    {actions, state}
   end
 
   @impl true
