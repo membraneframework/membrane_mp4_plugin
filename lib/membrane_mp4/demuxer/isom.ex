@@ -91,7 +91,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         _ctx,
         %{fsm_state: :mdat_skipping} = state
       ) do
-    {[], %{state | fsm_state: update_fsm_state(state)}}
+    {[], update_fsm_state(state)}
   end
 
   @impl true
@@ -101,7 +101,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         _ctx,
         %{fsm_state: :going_back_to_mdat} = state
       ) do
-    {[], %{state | started_parsing_mdat?: true, fsm_state: update_fsm_state(state)}}
+    {[], %{state | started_parsing_mdat?: true} |> update_fsm_state()}
   end
 
   @impl true
@@ -218,13 +218,12 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         true -> false
       end
 
-    state = %{state | started_parsing_mdat?: started_parsing_mdat?}
-    fsm_state = update_fsm_state(state)
-    partial = if fsm_state in [:skip_mdat, :go_back_to_mdat], do: <<>>, else: rest
-    state = %{state | fsm_state: fsm_state, partial: partial}
+    state = %{state | started_parsing_mdat?: started_parsing_mdat?} |> update_fsm_state()
+    partial = if state.fsm_state in [:skip_mdat, :go_back_to_mdat], do: <<>>, else: rest
+    state = %{state | partial: partial}
 
     cond do
-      fsm_state == :mdat_reading ->
+      state.fsm_state == :mdat_reading ->
         handle_can_read_mdat_box(ctx, state)
 
       state.optimize_for_non_fast_start? ->
@@ -240,7 +239,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp update_fsm_state(%{fsm_state: :metadata_reading} = state) do
+  defp update_fsm_state(state) do
+    %{state | fsm_state: do_update_fsm_state(state)}
+  end
+
+  defp do_update_fsm_state(%{fsm_state: :metadata_reading} = state) do
     all_headers_read? = Enum.all?(@header_boxes, &Keyword.has_key?(state.boxes, &1))
 
     cond do
@@ -255,15 +258,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp update_fsm_state(%{fsm_state: :skip_mdat}) do
+  defp do_update_fsm_state(%{fsm_state: :skip_mdat}) do
     :mdat_skipping
   end
 
-  defp update_fsm_state(%{fsm_state: :mdat_skipping}) do
+  defp do_update_fsm_state(%{fsm_state: :mdat_skipping}) do
     :metadata_reading_continuation
   end
 
-  defp update_fsm_state(%{fsm_state: :metadata_reading_continuation} = state) do
+  defp do_update_fsm_state(%{fsm_state: :metadata_reading_continuation} = state) do
     if Enum.all?(@header_boxes, &Keyword.has_key?(state.boxes, &1)) do
       :go_back_to_mdat
     else
@@ -271,15 +274,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp update_fsm_state(%{fsm_state: :go_back_to_mdat}) do
+  defp do_update_fsm_state(%{fsm_state: :go_back_to_mdat}) do
     :going_back_to_mdat
   end
 
-  defp update_fsm_state(%{fsm_state: :going_back_to_mdat}) do
+  defp do_update_fsm_state(%{fsm_state: :going_back_to_mdat}) do
     :mdat_reading
   end
 
-  defp update_fsm_state(%{fsm_state: :mdat_reading} = state) do
+  defp do_update_fsm_state(%{fsm_state: :mdat_reading} = state) do
     if state.samples_info != nil do
       :samples_info_present
     else
@@ -287,7 +290,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp update_fsm_state(%{fsm_state: :samples_info_present} = state) do
+  defp do_update_fsm_state(%{fsm_state: :samples_info_present} = state) do
     if state.all_pads_connected? do
       :samples_info_present_and_all_pads_connected
     else
@@ -309,10 +312,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp seek(state, start, size_to_read, last?) do
-    state = %{
-      state
-      | fsm_state: update_fsm_state(state)
-    }
+    state = update_fsm_state(state)
 
     {[
        event:
@@ -323,8 +323,9 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp handle_can_read_mdat_box(ctx, state) do
-    state = %{state | samples_info: SamplesInfo.get_samples_info(state.boxes[:moov])}
-    state = %{state | fsm_state: update_fsm_state(state)}
+    state =
+      %{state | samples_info: SamplesInfo.get_samples_info(state.boxes[:moov])}
+      |> update_fsm_state()
 
     # Parse the data we received so far (partial or the whole mdat box in a single buffer) and
     # either store or send the data (if all pads are connected)
@@ -357,8 +358,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     notifications = get_track_notifications(state)
     stream_format = if all_pads_connected?, do: get_stream_format(state), else: []
 
-    state = %{state | all_pads_connected?: all_pads_connected?}
-    state = %{state | fsm_state: update_fsm_state(state)}
+    state = %{state | all_pads_connected?: all_pads_connected?} |> update_fsm_state()
     {notifications ++ stream_format ++ buffers ++ redemands, state}
   end
 
@@ -430,8 +430,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         {[], state}
       end
 
-    state = %{state | all_pads_connected?: all_pads_connected?}
-    state = %{state | fsm_state: update_fsm_state(state)}
+    state = %{state | all_pads_connected?: all_pads_connected?} |> update_fsm_state()
     {actions, state}
   end
 
