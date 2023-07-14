@@ -199,7 +199,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {[], %{state | samples_info: samples_info, partial: rest}}
   end
 
-  def handle_process(:input, buffer, ctx, %{samples_info: nil} = state) do
+  def handle_process(:input, buffer, ctx, state) do
     {new_boxes, rest} = Container.parse!(state.partial <> buffer.payload)
 
     state = %{
@@ -220,6 +220,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     state = %{state | started_parsing_mdat?: started_parsing_mdat?} |> update_fsm_state()
     partial = if state.fsm_state in [:skip_mdat, :go_back_to_mdat], do: <<>>, else: rest
+
     state = %{state | partial: partial}
 
     cond do
@@ -323,6 +324,13 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp handle_can_read_mdat_box(ctx, state) do
+    {seek_events, state} =
+      if state.optimize_for_non_fast_start? do
+        seek(state, :cur, :infinity, true)
+      else
+        {[], state}
+      end
+
     state =
       %{state | samples_info: SamplesInfo.get_samples_info(state.boxes[:moov])}
       |> update_fsm_state()
@@ -359,7 +367,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     stream_format = if all_pads_connected?, do: get_stream_format(state), else: []
 
     state = %{state | all_pads_connected?: all_pads_connected?} |> update_fsm_state()
-    {notifications ++ stream_format ++ buffers ++ redemands, state}
+    {seek_events ++ notifications ++ stream_format ++ buffers ++ redemands, state}
   end
 
   defp store_samples(state, samples) do
