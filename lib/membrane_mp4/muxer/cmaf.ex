@@ -359,6 +359,15 @@ defmodule Membrane.MP4.Muxer.CMAF do
   defp generate_output_stream_format(state) do
     tracks = Enum.map(state.pad_to_track_data, fn {_pad, track_data} -> track_data.track end)
 
+    resolution =
+      tracks
+      |> Enum.find_value(fn
+        %Track{width: 0} -> nil
+        track -> {track.width, track.height}
+      end)
+
+    codecs = Map.new(tracks, fn track -> Track.get_encoding_info(track) end)
+
     header = Header.serialize(tracks)
 
     content_type =
@@ -371,7 +380,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     %Membrane.CMAF.Track{
       content_type: content_type,
-      header: header
+      header: header,
+      resolution: resolution,
+      codecs: codecs
     }
   end
 
