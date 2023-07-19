@@ -9,6 +9,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   """
   use Membrane.Filter
 
+  alias Membrane.File.NewSeekEvent
   alias Membrane.{MP4, RemoteStream}
   alias Membrane.MP4.Container
   alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
@@ -68,8 +69,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       fsm_state: :metadata_reading,
       boxes_size: 0,
       mdat_beginning: nil,
-      mdat_size: nil,
-      started_parsing_mdat?: false
+      mdat_size: nil
     }
 
     {[], state}
@@ -85,32 +85,17 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   @impl true
-  def handle_event(
-        :input,
-        %Membrane.File.NewSeekEvent{},
-        _ctx,
-        %{fsm_state: :mdat_skipping} = state
-      ) do
-    {[], update_fsm_state(state)}
+  def handle_event(:input, %NewSeekEvent{}, _ctx, %{fsm_state: :mdat_skipping} = state) do
+    {[], update_fsm_state(state, new_seek_event?: true)}
   end
 
   @impl true
-  def handle_event(
-        :input,
-        %Membrane.File.NewSeekEvent{},
-        _ctx,
-        %{fsm_state: :going_back_to_mdat} = state
-      ) do
-    {[], %{state | started_parsing_mdat?: true} |> update_fsm_state()}
+  def handle_event(:input, %NewSeekEvent{}, _ctx, %{fsm_state: :going_back_to_mdat} = state) do
+    {[], update_fsm_state(state, new_seek_event?: true)}
   end
 
   @impl true
-  def handle_event(
-        :input,
-        %Membrane.File.NewSeekEvent{},
-        _ctx,
-        %{optimize_for_non_fast_start?: false}
-      ) do
+  def handle_event(:input, %NewSeekEvent{}, _ctx, %{optimize_for_non_fast_start?: false}) do
     raise "In order to work with a seekable source the demuxer must have the `optimize_for_non_fast_start?: true` option."
   end
 
@@ -140,13 +125,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   @impl true
-  def handle_demand(
-        Pad.ref(:output, _track_id),
-        _size,
-        :buffers,
-        _ctx,
-        state
-      ) do
+  def handle_demand(Pad.ref(:output, _track_id), _size, :buffers, _ctx, state) do
     {[], state}
   end
 
@@ -218,7 +197,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         true -> false
       end
 
-    state = %{state | started_parsing_mdat?: started_parsing_mdat?} |> update_fsm_state()
+    state = update_fsm_state(state, started_parsing_mdat?: started_parsing_mdat?)
     partial = if state.fsm_state in [:skip_mdat, :go_back_to_mdat], do: <<>>, else: rest
 
     state = %{state | partial: partial}
@@ -240,18 +219,18 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp update_fsm_state(state) do
-    %{state | fsm_state: do_update_fsm_state(state)}
+  defp update_fsm_state(state, ctx \\ []) do
+    %{state | fsm_state: do_update_fsm_state(state, ctx)}
   end
 
-  defp do_update_fsm_state(%{fsm_state: :metadata_reading} = state) do
+  defp do_update_fsm_state(%{fsm_state: :metadata_reading} = state, ctx) do
     all_headers_read? = Enum.all?(@header_boxes, &Keyword.has_key?(state.boxes, &1))
 
     cond do
-      state.started_parsing_mdat? and all_headers_read? ->
+      Keyword.get(ctx, :started_parsing_mdat?, false) and all_headers_read? ->
         :mdat_reading
 
-      state.started_parsing_mdat? and not all_headers_read? ->
+      Keyword.get(ctx, :started_parsing_mdat?, false) and not all_headers_read? ->
         :skip_mdat
 
       true ->
@@ -259,15 +238,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp do_update_fsm_state(%{fsm_state: :skip_mdat}) do
+  defp do_update_fsm_state(%{fsm_state: :skip_mdat}, seek?: true) do
     :mdat_skipping
   end
 
-  defp do_update_fsm_state(%{fsm_state: :mdat_skipping}) do
+  defp do_update_fsm_state(%{fsm_state: :mdat_skipping}, new_seek_event?: true) do
     :metadata_reading_continuation
   end
 
-  defp do_update_fsm_state(%{fsm_state: :metadata_reading_continuation} = state) do
+  defp do_update_fsm_state(%{fsm_state: :metadata_reading_continuation} = state, _ctx) do
     if Enum.all?(@header_boxes, &Keyword.has_key?(state.boxes, &1)) do
       :go_back_to_mdat
     else
@@ -275,15 +254,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp do_update_fsm_state(%{fsm_state: :go_back_to_mdat}) do
+  defp do_update_fsm_state(%{fsm_state: :go_back_to_mdat}, seek?: true) do
     :going_back_to_mdat
   end
 
-  defp do_update_fsm_state(%{fsm_state: :going_back_to_mdat}) do
+  defp do_update_fsm_state(%{fsm_state: :going_back_to_mdat}, new_seek_event?: true) do
     :mdat_reading
   end
 
-  defp do_update_fsm_state(%{fsm_state: :mdat_reading} = state) do
+  defp do_update_fsm_state(%{fsm_state: :mdat_reading} = state, _ctx) do
     if state.samples_info != nil do
       :samples_info_present
     else
@@ -291,12 +270,16 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp do_update_fsm_state(%{fsm_state: :samples_info_present} = state) do
+  defp do_update_fsm_state(%{fsm_state: :samples_info_present} = state, _ctx) do
     if state.all_pads_connected? do
       :samples_info_present_and_all_pads_connected
     else
       :samples_info_present
     end
+  end
+
+  defp do_update_fsm_state(%{fsm_state: fsm_state}, _ctx) do
+    fsm_state
   end
 
   defp handle_non_fast_start_optimization(%{fsm_state: :skip_mdat} = state) do
@@ -305,7 +288,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp handle_non_fast_start_optimization(%{fsm_state: :go_back_to_mdat} = state) do
-    seek(state, state.mdat_beginning, state.mdat_size + @header_size, true)
+    seek(state, state.mdat_beginning, state.mdat_size + @header_size, false)
   end
 
   defp handle_non_fast_start_optimization(state) do
@@ -313,7 +296,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp seek(state, start, size_to_read, last?) do
-    state = update_fsm_state(state)
+    state = update_fsm_state(state, seek?: true)
 
     {[
        event:
@@ -326,6 +309,10 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp handle_can_read_mdat_box(ctx, state) do
     {seek_events, state} =
       if state.optimize_for_non_fast_start? do
+        # there will be no more skips,
+        # so with `optimize_for_non_fast_start?: true`
+        # we need to send SourceSeekEvent to indicate
+        # that we want to receive `:end_of_stream`
         seek(state, :cur, :infinity, true)
       else
         {[], state}
