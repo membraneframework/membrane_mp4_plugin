@@ -86,12 +86,12 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   @impl true
   def handle_event(:input, %NewSeekEvent{}, _ctx, %{fsm_state: :mdat_skipping} = state) do
-    {[], update_fsm_state(state, new_seek_event?: true)}
+    {[], update_fsm_state(state, :new_seek_event)}
   end
 
   @impl true
   def handle_event(:input, %NewSeekEvent{}, _ctx, %{fsm_state: :going_back_to_mdat} = state) do
-    {[], update_fsm_state(state, new_seek_event?: true)}
+    {[], update_fsm_state(state, :new_seek_event)}
   end
 
   @impl true
@@ -190,14 +190,13 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     maybe_header = parse_header(rest)
 
-    started_parsing_mdat? =
-      cond do
-        :mdat in Keyword.keys(state.boxes) -> true
-        maybe_header != nil -> maybe_header.name == :mdat
-        true -> false
+    update_fsm_state_ctx =
+      if :mdat in Keyword.keys(state.boxes) or
+           (maybe_header != nil and maybe_header.name == :mdat) do
+        :started_parsing_mdat
       end
 
-    state = update_fsm_state(state, started_parsing_mdat?: started_parsing_mdat?)
+    state = update_fsm_state(state, update_fsm_state_ctx)
     partial = if state.fsm_state in [:skip_mdat, :go_back_to_mdat], do: <<>>, else: rest
 
     state = %{state | partial: partial}
@@ -219,7 +218,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp update_fsm_state(state, ctx \\ []) do
+  defp update_fsm_state(state, ctx \\ nil) do
     %{state | fsm_state: do_update_fsm_state(state, ctx)}
   end
 
@@ -227,10 +226,10 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     all_headers_read? = Enum.all?(@header_boxes, &Keyword.has_key?(state.boxes, &1))
 
     cond do
-      Keyword.get(ctx, :started_parsing_mdat?, false) and all_headers_read? ->
+      ctx == :started_parsing_mdat and all_headers_read? ->
         :mdat_reading
 
-      Keyword.get(ctx, :started_parsing_mdat?, false) and not all_headers_read? ->
+      ctx == :started_parsing_mdat and not all_headers_read? ->
         :skip_mdat
 
       true ->
@@ -238,11 +237,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp do_update_fsm_state(%{fsm_state: :skip_mdat}, seek?: true) do
+  defp do_update_fsm_state(%{fsm_state: :skip_mdat}, :seek) do
     :mdat_skipping
   end
 
-  defp do_update_fsm_state(%{fsm_state: :mdat_skipping}, new_seek_event?: true) do
+  defp do_update_fsm_state(%{fsm_state: :mdat_skipping}, :new_seek_event) do
     :metadata_reading_continuation
   end
 
@@ -254,11 +253,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp do_update_fsm_state(%{fsm_state: :go_back_to_mdat}, seek?: true) do
+  defp do_update_fsm_state(%{fsm_state: :go_back_to_mdat}, :seek) do
     :going_back_to_mdat
   end
 
-  defp do_update_fsm_state(%{fsm_state: :going_back_to_mdat}, new_seek_event?: true) do
+  defp do_update_fsm_state(%{fsm_state: :going_back_to_mdat}, :new_seek_event) do
     :mdat_reading
   end
 
@@ -296,7 +295,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp seek(state, start, size_to_read, last?) do
-    state = update_fsm_state(state, seek?: true)
+    state = update_fsm_state(state, :seek)
 
     {[
        event:
