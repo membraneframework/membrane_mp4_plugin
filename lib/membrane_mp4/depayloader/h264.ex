@@ -20,7 +20,7 @@ defmodule Membrane.MP4.Depayloader.H264 do
     spec =
       bin_input()
       |> child(:remote_stream_depayloader, Depayloader.H264.Filter)
-      |> child(:parser, Parser)
+      |> child(:parser, %Parser{skip_until_keyframe?: true})
       |> bin_output()
 
     {[spec: spec], %{}}
