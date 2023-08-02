@@ -50,7 +50,9 @@ defmodule Example do
       child(:muxer, %Membrane.MP4.Muxer.CMAF{
         segment_min_duration: Time.seconds(4)
       })
-      |> via_in(:input, options: [segment_duration: HLSSink.SegmentDuration.new(Time.seconds(12))])
+      |> via_in(:input,
+        options: [segment_duration: HLSSink.SegmentDuration.new(Time.seconds(12))]
+      )
       |> child(:sink, %HLSSink{
         manifest_module: Membrane.HTTPAdaptiveStream.HLS,
         target_window_duration: Membrane.Time.seconds(30),

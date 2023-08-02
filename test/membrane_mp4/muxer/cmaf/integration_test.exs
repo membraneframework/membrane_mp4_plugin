@@ -24,7 +24,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline)
   end
 
   test "audio" do
@@ -39,7 +39,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline)
   end
 
   test "muxed audio and video" do
@@ -82,7 +82,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline)
   end
 
   test "video partial segments" do
@@ -107,7 +107,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline)
   end
 
   test "audio partial segments" do
@@ -127,7 +127,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline)
   end
 
   test "video with partial segments should create as many partial segments as possible until reaching a key frame" do
@@ -166,7 +166,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline)
   end
 
   describe "RequestMediaFinalization" do
