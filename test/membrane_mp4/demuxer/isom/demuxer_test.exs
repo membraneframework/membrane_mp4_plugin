@@ -51,6 +51,42 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     end
   end
 
+  describe "Demuxer with `non_fast_start_optimization: true` should allow for demuxing" do
+    @tag :tmp_dir
+    test "a single H264 track without fast_start flag", %{tmp_dir: dir} do
+      in_path = "test/fixtures/isom/ref_video.mp4"
+      out_path = Path.join(dir, "out")
+
+      structure = [
+        child(:file, %Membrane.File.Source{location: in_path, seekable?: true})
+        |> child(:demuxer, %Membrane.MP4.Demuxer.ISOM{optimize_for_non_fast_start?: true})
+        |> via_out(Pad.ref(:output, 1))
+        |> child(:sink, %Membrane.File.Sink{location: out_path})
+      ]
+
+      pipeline = Pipeline.start_link_supervised!(structure: structure)
+
+      perform_test(pipeline, "video", out_path)
+    end
+
+    @tag :tmp_dir
+    test "a single H264 track with fast_start flag", %{tmp_dir: dir} do
+      in_path = "test/fixtures/isom/ref_video_fast_start.mp4"
+      out_path = Path.join(dir, "out")
+
+      structure = [
+        child(:file, %Membrane.File.Source{location: in_path, seekable?: true})
+        |> child(:demuxer, %Membrane.MP4.Demuxer.ISOM{optimize_for_non_fast_start?: true})
+        |> via_out(Pad.ref(:output, 1))
+        |> child(:sink, %Membrane.File.Sink{location: out_path})
+      ]
+
+      pipeline = Pipeline.start_link_supervised!(structure: structure)
+
+      perform_test(pipeline, "video", out_path)
+    end
+  end
+
   describe "output pad connected after new_tracks_t() notification" do
     @tag :tmp_dir
     test "output pad connected after end_of_stream", %{tmp_dir: dir} do
@@ -80,7 +116,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
       RCPipeline.exec_actions(pipeline, spec: {structure, []})
       assert_receive %RCMessage.EndOfStream{element: :sink, pad: :input}, 2000
 
-      RCPipeline.terminate(pipeline, blocking?: true)
+      RCPipeline.terminate(pipeline)
 
       assert_files_equal(out_path, ref_path_for("video"))
     end
@@ -113,7 +149,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
       assert_receive %RCMessage.EndOfStream{element: :demuxer, pad: :input}, 2000
       assert_receive %RCMessage.EndOfStream{element: :sink, pad: :input}, 2000
 
-      RCPipeline.terminate(pipeline, blocking?: true)
+      RCPipeline.terminate(pipeline)
 
       assert_files_equal(out_path, ref_path_for("video"))
     end
@@ -124,7 +160,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
 
     assert_end_of_stream(pid, :sink, :input)
 
-    assert :ok == Pipeline.terminate(pid, blocking?: true)
+    assert :ok == Pipeline.terminate(pid)
 
     assert_files_equal(out_path, ref_path)
   end

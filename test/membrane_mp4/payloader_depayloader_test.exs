@@ -58,7 +58,7 @@ defmodule Membrane.MP4.PayloaderDepayloaderTest do
     assert_end_of_stream(pipeline, :sink, :input, 6000)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    assert :ok == Pipeline.terminate(pipeline, blocking?: true)
+    assert :ok == Pipeline.terminate(pipeline)
 
     in_aac = File.read!(in_path)
     out_aac = File.read!(out_path)

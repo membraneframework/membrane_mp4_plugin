@@ -15,7 +15,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.TransmuxingTest do
     assert_end_of_stream(pipeline, :sink, :input, 6000)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    assert :ok == Pipeline.terminate(pipeline, blocking?: true)
+    assert :ok == Pipeline.terminate(pipeline)
 
     {in_mp4, <<>>} = File.read!(in_path) |> Container.parse!()
     {out_mp4, <<>>} = File.read!(out_path) |> Container.parse!()
