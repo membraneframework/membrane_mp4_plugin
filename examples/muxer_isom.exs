@@ -1,6 +1,6 @@
 Mix.install([
   :membrane_aac_plugin,
-  :membrane_h264_ffmpeg_plugin,
+  :membrane_h264_plugin,
   :membrane_hackney_plugin,
   {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()}
 ])
@@ -20,10 +20,8 @@ defmodule Example do
         location: @video_url,
         hackney_opts: [follow_redirect: true]
       })
-      |> child(:video_parser, %Membrane.H264.FFmpeg.Parser{
-        framerate: {30, 1},
-        alignment: :au,
-        attach_nalus?: true
+      |> child(:video_parser, %Membrane.H264.Parser{
+        generate_best_effort_timestamps: %{framerate: {30, 1}}
       })
       |> child(:video_payloader, Membrane.MP4.Payloader.H264),
       child(:audio_source, %Membrane.Hackney.Source{
