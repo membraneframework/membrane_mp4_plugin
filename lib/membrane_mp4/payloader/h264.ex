@@ -63,7 +63,7 @@ defmodule Membrane.MP4.Payloader.H264 do
                 ctx.pads.input.stream_format,
                 pps,
                 sps,
-                state.parameters_in_band?
+                state
               )}
          ], %{state | pps: pps, sps: sps}}
       else
@@ -101,7 +101,7 @@ defmodule Membrane.MP4.Payloader.H264 do
     |> pop_in([:h264, :nalus])
   end
 
-  defp generate_stream_format(input_stream_format, pps, sps, inband_parameters?) do
+  defp generate_stream_format(input_stream_format, pps, sps, state) do
     timescale =
       case input_stream_format.framerate do
         {0, _denominator} -> 30 * 1024
@@ -113,11 +113,17 @@ defmodule Membrane.MP4.Payloader.H264 do
       timescale: timescale,
       width: input_stream_format.width,
       height: input_stream_format.height,
-      content: %AVC1{avcc: generate_avcc(pps, sps), inband_parameters?: inband_parameters?}
+      content: %AVC1{
+        avcc: generate_avcc(pps, sps, state),
+        inband_parameters?: state.parameters_in_band?
+      }
     }
   end
 
-  defp generate_avcc(pps, sps) do
+  defp generate_avcc(pps, sps, state) do
+    pps = fetch_parameters_set(pps, state.pps)
+    sps = fetch_parameters_set(sps, state.sps)
+
     <<_idc_and_type, profile, compatibility, level, _rest::binary>> = hd(sps)
 
     <<1, profile, compatibility, level, 0b111111::6, @nalu_length_size - 1::2-integer, 0b111::3,
@@ -128,4 +134,7 @@ defmodule Membrane.MP4.Payloader.H264 do
   defp encode_parameter_sets(pss) do
     Enum.map_join(pss, &<<byte_size(&1)::16-integer, &1::binary>>)
   end
+
+  defp fetch_parameters_set([] = _new_ps, ps), do: ps
+  defp fetch_parameters_set(ps, _old_ps), do: ps
 end
