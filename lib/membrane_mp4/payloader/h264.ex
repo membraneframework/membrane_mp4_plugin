@@ -55,7 +55,7 @@ defmodule Membrane.MP4.Payloader.H264 do
     sps = Keyword.get_values(grouped_nalus, :sps)
 
     {maybe_stream_format, state} =
-      if (pps != [] and pps != state.pps) or (sps != [] and sps != state.sps) do
+      if sps != [] and sps != state.sps do
         {[
            stream_format:
              {:output,
