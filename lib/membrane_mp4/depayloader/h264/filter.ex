@@ -12,7 +12,7 @@ defmodule Membrane.MP4.Depayloader.H264.Filter do
 
   def_output_pad :output,
     demand_mode: :auto,
-    accepted_format: %H264.RemoteStream{alignment: :au}
+    accepted_format: %H264{alignment: :au}
 
   @annex_b_prefix <<0, 0, 0, 1>>
 
@@ -27,7 +27,7 @@ defmodule Membrane.MP4.Depayloader.H264.Filter do
     state = %{state | nalu_length_size: get_nalu_length_size(avcc)}
     {list_of_sps, list_of_pps} = decode_pss(avcc)
     state = %{state | sps: list_of_sps, pps: list_of_pps}
-    {[stream_format: {:output, %H264.RemoteStream{alignment: :au}}], state}
+    {[stream_format: {:output, %H264{alignment: :au}}], state}
   end
 
   defp get_nalu_length_size(avcc) do
