@@ -13,7 +13,16 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   def_input_pad :input,
     demand_unit: :buffers,
-    accepted_format: Membrane.MP4.Payload,
+    accepted_format:
+      any_of(
+        %Membrane.AAC{config: {:esds, _esds}},
+        %Membrane.H264{
+          stream_structure: {:avc1, _dcr},
+          alignment: :au,
+          nalu_in_metadata?: true
+        },
+        %Membrane.Opus{self_delimiting?: false}
+      ),
     availability: :on_request
 
   def_output_pad :output, accepted_format: %RemoteStream{type: :bytestream, content_format: MP4}
@@ -74,24 +83,22 @@ defmodule Membrane.MP4.Muxer.ISOM do
   @impl true
   def handle_stream_format(
         Pad.ref(:input, pad_ref) = pad,
-        %Membrane.MP4.Payload{} = stream_format,
+        stream_format,
         ctx,
         state
       ) do
     cond do
       # Handle receiving the first stream format on the given pad
       is_nil(ctx.pads[pad].stream_format) ->
+        timescale = get_timescale(stream_format)
+
         update_in(state, [:pad_to_track, pad_ref], fn track_id ->
-          stream_format
-          |> Map.take([:width, :height, :content, :timescale])
-          |> Map.put(:id, track_id)
-          |> Track.new()
+          Track.new(%{id: track_id, stream_format: stream_format, timescale: timescale})
         end)
 
-      # Handle receiving all but the first stream format on the given pad when
-      # inband_parameters? are allowed or stream format is duplicated - ignore
-      Map.get(ctx.pads[pad].stream_format.content, :inband_parameters?, false) ||
-          ctx.pads[pad].stream_format == stream_format ->
+      # Handle receiving all but the first stream format on the given pad,
+      # when stream format is duplicated - ignore
+      ctx.pads[pad].stream_format == stream_format ->
         state
 
       # otherwise we can assume that output will be corrupted
@@ -197,6 +204,16 @@ defmodule Membrane.MP4.Muxer.ISOM do
       moov = Container.serialize!(movie_box)
 
       [buffer: {:output, %Buffer{payload: moov}}] ++ update_mdat_actions
+    end
+  end
+
+  defp get_timescale(stream_format) do
+    case stream_format do
+      %Membrane.Opus{} -> 48_000
+      %Membrane.AAC{sample_rate: sample_rate} -> sample_rate
+      %Membrane.H264{framerate: nil} -> 30 * 1024
+      %Membrane.H264{framerate: {0, _denominator}} -> 30 * 1024
+      %Membrane.H264{framerate: {nominator, _denominator}} -> nominator * 1024
     end
   end
 

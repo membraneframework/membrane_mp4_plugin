@@ -2,8 +2,8 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
   @moduledoc false
 
   alias Membrane.MP4.{Container, Helper, Track.SampleTable}
-  alias Membrane.MP4.Payload.{AAC, AVC1}
-  alias Membrane.Opus
+  # alias Membrane.MP4.Payload.{AAC, AVC1}
+  alias Membrane.{AAC, H264, Opus}
 
   @spec assemble(SampleTable.t()) :: Container.t()
   def assemble(table) do
@@ -68,12 +68,16 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     ]
   end
 
-  defp assemble_sample_description(%{content: %AVC1{} = avc1} = sample_descriptions) do
+  defp assemble_sample_description(%H264{
+         stream_structure: {:avc1, dcr},
+         width: width,
+         height: height
+       }) do
     [
       avc1: %{
         children: [
           avcC: %{
-            content: avc1.avcc
+            content: dcr
           },
           pasp: %{
             children: [],
@@ -85,31 +89,35 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
           depth: 24,
           flags: 0,
           frame_count: 1,
-          height: sample_descriptions.height,
+          height: height,
           horizresolution: {0, 0},
           num_of_entries: 1,
           version: 0,
           vertresolution: {0, 0},
-          width: sample_descriptions.width
+          width: width
         }
       }
     ]
   end
 
-  defp assemble_sample_description(%{content: %AAC{} = aac}) do
+  defp assemble_sample_description(%AAC{
+         config: {:esds, esds},
+         channels: channels,
+         sample_rate: sample_rate
+       }) do
     [
       mp4a: %{
         children: %{
           esds: %{
             fields: %{
-              elementary_stream_descriptor: aac.esds,
+              elementary_stream_descriptor: esds,
               flags: 0,
               version: 0
             }
           }
         },
         fields: %{
-          channel_count: aac.channels,
+          channel_count: channels,
           compression_id: 0,
           data_reference_index: 1,
           encoding_revision: 0,
@@ -117,20 +125,20 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
           encoding_version: 0,
           packet_size: 0,
           sample_size: 16,
-          sample_rate: {aac.sample_rate, 0}
+          sample_rate: {sample_rate, 0}
         }
       }
     ]
   end
 
-  defp assemble_sample_description(%{content: %Opus{} = opus}) do
+  defp assemble_sample_description(%Opus{channels: channels}) do
     [
       Opus: %{
         children: %{
           dOps: %{
             fields: %{
               version: 0,
-              output_channel_count: opus.channels,
+              output_channel_count: channels,
               pre_skip: 413,
               input_sample_rate: 0,
               output_gain: 0,
@@ -140,7 +148,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
         },
         fields: %{
           data_reference_index: 0,
-          channel_count: opus.channels,
+          channel_count: channels,
           sample_size: 16,
           sample_rate: Bitwise.bsl(48_000, 16)
         }
@@ -225,25 +233,23 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     sizes |> Enum.map(fn %{entry_size: size} -> size end)
   end
 
-  defp unpack_sample_description(%{children: definitions}) do
-    [{codec, %{fields: fields} = data}] = definitions
-
-    %{
-      content: unpack_content(codec, data),
-      height: Map.get(fields, :height, 0),
-      width: Map.get(fields, :width, 0)
-    }
+  defp unpack_sample_description(%{children: [{codec, data}]}) do
+    unpack_content(codec, data)
   end
 
-  defp unpack_content(:avc1, %{children: boxes}) do
-    %AVC1{avcc: boxes[:avcC].content, inband_parameters?: false}
+  defp unpack_content(:avc1, %{children: boxes, fields: fields}) do
+    %H264{
+      width: fields.width,
+      height: fields.height,
+      stream_structure: {:avc1, boxes[:avcC].content}
+    }
   end
 
   defp unpack_content(:mp4a, %{children: boxes, fields: fields}) do
     {sample_rate, 0} = fields.sample_rate
 
     %AAC{
-      esds: boxes[:esds].fields.elementary_stream_descriptor,
+      config: {:esds, boxes[:esds].fields.elementary_stream_descriptor},
       sample_rate: sample_rate,
       channels: fields.channel_count
     }

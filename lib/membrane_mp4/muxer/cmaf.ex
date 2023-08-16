@@ -94,8 +94,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   require Membrane.Logger
 
   alias __MODULE__.{Header, Segment, DurationRange, SegmentHelper}
-  alias Membrane.Buffer
-  alias Membrane.MP4.Payload.AVC1
+  alias Membrane.{Buffer, H264}
   alias Membrane.MP4.{Helper, Track}
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
 
@@ -232,7 +231,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
-  defp is_video(stream_format_or_track), do: is_struct(stream_format_or_track.content, AVC1)
+  defp is_video(%Track{stream_format: stream_format}), do: is_struct(stream_format, H264)
+  defp is_video(stream_format), do: is_struct(stream_format, H264)
 
   defp find_video_pads(ctx) do
     ctx.pads
@@ -362,8 +362,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
     resolution =
       tracks
       |> Enum.find_value(fn
-        %Track{width: 0} -> nil
-        track -> {track.width, track.height}
+        %Track{stream_format: %H264{width: width, height: height}} -> {width, height}
+        _audio_track -> nil
       end)
 
     codecs = Map.new(tracks, fn track -> Track.get_encoding_info(track) end)

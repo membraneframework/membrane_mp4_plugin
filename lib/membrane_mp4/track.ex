@@ -11,34 +11,24 @@ defmodule Membrane.MP4.Track do
   alias Membrane.MP4.Helper
 
   @type t :: %__MODULE__{
-          id: pos_integer,
-          content: struct,
-          height: non_neg_integer,
-          width: non_neg_integer,
-          timescale: pos_integer,
+          id: pos_integer(),
+          stream_format: struct(),
+          timescale: pos_integer(),
           sample_table: SampleTable.t(),
-          duration: non_neg_integer | nil,
-          movie_duration: non_neg_integer | nil
+          duration: non_neg_integer() | nil,
+          movie_duration: non_neg_integer() | nil
         }
 
-  @enforce_keys [:id, :content, :height, :width, :timescale, :sample_table]
+  @enforce_keys [:id, :stream_format, :timescale, :sample_table]
 
-  defstruct @enforce_keys ++
-              [duration: nil, movie_duration: nil]
+  defstruct @enforce_keys ++ [duration: nil, movie_duration: nil]
 
-  @spec new(%{
-          id: pos_integer,
-          content: struct,
-          height: non_neg_integer,
-          width: non_neg_integer,
-          timescale: pos_integer
-        }) :: __MODULE__.t()
-  def new(config) do
-    %{width: width, height: height, content: content, timescale: timescale} = config
-
+  @spec new(%{id: pos_integer(), stream_format: struct(), timescale: pos_integer()}) ::
+          __MODULE__.t()
+  def new(%{stream_format: stream_format, timescale: timescale} = config) do
     config =
       Map.put(config, :sample_table, %SampleTable{
-        sample_description: %{content: content, width: width, height: height},
+        sample_description: stream_format,
         timescale: timescale
       })
 
@@ -75,8 +65,8 @@ defmodule Membrane.MP4.Track do
           | nil
 
   def get_encoding_info(%__MODULE__{
-        content: %Membrane.MP4.Payload.AAC{
-          esds: esds
+        stream_format: %Membrane.AAC{
+          config: {:esds, esds}
         }
       }) do
     with <<_elementary_stream_id::16, _priority::8, rest::binary>> <- find_esds_section(3, esds),
@@ -94,8 +84,8 @@ defmodule Membrane.MP4.Track do
   end
 
   def get_encoding_info(%__MODULE__{
-        content: %Membrane.MP4.Payload.AVC1{
-          avcc: <<1, profile, compatibility, level, _rest::binary>>
+        stream_format: %Membrane.H264{
+          stream_structure: {:avc1, <<1, profile, compatibility, level, _rest::binary>>}
         }
       }) do
     map = %{
