@@ -19,7 +19,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       muxing_spec = [
         child(:file, %Membrane.File.Source{location: in_path})
         |> child(:parser, %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true})
-        |> child(:payloader, Membrane.MP4.Payloader.H264)
+        |> child(:payloader, %Membrane.H264.Parser{output_stream_structure: :avc1, framerate: {30, 1}})
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
           chunk_duration: Membrane.Time.seconds(1),
           fast_start: true
@@ -33,7 +33,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
         child(:file, %Membrane.File.Source{location: mp4_path})
         |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
         |> via_out(Pad.ref(:output, 1))
-        |> child(:depayloader, Membrane.MP4.Depayloader.H264)
+        |> child(:depayloader, %Membrane.H264.Parser{output_stream_structure: :annexb})
         |> child(:sink, %Membrane.File.Sink{location: out_path})
       ]
 
@@ -52,9 +52,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
         child(:file, %Membrane.File.Source{location: in_path})
         |> child(:parser, %Membrane.AAC.Parser{
           in_encapsulation: :ADTS,
-          out_encapsulation: :none
+          out_encapsulation: :none,
+          output_config: :esds
         })
-        |> child(:payloader, Membrane.MP4.Payloader.AAC)
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
           chunk_duration: Membrane.Time.seconds(1),
           fast_start: true
@@ -68,7 +68,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
         child(:file, %Membrane.File.Source{location: mp4_path})
         |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
         |> via_out(Pad.ref(:output, 1))
-        |> child(:depayloader, Membrane.MP4.Depayloader.AAC)
         |> child(:parser, %Membrane.AAC.Parser{
           in_encapsulation: :none,
           out_encapsulation: :ADTS
@@ -97,7 +96,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
           framerate: {30, 1},
           attach_nalus?: true
         })
-        |> child(:video_payloader, Membrane.MP4.Payloader.H264)
+        |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1})
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
           chunk_duration: Membrane.Time.seconds(1),
           fast_start: true
@@ -106,9 +105,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
         child(:file_audio, %Membrane.File.Source{location: in_audio_path})
         |> child(:audio_parser, %Membrane.AAC.Parser{
           in_encapsulation: :ADTS,
-          out_encapsulation: :none
+          out_encapsulation: :none,
+          output_config: :esds
         })
-        |> child(:audio_payloader, Membrane.MP4.Payloader.AAC)
         |> get_child(:muxer)
       ]
 
@@ -118,11 +117,10 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
         child(:file, %Membrane.File.Source{location: mp4_path})
         |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
         |> via_out(Pad.ref(:output, 1))
-        |> child(:depayloader_video, Membrane.MP4.Depayloader.H264)
+        |> child(:depayloader_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
         |> child(:sink_video, %Membrane.File.Sink{location: out_video_path}),
         get_child(:demuxer)
         |> via_out(Pad.ref(:output, 2))
-        |> child(:depayloader_audio, Membrane.MP4.Depayloader.AAC)
         |> child(:audio_parser, %Membrane.AAC.Parser{
           in_encapsulation: :none,
           out_encapsulation: :ADTS
@@ -148,7 +146,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       child(:file, %Membrane.File.Source{location: input_path})
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
       |> via_out(Pad.ref(:output, 1))
-      |> child(:depayloader_video, Membrane.MP4.Depayloader.H264)
+      |> child(:depayloader_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
       |> child(:serializer, Membrane.Stream.Serializer)
       |> child(:sink, %Membrane.File.Sink{location: out_path})
     ]

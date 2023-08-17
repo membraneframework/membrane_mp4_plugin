@@ -33,7 +33,7 @@ defmodule Example do
         alignment: :au,
         attach_nalus?: true
       })
-      |> child(:video_payloader, Membrane.MP4.Payloader.H264)
+      |> child(:video_payloader, Membrane.H264.Parser{output_stream_structure: :avc1})
       |> via_in(Pad.ref(:input, :video))
       |> get_child(:muxer),
       child(:audio_source, %Membrane.Hackney.Source{
@@ -44,7 +44,7 @@ defmodule Example do
         in_encapsulation: :ADTS,
         out_encapsulation: :none
       })
-      |> child(:audio_payloader, Membrane.MP4.Payloader.AAC)
+      |> child(:audio_payloader, Membrane.%AAC.Parser{output_config: :esds})
       |> via_in(Pad.ref(:input, :audio))
       |> get_child(:muxer),
       child(:muxer, %Membrane.MP4.Muxer.CMAF{

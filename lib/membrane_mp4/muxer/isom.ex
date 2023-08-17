@@ -18,8 +18,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
         %Membrane.AAC{config: {:esds, _esds}},
         %Membrane.H264{
           stream_structure: {:avc1, _dcr},
-          alignment: :au,
-          nalu_in_metadata?: true
+          alignment: :au
         },
         %Membrane.Opus{self_delimiting?: false}
       ),
@@ -90,10 +89,8 @@ defmodule Membrane.MP4.Muxer.ISOM do
     cond do
       # Handle receiving the first stream format on the given pad
       is_nil(ctx.pads[pad].stream_format) ->
-        timescale = get_timescale(stream_format)
-
         update_in(state, [:pad_to_track, pad_ref], fn track_id ->
-          Track.new(%{id: track_id, stream_format: stream_format, timescale: timescale})
+          Track.new(track_id, stream_format)
         end)
 
       # Handle receiving all but the first stream format on the given pad,
@@ -204,16 +201,6 @@ defmodule Membrane.MP4.Muxer.ISOM do
       moov = Container.serialize!(movie_box)
 
       [buffer: {:output, %Buffer{payload: moov}}] ++ update_mdat_actions
-    end
-  end
-
-  defp get_timescale(stream_format) do
-    case stream_format do
-      %Membrane.Opus{} -> 48_000
-      %Membrane.AAC{sample_rate: sample_rate} -> sample_rate
-      %Membrane.H264{framerate: nil} -> 30 * 1024
-      %Membrane.H264{framerate: {0, _denominator}} -> 30 * 1024
-      %Membrane.H264{framerate: {nominator, _denominator}} -> nominator * 1024
     end
   end
 

@@ -25,8 +25,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         %Membrane.AAC{config: {:esds, _esds}},
         %Membrane.H264{
           stream_structure: {:avc1, _dcr},
-          alignment: :au,
-          nalu_in_metadata?: true
+          alignment: :au
         },
         %Membrane.Opus{self_delimiting?: false}
       ),

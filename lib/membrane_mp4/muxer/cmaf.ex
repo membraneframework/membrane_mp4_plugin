@@ -87,7 +87,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   > ## Note
   > If a stream contains non-key frames (like H264 P or B frames), they should be marked
-  > with a `mp4_payload: %{key_frame?: false}` metadata entry.
+  > with a `h264: %{key_frame?: false}` metadata entry.
   """
   use Membrane.Filter
 
@@ -101,7 +101,14 @@ defmodule Membrane.MP4.Muxer.CMAF do
   def_input_pad :input,
     availability: :on_request,
     demand_unit: :buffers,
-    accepted_format: Membrane.MP4.Payload
+    accepted_format: any_of(
+      %Membrane.AAC{config: {:esds, _esds}},
+      %Membrane.H264{
+        stream_structure: {:avc1, _dcr},
+        alignment: :au
+      },
+      %Membrane.Opus{self_delimiting?: false}
+    )
 
   def_output_pad :output, accepted_format: Membrane.CMAF.Track
 
@@ -191,7 +198,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   @impl true
-  def handle_stream_format(pad, %Membrane.MP4.Payload{} = stream_format, ctx, state) do
+  def handle_stream_format(pad, stream_format, ctx, state) do
     ensure_max_one_video_pad!(pad, stream_format, ctx)
 
     is_video_pad = is_video(stream_format)
@@ -261,11 +268,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   defp stream_format_to_track(stream_format, track_id) do
-    stream_format
-    |> Map.from_struct()
-    |> Map.take([:width, :height, :content, :timescale])
-    |> Map.put(:id, track_id)
-    |> Track.new()
+    Track.new(track_id, stream_format)
   end
 
   @impl true
@@ -395,7 +398,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> Enum.map(fn {pad, samples} ->
         track_data = state.pad_to_track_data[pad]
 
-        %{timescale: timescale} = ctx.pads[pad].stream_format
+        %{timescale: timescale} = track_data.track
         first_sample = hd(samples)
         last_sample = List.last(samples)
 
@@ -475,7 +478,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       [video_pad] ->
         case segment do
           %{^video_pad => samples} ->
-            hd(samples).metadata.mp4_payload.key_frame?
+            hd(samples).metadata.h264.key_frame?
 
           _other ->
             true
@@ -492,7 +495,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   defp generate_sample_flags(metadata) do
-    key_frame? = metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
+    key_frame? = metadata |> Map.get(:h264, %{}) |> Map.get(:key_frame?, true)
 
     is_leading = 0
     depends_on = if key_frame?, do: 2, else: 1

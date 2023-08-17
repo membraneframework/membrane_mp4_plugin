@@ -23,16 +23,17 @@ defmodule Membrane.MP4.Track do
 
   defstruct @enforce_keys ++ [duration: nil, movie_duration: nil]
 
-  @spec new(%{id: pos_integer(), stream_format: struct(), timescale: pos_integer()}) ::
-          __MODULE__.t()
-  def new(%{stream_format: stream_format, timescale: timescale} = config) do
-    config =
-      Map.put(config, :sample_table, %SampleTable{
+  @spec new(pos_integer(), struct()) :: __MODULE__.t()
+  def new(id, stream_format) do
+    %__MODULE__{
+      id: id,
+      stream_format: stream_format,
+      sample_table: %SampleTable{
         sample_description: stream_format,
-        timescale: timescale
-      })
-
-    struct!(__MODULE__, config)
+        timescale: get_timescale(stream_format)
+      },
+      timescale: get_timescale(stream_format)
+    }
   end
 
   @spec store_sample(__MODULE__.t(), Membrane.Buffer.t()) :: __MODULE__.t()
@@ -98,6 +99,16 @@ defmodule Membrane.MP4.Track do
   end
 
   def get_encoding_info(_unknown), do: nil
+
+  defp get_timescale(stream_format) do
+    case stream_format do
+      %Membrane.Opus{} -> 48_000
+      %Membrane.AAC{sample_rate: sample_rate} -> sample_rate
+      %Membrane.H264{framerate: nil} -> 30 * 1024
+      %Membrane.H264{framerate: {0, _denominator}} -> 30 * 1024
+      %Membrane.H264{framerate: {nominator, _denominator}} -> nominator * 1024
+    end
+  end
 
   defp find_esds_section(section_number, payload) do
     case payload do

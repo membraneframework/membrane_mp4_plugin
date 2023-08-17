@@ -158,7 +158,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
 
   @spec is_key_frame(Membrane.Buffer.t()) :: boolean()
   def is_key_frame(%{metadata: metadata}),
-    do: Map.get(metadata, :mp4_payload, %{}) |> Map.get(:key_frame?, true)
+    do: Map.get(metadata, :h264, %{}) |> Map.get(:key_frame?, true)
 
   defp push_video_chunk(state, queue, pad, sample) do
     collected_duration = queue.collected_samples_duration
