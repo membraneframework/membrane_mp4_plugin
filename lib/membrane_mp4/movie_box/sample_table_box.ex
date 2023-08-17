@@ -2,7 +2,6 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
   @moduledoc false
 
   alias Membrane.MP4.{Container, Helper, Track.SampleTable}
-  # alias Membrane.MP4.Payload.{AAC, AVC1}
   alias Membrane.{AAC, H264, Opus}
 
   @spec assemble(SampleTable.t()) :: Container.t()

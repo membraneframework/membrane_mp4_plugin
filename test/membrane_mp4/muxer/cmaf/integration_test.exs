@@ -180,7 +180,10 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
       structure = [
         child(:audio_source, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
-        |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}),
+        |> child(:audio_parser, %Membrane.AAC.Parser{
+          out_encapsulation: :none,
+          output_config: :esds
+        }),
         # NOTE: keyframes are every 2 seconds
         child(:video_source, %Membrane.File.Source{location: "test/fixtures/in_video_gop_30.h264"})
         |> child(:video_parser, %Membrane.H264.FFmpeg.Parser{

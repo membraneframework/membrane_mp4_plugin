@@ -19,7 +19,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       muxing_spec = [
         child(:file, %Membrane.File.Source{location: in_path})
         |> child(:parser, %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true})
-        |> child(:payloader, %Membrane.H264.Parser{output_stream_structure: :avc1, framerate: {30, 1}})
+        |> child(:payloader, %Membrane.H264.Parser{
+          output_stream_structure: :avc1
+        })
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
           chunk_duration: Membrane.Time.seconds(1),
           fast_start: true

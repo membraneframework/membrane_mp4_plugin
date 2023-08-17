@@ -101,7 +101,10 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         })
         |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1}),
         child(:audio_file, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
-        |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}),
+        |> child(:audio_parser, %Membrane.AAC.Parser{
+          out_encapsulation: :none,
+          output_config: :esds
+        }),
         child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("two_tracks")}),
         get_child(:video_payloader) |> get_child(:muxer),
@@ -163,7 +166,10 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         })
         |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1}),
         child(:audio_file, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
-        |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}),
+        |> child(:audio_parser, %Membrane.AAC.Parser{
+          out_encapsulation: :none,
+          output_config: :esds
+        }),
         child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true})
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("two_tracks_fast_start")}),
         get_child(:video_payloader) |> get_child(:muxer),
