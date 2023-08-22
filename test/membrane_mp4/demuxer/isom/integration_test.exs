@@ -18,7 +18,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
 
       muxing_spec = [
         child(:file, %Membrane.File.Source{location: in_path})
-        |> child(:parser, %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true})
+        |> child(:parser, %Membrane.H264.Parser{
+          generate_best_effort_timestamps: %{framerate: {30, 1}}
+        })
         |> child(:payloader, Membrane.MP4.Payloader.H264)
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
           chunk_duration: Membrane.Time.seconds(1),
@@ -93,9 +95,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
 
       muxing_spec = [
         child(:file_video, %Membrane.File.Source{location: in_video_path})
-        |> child(:video_parser, %Membrane.H264.FFmpeg.Parser{
-          framerate: {30, 1},
-          attach_nalus?: true
+        |> child(:video_parser, %Membrane.H264.Parser{
+          generate_best_effort_timestamps: %{framerate: {30, 1}}
         })
         |> child(:video_payloader, Membrane.MP4.Payloader.H264)
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{

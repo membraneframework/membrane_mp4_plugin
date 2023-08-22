@@ -17,7 +17,9 @@ defmodule Membrane.MP4.PayloaderDepayloaderTest do
 
     spec = [
       child(:file, %Membrane.File.Source{location: in_path})
-      |> child(:parser, %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true})
+      |> child(:parser, %Membrane.H264.Parser{
+        generate_best_effort_timestamps: %{framerate: {30, 1}}
+      })
       |> child(:payloader, Membrane.MP4.Payloader.H264)
       |> child(:depayloader, Membrane.MP4.Depayloader.H264)
       |> child(:sink, %Membrane.File.Sink{location: out_path})
