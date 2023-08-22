@@ -7,22 +7,25 @@ defmodule Membrane.MP4.Payloader.AAC do
   """
   use Membrane.Filter
 
-  def_input_pad :input,
+  def_input_pad(:input,
     demand_unit: :buffers,
     accepted_format: %Membrane.AAC{encapsulation: :none}
+  )
 
-  def_output_pad :output, accepted_format: Membrane.MP4.Payload
+  def_output_pad(:output, accepted_format: Membrane.MP4.Payload)
 
-  def_options avg_bit_rate: [
-                spec: non_neg_integer(),
-                default: 0,
-                description: "Average stream bitrate. Should be set to 0 if unknown."
-              ],
-              max_bit_rate: [
-                spec: non_neg_integer(),
-                default: 0,
-                description: "Maximal stream bitrate. Should be set to 0 if unknown."
-              ]
+  def_options(
+    avg_bit_rate: [
+      spec: non_neg_integer(),
+      default: 0,
+      description: "Average stream bitrate. Should be set to 0 if unknown."
+    ],
+    max_bit_rate: [
+      spec: non_neg_integer(),
+      default: 0,
+      description: "Maximal stream bitrate. Should be set to 0 if unknown."
+    ]
+  )
 
   @impl true
   def handle_stream_format(:input, stream_format, _ctx, state) do
@@ -59,9 +62,11 @@ defmodule Membrane.MP4.Payloader.AAC do
     depends_on_core_coder = 0
     extension_flag = 0
 
+    custom_frequency = if frequency_id == 15, do: <<stream_format.sample_rate::24>>, else: <<>>
+
     section5 =
-      <<aot_id::5, frequency_id::4, channel_config_id::4, frame_length_id::1,
-        depends_on_core_coder::1, extension_flag::1>>
+      <<aot_id::5, frequency_id::4, custom_frequency::binary, channel_config_id::4,
+        frame_length_id::1, depends_on_core_coder::1, extension_flag::1>>
       |> make_esds_section(5)
 
     # 64 = mpeg4-audio
