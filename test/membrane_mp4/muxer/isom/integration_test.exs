@@ -98,9 +98,9 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       structure = [
         child(:video_file, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
         |> child(:video_parser, %Membrane.H264.Parser{
-          generate_best_effort_timestamps: %{framerate: {30, 1}}
-        })
-        |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1}),
+          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          output_stream_structure: :avc1
+        }),
         child(:audio_file, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
         |> child(:audio_parser, %Membrane.AAC.Parser{
           out_encapsulation: :none,
@@ -108,7 +108,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         }),
         child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("two_tracks")}),
-        get_child(:video_payloader) |> get_child(:muxer),
+        get_child(:video_parser) |> get_child(:muxer),
         get_child(:audio_parser) |> get_child(:muxer)
       ]
 
@@ -164,9 +164,9 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       structure = [
         child(:video_file, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
         |> child(:video_parser, %Membrane.H264.Parser{
-          generate_best_effort_timestamps: %{framerate: {30, 1}}
-        })
-        |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1}),
+          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          output_stream_structure: :avc1
+        }),
         child(:audio_file, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
         |> child(:audio_parser, %Membrane.AAC.Parser{
           out_encapsulation: :none,
@@ -174,7 +174,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         }),
         child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true})
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("two_tracks_fast_start")}),
-        get_child(:video_payloader) |> get_child(:muxer),
+        get_child(:video_parser) |> get_child(:muxer),
         get_child(:audio_parser) |> get_child(:muxer)
       ]
 

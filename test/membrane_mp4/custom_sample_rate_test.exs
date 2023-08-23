@@ -23,8 +23,15 @@ defmodule Membrane.MP4.TransmuxingTranspayloadingTest do
       child(:file, %Membrane.File.Source{location: in_path})
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
       |> via_out(Pad.ref(:output, 1))
-      |> child(:depayloader, Membrane.MP4.Depayloader.AAC)
-      |> child(:payloader, Membrane.MP4.Payloader.AAC)
+      |> child(:payloadin_parser, %Membrane.AAC.Parser{
+        in_encapsulation: :none,
+        out_encapsulation: :ADTS
+      })
+      |> child(:depayloading_parser, %Membrane.AAC.Parser{
+        in_encapsulation: :ADTS,
+        out_encapsulation: :none,
+        output_config: :esds
+      })
       |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
         chunk_duration: Membrane.Time.seconds(1),
         fast_start: true

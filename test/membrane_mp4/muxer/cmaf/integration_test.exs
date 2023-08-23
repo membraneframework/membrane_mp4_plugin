@@ -48,15 +48,15 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}),
       child(:video_source, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
       |> child(:video_parser, %Membrane.H264.Parser{
-        generate_best_effort_timestamps: %{framerate: {30, 1}}
-      })
-      |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1}),
+        generate_best_effort_timestamps: %{framerate: {30, 1}},
+        output_stream_structure: :avc1
+      }),
       child(:cmaf, %Membrane.MP4.Muxer.CMAF{
         segment_min_duration: Time.seconds(2)
       })
       |> child(:sink, Membrane.Testing.Sink),
       get_child(:audio_parser) |> get_child(:cmaf),
-      get_child(:video_payloader) |> get_child(:cmaf)
+      get_child(:video_parser) |> get_child(:cmaf)
     ]
 
     pipeline = Testing.Pipeline.start_link_supervised!(structure: structure)
@@ -187,9 +187,9 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
         |> child(:video_parser, %Membrane.H264.Parser{
           # TODO: This test fails without `add_dts_offset: false` and it seems like a bug
           # in the muxer
-          generate_best_effort_timestamps: %{framerate: {30, 1}, add_dts_offset: false}
-        })
-        |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1}),
+          generate_best_effort_timestamps: %{framerate: {30, 1}, add_dts_offset: false},
+          output_stream_structure: :avc1
+        }),
         child(:cmaf, %Membrane.MP4.Muxer.CMAF{
           segment_min_duration: segment_min_duration,
           chunk_target_duration: chunk_target_duration
@@ -199,7 +199,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
         get_child(:audio_parser)
         |> child(:audio_limiter, %BufferLimiter{parent: parent, tag: :audio})
         |> get_child(:cmaf),
-        get_child(:video_payloader)
+        get_child(:video_parser)
         |> child(:video_limiter, %BufferLimiter{parent: parent, tag: :video})
         |> get_child(:cmaf)
       ]
@@ -338,7 +338,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     parser =
       case type do
         :audio -> %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}
-        :video -> %Membrane.H264.Parser{generate_best_effort_timestamps: %{framerate: {30, 1}, output_stream_structure: :avc1}}
+        :video -> %Membrane.H264.Parser{generate_best_effort_timestamps: %{framerate: {30, 1}}, output_stream_structure: :avc1}
       end
 
     segment_min_duration = Keyword.get(opts, :segment_min_duration, Time.seconds(2))

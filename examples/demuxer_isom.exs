@@ -27,7 +27,7 @@ defmodule Example do
       })
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
       |> via_out(Pad.ref(:output, 1))
-      |> child(:depayloader_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
+      |> child(:parser_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
       |> child(:sink_video, %Membrane.File.Sink{location: @output_video}),
       get_child(:demuxer)
       |> via_out(Pad.ref(:output, 2))

@@ -36,9 +36,9 @@ defmodule Example do
         hackney_opts: [follow_redirect: true]
       })
       |> child(:video_parser, %Membrane.H264.Parser{
-        generate_best_effort_timestamps: %{framerate: {25, 1}}
+        generate_best_effort_timestamps: %{framerate: {25, 1}},
+        output_stream_structure: :avc1
       })
-      |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1})
       |> via_in(Pad.ref(:input, :video))
       |> get_child(:muxer),
       child(:audio_source, %Membrane.Hackney.Source{
@@ -47,9 +47,9 @@ defmodule Example do
       })
       |> child(:audio_parser, %Membrane.AAC.Parser{
         in_encapsulation: :ADTS,
-        out_encapsulation: :none
+        out_encapsulation: :none,
+        output_config: :esds
       })
-      |> child(:audio_parser, %Membrane.AAC.Parser{output_config: :esds})
       |> via_in(Pad.ref(:input, :audio))
       |> get_child(:muxer),
       child(:muxer, %Membrane.MP4.Muxer.CMAF{

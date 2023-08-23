@@ -26,9 +26,9 @@ defmodule Example do
         hackney_opts: [follow_redirect: true]
       })
       |> child(:video_parser, %Membrane.H264.Parser{
-        generate_best_effort_timestamps: %{framerate: {30, 1}}
-      })
-      |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1}),
+        generate_best_effort_timestamps: %{framerate: {30, 1}},
+        output_stream_structure: :avc1
+      }),
       child(:audio_source, %Membrane.Hackney.Source{
         location: @audio_url,
         hackney_opts: [follow_redirect: true]
@@ -37,7 +37,7 @@ defmodule Example do
       child(:muxer, Membrane.MP4.Muxer.ISOM)
       |> child(:sink, %Membrane.File.Sink{location: @output_file}),
       get_child(:audio_parser) |> get_child(:muxer),
-      get_child(:video_payloader) |> get_child(:muxer)
+      get_child(:video_parser) |> get_child(:muxer)
     ]
 
     {[spec: structure], %{}}

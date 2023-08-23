@@ -11,7 +11,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
   alias Membrane.Pad
   alias Membrane.Testing.Pipeline
 
-  describe "Demuxer and depayloader should allow for reading of" do
+  describe "Demuxer and parser should allow for reading of" do
     @tag :tmp_dir
     test "a single H264 track", %{tmp_dir: dir} do
       in_path = "test/fixtures/in_video.h264"
@@ -37,7 +37,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
         child(:file, %Membrane.File.Source{location: mp4_path})
         |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
         |> via_out(Pad.ref(:output, 1))
-        |> child(:depayloader, %Membrane.H264.Parser{output_stream_structure: :annexb})
+        |> child(:parser, %Membrane.H264.Parser{output_stream_structure: :annexb})
         |> child(:sink, %Membrane.File.Sink{location: out_path})
       ]
 
@@ -97,9 +97,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       muxing_spec = [
         child(:file_video, %Membrane.File.Source{location: in_video_path})
         |> child(:video_parser, %Membrane.H264.Parser{
-          generate_best_effort_timestamps: %{framerate: {30, 1}}
+          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          output_stream_structure: :avc1
         })
-        |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1})
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
           chunk_duration: Membrane.Time.seconds(1),
           fast_start: true
@@ -120,7 +120,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
         child(:file, %Membrane.File.Source{location: mp4_path})
         |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
         |> via_out(Pad.ref(:output, 1))
-        |> child(:depayloader_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
+        |> child(:parser_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
         |> child(:sink_video, %Membrane.File.Sink{location: out_video_path}),
         get_child(:demuxer)
         |> via_out(Pad.ref(:output, 2))
