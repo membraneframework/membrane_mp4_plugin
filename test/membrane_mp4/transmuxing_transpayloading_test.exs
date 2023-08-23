@@ -16,8 +16,8 @@ defmodule Membrane.MP4.TransmuxingTranspayloadingTest do
   @tag :tmp_dir
   test "an AAC track with custom sample rate after demuxing, depayloading, payloading and muxing is identical to the original one",
        %{tmp_dir: dir} do
-    in_path = "test/fixtures/isom/ref_aac_fast_start_sr_20000.mp4"
-    out_path = Path.join(dir, "ref_aac_fast_start_sr_20000.mp4")
+    in_path = "test/fixtures/isom/ref_aac_fast_start_sr_22050.mp4"
+    out_path = Path.join(dir, "out.mp4")
 
     structure = [
       child(:file, %Membrane.File.Source{location: in_path})
