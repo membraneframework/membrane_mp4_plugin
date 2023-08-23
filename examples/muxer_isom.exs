@@ -1,11 +1,16 @@
 Mix.install([
-  {:membrane_aac_format,
-   github: "membraneframework/membrane_aac_format", branch: "custom-sample-rate", override: true},
-  :membrane_h264_plugin,
+  {:membrane_aac_plugin,
+   github: "membraneframework/membrane_aac_plugin",
+   branch: "add-config-parsing-and-generation",
+   override: true},
+  {:membrane_h264_plugin,
+   github: "membraneframework/membrane_h264_plugin",
+   branch: "stream-type-conversion",
+   override: true},
   :membrane_hackney_plugin,
   {:membrane_h264_format,
-   git: "https://github.com/membraneframework/membrane_h264_format.git",
-   ref: "ea5a3d2",
+   github: "membraneframework/membrane_h264_format",
+   branch: "avc-support-remove-remote-stream",
    override: true},
   {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()}
 ])

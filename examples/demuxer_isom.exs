@@ -6,7 +6,7 @@ Mix.install([
   :membrane_hackney_plugin,
   {:membrane_h264_format,
    git: "https://github.com/membraneframework/membrane_h264_format.git",
-   ref: "ea5a3d2",
+   ref: "avc-support-remove-remote-stream",
    override: true},
   {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()}
 ])
@@ -25,7 +25,7 @@ defmodule Example do
         location: @input_file,
         hackney_opts: [follow_redirect: true]
       })
-      |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
+      |> child(:demuxer, %Membrane.MP4.Demuxer.ISOM{optimize_for_non_fast_start?: true})
       |> via_out(Pad.ref(:output, 1))
       |> child(:parser_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
       |> child(:sink_video, %Membrane.File.Sink{location: @output_video}),
