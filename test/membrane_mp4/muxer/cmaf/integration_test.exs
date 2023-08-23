@@ -24,7 +24,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline)
   end
 
   test "audio" do
@@ -39,7 +39,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline)
   end
 
   test "muxed audio and video" do
@@ -47,10 +47,8 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       child(:audio_source, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
       |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}),
       child(:video_source, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
-      |> child(:video_parser, %Membrane.H264.FFmpeg.Parser{
-        framerate: {30, 1},
-        attach_nalus?: true,
-        max_frame_reorder: 0
+      |> child(:video_parser, %Membrane.H264.Parser{
+        generate_best_effort_timestamps: %{framerate: {30, 1}}
       })
       |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1}),
       child(:cmaf, %Membrane.MP4.Muxer.CMAF{
@@ -81,7 +79,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline)
   end
 
   test "video partial segments" do
@@ -106,7 +104,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline)
   end
 
   test "audio partial segments" do
@@ -126,7 +124,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline)
   end
 
   test "video with partial segments should create as many partial segments as possible until reaching a key frame" do
@@ -165,7 +163,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
 
-    :ok = Testing.Pipeline.terminate(pipeline, blocking?: true)
+    :ok = Testing.Pipeline.terminate(pipeline)
   end
 
   describe "RequestMediaFinalization" do
@@ -186,10 +184,10 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
         }),
         # NOTE: keyframes are every 2 seconds
         child(:video_source, %Membrane.File.Source{location: "test/fixtures/in_video_gop_30.h264"})
-        |> child(:video_parser, %Membrane.H264.FFmpeg.Parser{
-          framerate: {30, 1},
-          attach_nalus?: true,
-          max_frame_reorder: 0
+        |> child(:video_parser, %Membrane.H264.Parser{
+          # TODO: This test fails without `add_dts_offset: false` and it seems like a bug
+          # in the muxer
+          generate_best_effort_timestamps: %{framerate: {30, 1}, add_dts_offset: false}
         })
         |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1}),
         child(:cmaf, %Membrane.MP4.Muxer.CMAF{
@@ -339,21 +337,8 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
     parser =
       case type do
-        :audio ->
-          %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}
-
-        :video ->
-          %Membrane.H264.FFmpeg.Parser{
-            framerate: {30, 1},
-            attach_nalus?: true,
-            max_frame_reorder: 0
-          }
-      end
-
-    payloader =
-      case type do
-        :audio -> Membrane.Debug.Filter
-        :video -> %Membrane.H264.Parser{output_stream_structure: :avc1}
+        :audio -> %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}
+        :video -> %Membrane.H264.Parser{generate_best_effort_timestamps: %{framerate: {30, 1}, output_stream_structure: :avc1}}
       end
 
     segment_min_duration = Keyword.get(opts, :segment_min_duration, Time.seconds(2))
@@ -362,7 +347,6 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     structure = [
       child(:file, %Membrane.File.Source{location: file})
       |> child(:parser, parser)
-      |> child(:payloader, payloader)
       |> child(:cmaf, %Membrane.MP4.Muxer.CMAF{
         segment_min_duration: segment_min_duration,
         chunk_target_duration: chunk_target_duration

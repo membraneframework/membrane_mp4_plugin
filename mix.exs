@@ -1,7 +1,7 @@
 defmodule Membrane.MP4.Plugin.MixProject do
   use Mix.Project
 
-  @version "0.25.0"
+  @version "0.28.0"
   @github_url "https://github.com/membraneframework/membrane_mp4_plugin"
 
   def project do
@@ -52,7 +52,7 @@ defmodule Membrane.MP4.Plugin.MixProject do
        ref: "ea5a3d2",
        override: true},
       {:membrane_opus_format, "~> 0.3.0"},
-      {:membrane_file_plugin, "~> 0.14.0"},
+      {:membrane_file_plugin, "~> 0.15.0"},
       {:membrane_h264_plugin,
        git: "https://github.com/membraneframework/membrane_h264_plugin.git",
        branch: "stream-type-conversion",

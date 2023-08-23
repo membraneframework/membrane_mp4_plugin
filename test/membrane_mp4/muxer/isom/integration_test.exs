@@ -38,7 +38,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
     assert_end_of_stream(pid, :sink, :input)
     refute_sink_buffer(pid, :sink, _buffer, 0)
 
-    assert :ok == Pipeline.terminate(pid, blocking?: true)
+    assert :ok == Pipeline.terminate(pid)
 
     assert_mp4_equal(out_path, ref_path)
   end
@@ -49,8 +49,10 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
 
       structure = [
         child(:file, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
-        |> child(:parser, %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true})
-        |> child(:payloader, %Membrane.H264.Parser{output_stream_structure: :avc1})
+        |> child(:parser, %Membrane.H264.Parser{
+          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          output_stream_structure: :avc1
+        })
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("video")})
       ]
@@ -95,9 +97,8 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
 
       structure = [
         child(:video_file, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
-        |> child(:video_parser, %Membrane.H264.FFmpeg.Parser{
-          framerate: {30, 1},
-          attach_nalus?: true
+        |> child(:video_parser, %Membrane.H264.Parser{
+          generate_best_effort_timestamps: %{framerate: {30, 1}}
         })
         |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1}),
         child(:audio_file, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
@@ -123,8 +124,10 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
 
       structure = [
         child(:file, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
-        |> child(:parser, %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true})
-        |> child(:payloader, %Membrane.H264.Parser{output_stream_structure: :avc1})
+        |> child(:parser, %Membrane.H264.Parser{
+          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          output_stream_structure: :avc1
+        })
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
           chunk_duration: Time.seconds(1),
           fast_start: true
@@ -160,9 +163,8 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
 
       structure = [
         child(:video_file, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
-        |> child(:video_parser, %Membrane.H264.FFmpeg.Parser{
-          framerate: {30, 1},
-          attach_nalus?: true
+        |> child(:video_parser, %Membrane.H264.Parser{
+          generate_best_effort_timestamps: %{framerate: {30, 1}}
         })
         |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1}),
         child(:audio_file, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
@@ -186,8 +188,10 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
     test "raise when stream format's inband_parameters are not used" do
       structure = [
         child(:file, %Membrane.File.Source{location: "test/fixtures/in_video_vp.h264"})
-        |> child(:parser, %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true})
-        |> child(:payloader, %Membrane.H264.Parser{output_stream_structure: :avc1})
+        |> child(:parser, %Membrane.H264.Parser{
+          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          output_stream_structure: :avc1
+        })
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
           chunk_duration: Time.seconds(1),
           fast_start: true

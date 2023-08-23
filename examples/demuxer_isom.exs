@@ -3,7 +3,6 @@ Mix.install([
    git: "https://github.com/membraneframework/membrane_aac_plugin.git",
    branch: "add-config-parsing-and-generation",
    override: true},
-  :membrane_h264_ffmpeg_plugin,
   :membrane_hackney_plugin,
   {:membrane_h264_format,
    git: "https://github.com/membraneframework/membrane_h264_format.git",

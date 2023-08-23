@@ -1,4 +1,6 @@
 defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
+  @moduledoc false
+
   use ExUnit.Case, async: true
 
   import Membrane.ChildrenSpec
@@ -18,8 +20,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
 
       muxing_spec = [
         child(:file, %Membrane.File.Source{location: in_path})
-        |> child(:parser, %Membrane.H264.FFmpeg.Parser{framerate: {30, 1}, attach_nalus?: true})
-        |> child(:payloader, %Membrane.H264.Parser{
+        |> child(:parser, %Membrane.H264.Parser{
+          generate_best_effort_timestamps: %{framerate: {30, 1}},
           output_stream_structure: :avc1
         })
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
@@ -94,9 +96,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
 
       muxing_spec = [
         child(:file_video, %Membrane.File.Source{location: in_video_path})
-        |> child(:video_parser, %Membrane.H264.FFmpeg.Parser{
-          framerate: {30, 1},
-          attach_nalus?: true
+        |> child(:video_parser, %Membrane.H264.Parser{
+          generate_best_effort_timestamps: %{framerate: {30, 1}}
         })
         |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1})
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
@@ -138,34 +139,48 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
     end
   end
 
-  @tag :tmp_dir
-  test "the PTS and DTS are properly read", %{tmp_dir: dir} do
+  test "the PTS and DTS are properly read" do
     input_path = "test/fixtures/isom/ref_video_fast_start.mp4"
-    out_path = Path.join(dir, "out.ms")
     ref_path = "test/fixtures/demuxed_and_depayloaded_video.ms"
 
-    demuxing_spec = [
+    demuxing_spec =
       child(:file, %Membrane.File.Source{location: input_path})
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
       |> via_out(Pad.ref(:output, 1))
-      |> child(:depayloader_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
-      |> child(:serializer, Membrane.Stream.Serializer)
-      |> child(:sink, %Membrane.File.Sink{location: out_path})
-    ]
+      |> child(:parser_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
+      |> child(:sink, Membrane.Testing.Sink)
 
-    Pipeline.start_link_supervised!(structure: demuxing_spec)
-    |> wait_for_pipeline_termination([:sink])
+    Pipeline.start_link_supervised!(structure: demuxing_spec) |> wait_for_pipeline_termination()
+    demuxing_buffers = flush_buffers()
 
-    assert_files_equal(out_path, ref_path)
+    ref_spec =
+      child(:file, %Membrane.File.Source{location: ref_path})
+      |> child(:deserializer, Membrane.Stream.Deserializer)
+      |> child(:sink, Membrane.Testing.Sink)
+
+    Pipeline.start_link_supervised!(structure: ref_spec) |> wait_for_pipeline_termination()
+    ref_buffers = flush_buffers()
+    assert demuxing_buffers == ref_buffers
+  end
+
+  defp flush_buffers(acc \\ []) do
+    receive do
+      {Membrane.Testing.Pipeline, _pid, {:handle_child_notification, {{:buffer, buffer}, :sink}}} ->
+        flush_buffers(acc ++ [buffer])
+
+      _other_msg ->
+        flush_buffers(acc)
+    after
+      0 -> acc
+    end
   end
 
   defp wait_for_pipeline_termination(pipeline, sink_names \\ [:sink]) do
     Enum.each(sink_names, fn sink_name ->
       assert_end_of_stream(pipeline, ^sink_name, :input)
-      refute_sink_buffer(pipeline, sink_name, _buffer, 0)
     end)
 
-    Pipeline.terminate(pipeline, blocking?: true)
+    Pipeline.terminate(pipeline)
   end
 
   defp assert_files_equal(file_a, file_b) do

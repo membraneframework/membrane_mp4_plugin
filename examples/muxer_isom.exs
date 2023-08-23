@@ -1,9 +1,7 @@
 Mix.install([
-  {:membrane_aac_plugin,
-   git: "https://github.com/membraneframework/membrane_aac_plugin.git",
-   branch: "add-config-parsing-and-generation",
-   override: true},
-  :membrane_h264_ffmpeg_plugin,
+  {:membrane_aac_format,
+   github: "membraneframework/membrane_aac_format", branch: "custom-sample-rate", override: true},
+  :membrane_h264_plugin,
   :membrane_hackney_plugin,
   {:membrane_h264_format,
    git: "https://github.com/membraneframework/membrane_h264_format.git",
@@ -27,10 +25,8 @@ defmodule Example do
         location: @video_url,
         hackney_opts: [follow_redirect: true]
       })
-      |> child(:video_parser, %Membrane.H264.FFmpeg.Parser{
-        framerate: {30, 1},
-        alignment: :au,
-        attach_nalus?: true
+      |> child(:video_parser, %Membrane.H264.Parser{
+        generate_best_effort_timestamps: %{framerate: {30, 1}}
       })
       |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1}),
       child(:audio_source, %Membrane.Hackney.Source{

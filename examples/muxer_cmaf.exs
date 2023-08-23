@@ -3,7 +3,7 @@ Mix.install([
    git: "https://github.com/membraneframework/membrane_aac_plugin.git",
    branch: "add-config-parsing-and-generation",
    override: true},
-  :membrane_h264_ffmpeg_plugin,
+  {:membrane_h264_plugin, github: "membraneframework/membrane_h264_plugin", branch: "stream-type-conversion"},
   :membrane_hackney_plugin,
   {:membrane_http_adaptive_stream_plugin, "~> 0.16.0"},
   {:membrane_h264_format,
@@ -35,10 +35,8 @@ defmodule Example do
         location: @video_url,
         hackney_opts: [follow_redirect: true]
       })
-      |> child(:video_parser, %Membrane.H264.FFmpeg.Parser{
-        framerate: {25, 1},
-        alignment: :au,
-        attach_nalus?: true
+      |> child(:video_parser, %Membrane.H264.Parser{
+        generate_best_effort_timestamps: %{framerate: {25, 1}}
       })
       |> child(:video_payloader, %Membrane.H264.Parser{output_stream_structure: :avc1})
       |> via_in(Pad.ref(:input, :video))
@@ -57,7 +55,9 @@ defmodule Example do
       child(:muxer, %Membrane.MP4.Muxer.CMAF{
         segment_min_duration: Time.seconds(4)
       })
-      |> via_in(:input, options: [segment_duration: HLSSink.SegmentDuration.new(Time.seconds(12))])
+      |> via_in(:input,
+        options: [segment_duration: HLSSink.SegmentDuration.new(Time.seconds(12))]
+      )
       |> child(:sink, %HLSSink{
         manifest_module: Membrane.HTTPAdaptiveStream.HLS,
         target_window_duration: Membrane.Time.seconds(30),
