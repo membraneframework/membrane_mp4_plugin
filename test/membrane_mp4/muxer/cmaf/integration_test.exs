@@ -337,8 +337,14 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
     parser =
       case type do
-        :audio -> %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}
-        :video -> %Membrane.H264.Parser{generate_best_effort_timestamps: %{framerate: {30, 1}}, output_stream_structure: :avc1}
+        :audio ->
+          %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}
+
+        :video ->
+          %Membrane.H264.Parser{
+            generate_best_effort_timestamps: %{framerate: {30, 1}},
+            output_stream_structure: :avc1
+          }
       end
 
     segment_min_duration = Keyword.get(opts, :segment_min_duration, Time.seconds(2))

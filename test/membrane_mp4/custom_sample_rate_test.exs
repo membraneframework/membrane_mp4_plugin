@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.TransmuxingTranspayloadingTest do
+defmodule Membrane.MP4.CustomSampleRateTest do
   @moduledoc false
 
   use ExUnit.Case, async: true
