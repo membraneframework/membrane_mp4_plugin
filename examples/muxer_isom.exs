@@ -32,9 +32,7 @@ defmodule Example do
       })
       |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none})
       |> child(:audio_payloader, Membrane.MP4.Payloader.AAC),
-      child(:muxer, %Membrane.MP4.Muxer.ISOM{
-        fast_start: true
-      })
+      child(:muxer, Membrane.MP4.Muxer.ISOM)
       |> child(:sink, %Membrane.File.Sink{location: @output_file}),
       get_child(:audio_payloader) |> get_child(:muxer),
       get_child(:video_payloader) |> get_child(:muxer)

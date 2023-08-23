@@ -7,25 +7,23 @@ defmodule Membrane.MP4.Payloader.AAC do
   """
   use Membrane.Filter
 
-  def_input_pad(:input,
+  def_input_pad :input,
     demand_unit: :buffers,
     accepted_format: %Membrane.AAC{encapsulation: :none}
-  )
 
-  def_output_pad(:output, accepted_format: Membrane.MP4.Payload)
+  def_output_pad :output,
+    accepted_format: Membrane.MP4.Payload
 
-  def_options(
-    avg_bit_rate: [
-      spec: non_neg_integer(),
-      default: 0,
-      description: "Average stream bitrate. Should be set to 0 if unknown."
-    ],
-    max_bit_rate: [
-      spec: non_neg_integer(),
-      default: 0,
-      description: "Maximal stream bitrate. Should be set to 0 if unknown."
-    ]
-  )
+  def_options avg_bit_rate: [
+                spec: non_neg_integer(),
+                default: 0,
+                description: "Average stream bitrate. Should be set to 0 if unknown."
+              ],
+              max_bit_rate: [
+                spec: non_neg_integer(),
+                default: 0,
+                description: "Maximal stream bitrate. Should be set to 0 if unknown."
+              ]
 
   @impl true
   def handle_stream_format(:input, stream_format, _ctx, state) do
