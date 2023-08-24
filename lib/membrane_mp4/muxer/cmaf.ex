@@ -104,11 +104,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
     accepted_format:
       any_of(
         %Membrane.AAC{config: {:esds, _esds}},
+        %Membrane.Opus{self_delimiting?: false},
         %Membrane.H264{
-          stream_structure: {:avc3, _dcr},
+          stream_structure: {avc, _dcr},
           alignment: :au
-        },
-        %Membrane.Opus{self_delimiting?: false}
+        }
+        when avc in [:avc1, :avc3]
       )
 
   def_output_pad :output, accepted_format: Membrane.CMAF.Track
