@@ -24,11 +24,9 @@ defmodule Membrane.MP4.CustomSampleRateTest do
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
       |> via_out(Pad.ref(:output, 1))
       |> child(:payloadin_parser, %Membrane.AAC.Parser{
-        in_encapsulation: :none,
         out_encapsulation: :ADTS
       })
       |> child(:depayloading_parser, %Membrane.AAC.Parser{
-        in_encapsulation: :ADTS,
         out_encapsulation: :none,
         output_config: :esds
       })

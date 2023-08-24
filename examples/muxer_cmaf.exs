@@ -47,7 +47,6 @@ defmodule Example do
         hackney_opts: [follow_redirect: true]
       })
       |> child(:audio_parser, %Membrane.AAC.Parser{
-        in_encapsulation: :ADTS,
         out_encapsulation: :none,
         output_config: :esds
       })

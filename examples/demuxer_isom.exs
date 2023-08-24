@@ -32,7 +32,6 @@ defmodule Example do
       get_child(:demuxer)
       |> via_out(Pad.ref(:output, 2))
       |> child(:audio_parser, %Membrane.AAC.Parser{
-        in_encapsulation: :none,
         out_encapsulation: :ADTS
       })
       |> child(:sink_audio, %Membrane.File.Sink{location: @output_audio})
