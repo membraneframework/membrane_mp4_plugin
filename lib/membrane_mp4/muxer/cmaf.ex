@@ -105,7 +105,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       any_of(
         %Membrane.AAC{config: {:esds, _esds}},
         %Membrane.H264{
-          stream_structure: {:avc1, _dcr},
+          stream_structure: {:avc3, _dcr},
           alignment: :au
         },
         %Membrane.Opus{self_delimiting?: false}

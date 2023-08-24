@@ -1,6 +1,4 @@
 defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
-  @moduledoc false
-  
   use ExUnit.Case, async: true
 
   import Membrane.ChildrenSpec

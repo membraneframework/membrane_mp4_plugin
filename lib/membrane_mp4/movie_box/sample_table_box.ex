@@ -232,11 +232,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     sizes |> Enum.map(fn %{entry_size: size} -> size end)
   end
 
-  defp unpack_sample_description(%{children: [{codec, data}]}) do
-    unpack_content(codec, data)
-  end
-
-  defp unpack_content(:avc1, %{children: boxes, fields: fields}) do
+  defp unpack_sample_description(%{children: [{:avc1, %{children: boxes, fields: fields}}]}) do
     %H264{
       width: fields.width,
       height: fields.height,
@@ -244,7 +240,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     }
   end
 
-  defp unpack_content(:mp4a, %{children: boxes, fields: fields}) do
+  defp unpack_sample_description(%{children: [{:mp4a, %{children: boxes, fields: fields}}]}) do
     {sample_rate, 0} = fields.sample_rate
 
     %AAC{
@@ -254,7 +250,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     }
   end
 
-  defp unpack_content(:Opus, %{children: boxes}) do
+  defp unpack_sample_description(%{children: [{:Opus, %{children: boxes}}]}) do
     %Opus{channels: boxes[:dOps].fields.output_channel_count, self_delimiting?: false}
   end
 end

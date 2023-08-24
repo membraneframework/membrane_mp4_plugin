@@ -1,6 +1,4 @@
 defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
-  @moduledoc false
-  
   use ExUnit.Case, async: true
 
   import Membrane.ChildrenSpec

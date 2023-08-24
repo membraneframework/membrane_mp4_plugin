@@ -14,14 +14,13 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   alias Membrane.MP4.Container
   alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
 
-  def_input_pad(:input,
+  def_input_pad :input,
     accepted_format:
       %RemoteStream{type: :bytestream, content_format: content_format}
       when content_format in [nil, MP4],
     demand_unit: :buffers
-  )
 
-  def_output_pad(:output,
+  def_output_pad :output,
     accepted_format:
       any_of(
         %Membrane.AAC{config: {:esds, _esds}},
@@ -32,7 +31,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         %Membrane.Opus{self_delimiting?: false}
       ),
     availability: :on_request
-  )
 
   def_options optimize_for_non_fast_start?: [
                 default: false,
