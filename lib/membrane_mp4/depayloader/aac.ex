@@ -62,8 +62,12 @@ defmodule Membrane.MP4.Depayloader.AAC do
     depends_on_core_coder = 0
     extension_flag = 0
 
-    <<aot_id::5, _frequency_id::4, _channel_config_id::4, frame_length_id::1,
-      ^depends_on_core_coder::1, ^extension_flag::1>> = section_5
+    <<aot_id::5, frequency_id::4, section_5_rest::bitstring>> = section_5
+
+    custom_frequency_length = if frequency_id == 15, do: 24, else: 0
+
+    <<_maybe_custom_frequency::integer-size(custom_frequency_length), _channel_config_id::4,
+      frame_length_id::1, ^depends_on_core_coder::1, ^extension_flag::1>> = section_5_rest
 
     %{
       profile: AAC.aot_id_to_profile(aot_id),

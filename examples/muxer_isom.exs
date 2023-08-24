@@ -1,5 +1,7 @@
 Mix.install([
   :membrane_aac_plugin,
+  {:membrane_aac_format,
+   github: "membraneframework/membrane_aac_format", branch: "custom-sample-rate", override: true},
   :membrane_h264_plugin,
   :membrane_hackney_plugin,
   {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()}
