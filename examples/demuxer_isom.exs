@@ -1,13 +1,6 @@
 Mix.install([
-  {:membrane_aac_plugin,
-   git: "https://github.com/membraneframework/membrane_aac_plugin.git",
-   branch: "add-config-parsing-and-generation",
-   override: true},
-  :membrane_hackney_plugin,
-  {:membrane_h264_format,
-   git: "https://github.com/membraneframework/membrane_h264_format.git",
-   ref: "avc-support-remove-remote-stream",
-   override: true},
+  {:membrane_aac_plugin, "~> 0.16.0"},
+  {:membrane_hackney_plugin, "~> 0.10.0"},
   {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()}
 ])
 
