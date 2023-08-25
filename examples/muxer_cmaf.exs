@@ -57,7 +57,7 @@ defmodule Example do
         },
         track_config: %HLSSink.TrackConfig{
           target_window_duration: Membrane.Time.seconds(30),
-          persist?: true,
+          persist?: true
         },
         storage: %Membrane.HTTPAdaptiveStream.Storages.FileStorage{
           directory: @output_dir

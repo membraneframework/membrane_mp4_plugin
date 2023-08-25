@@ -71,7 +71,8 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
          stream_structure: {avc, dcr},
          width: width,
          height: height
-       }) when avc in [:avc1, :avc3] do
+       })
+       when avc in [:avc1, :avc3] do
     [
       avc1: %{
         children: [
