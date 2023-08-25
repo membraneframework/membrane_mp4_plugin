@@ -86,9 +86,9 @@ defmodule Membrane.MP4.Track do
 
   def get_encoding_info(%__MODULE__{
         stream_format: %Membrane.H264{
-          stream_structure: {:avc1, <<1, profile, compatibility, level, _rest::binary>>}
+          stream_structure: {avc, <<1, profile, compatibility, level, _rest::binary>>}
         }
-      }) do
+      }) when avc in [:avc1, :avc3] do
     map = %{
       profile: profile,
       compatibility: compatibility,

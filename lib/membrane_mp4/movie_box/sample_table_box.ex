@@ -68,10 +68,10 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
   end
 
   defp assemble_sample_description(%H264{
-         stream_structure: {:avc1, dcr},
+         stream_structure: {avc, dcr},
          width: width,
          height: height
-       }) do
+       }) when avc in [:avc1, :avc3] do
     [
       avc1: %{
         children: [

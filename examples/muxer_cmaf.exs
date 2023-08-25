@@ -48,12 +48,17 @@ defmodule Example do
         segment_min_duration: Time.seconds(4)
       })
       |> via_in(:input,
-        options: [segment_duration: HLSSink.SegmentDuration.new(Time.seconds(12))]
+        options: [segment_duration: Time.seconds(12)]
       )
       |> child(:sink, %HLSSink{
-        manifest_module: Membrane.HTTPAdaptiveStream.HLS,
-        target_window_duration: Membrane.Time.seconds(30),
-        persist?: true,
+        manifest_config: %HLSSink.ManifestConfig{
+          name: "index",
+          module: Membrane.HTTPAdaptiveStream.HLS
+        },
+        track_config: %HLSSink.TrackConfig{
+          target_window_duration: Membrane.Time.seconds(30),
+          persist?: true,
+        },
         storage: %Membrane.HTTPAdaptiveStream.Storages.FileStorage{
           directory: @output_dir
         }
