@@ -11,7 +11,7 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
   """
   alias Membrane.MP4.{Container, MovieBox.SampleTableBox, Track}
 
-  defguardp is_audio(track) when {track.height, track.width} == {0, 0}
+  defguardp is_audio(track) when not is_struct(track.stream_format, Membrane.H264)
 
   @spec assemble(Track.t()) :: Container.t()
   def assemble(track) do
@@ -58,7 +58,8 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
           creation_time: 0,
           duration: track.duration,
           flags: 3,
-          height: {track.height, 0},
+          height: {Map.get(track.stream_format, :height, 0), 0},
+          width: {Map.get(track.stream_format, :width, 0), 0},
           layer: 0,
           matrix_value_A: {1, 0},
           matrix_value_B: {0, 0},
@@ -77,8 +78,7 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
               {1, 0}
             else
               {0, 0}
-            end,
-          width: {track.width, 0}
+            end
         }
       }
     ]
@@ -164,14 +164,9 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
     sample_table =
       SampleTableBox.unpack(media[:minf].children[:stbl], media[:mdhd].fields.timescale)
 
-    {height, 0} = header.height
-    {width, 0} = header.width
-
     %Track{
       id: header.track_id,
-      content: sample_table.sample_description.content,
-      height: height,
-      width: width,
+      stream_format: sample_table.sample_description,
       timescale: media[:mdhd].fields.timescale,
       sample_table: sample_table,
       duration: nil,

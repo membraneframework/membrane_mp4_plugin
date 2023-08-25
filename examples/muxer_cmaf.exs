@@ -1,9 +1,9 @@
 Mix.install([
-  :membrane_aac_plugin,
-  :membrane_h264_plugin,
-  :membrane_hackney_plugin,
-  :membrane_http_adaptive_stream_plugin,
-  {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()}
+  {:membrane_aac_plugin, "~> 0.16.0"},
+  {:membrane_h264_plugin, "~> 0.7.0"},
+  {:membrane_hackney_plugin, "~> 0.10.0"},
+  {:membrane_http_adaptive_stream_plugin, "~> 0.17.0"},
+  {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand(), override: true}
 ])
 
 defmodule Example do
@@ -29,9 +29,9 @@ defmodule Example do
         hackney_opts: [follow_redirect: true]
       })
       |> child(:video_parser, %Membrane.H264.Parser{
-        generate_best_effort_timestamps: %{framerate: {25, 1}}
+        generate_best_effort_timestamps: %{framerate: {25, 1}},
+        output_stream_structure: :avc1
       })
-      |> child(:video_payloader, Membrane.MP4.Payloader.H264)
       |> via_in(Pad.ref(:input, :video))
       |> get_child(:muxer),
       child(:audio_source, %Membrane.Hackney.Source{
@@ -39,29 +39,33 @@ defmodule Example do
         hackney_opts: [follow_redirect: true]
       })
       |> child(:audio_parser, %Membrane.AAC.Parser{
-        in_encapsulation: :ADTS,
-        out_encapsulation: :none
+        out_encapsulation: :none,
+        output_config: :esds
       })
-      |> child(:audio_payloader, Membrane.MP4.Payloader.AAC)
       |> via_in(Pad.ref(:input, :audio))
       |> get_child(:muxer),
       child(:muxer, %Membrane.MP4.Muxer.CMAF{
         segment_min_duration: Time.seconds(4)
       })
       |> via_in(:input,
-        options: [segment_duration: HLSSink.SegmentDuration.new(Time.seconds(12))]
+        options: [segment_duration: Time.seconds(12)]
       )
       |> child(:sink, %HLSSink{
-        manifest_module: Membrane.HTTPAdaptiveStream.HLS,
-        target_window_duration: Membrane.Time.seconds(30),
-        persist?: true,
+        manifest_config: %HLSSink.ManifestConfig{
+          name: "index",
+          module: Membrane.HTTPAdaptiveStream.HLS
+        },
+        track_config: %HLSSink.TrackConfig{
+          target_window_duration: Membrane.Time.seconds(30),
+          persist?: true
+        },
         storage: %Membrane.HTTPAdaptiveStream.Storages.FileStorage{
           directory: @output_dir
         }
       })
     ]
 
-    {[spec: structure, playback: :playing], %{}}
+    {[spec: structure], %{}}
   end
 
   # The rest of the module is used only for pipeline self-termination after processing finishes

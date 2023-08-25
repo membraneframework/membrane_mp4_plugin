@@ -21,7 +21,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     demand_unit: :buffers
 
   def_output_pad :output,
-    accepted_format: Membrane.MP4.Payload,
+    accepted_format:
+      any_of(
+        %Membrane.AAC{config: {:esds, _esds}},
+        %Membrane.H264{
+          stream_structure: {:avc1, _dcr},
+          alignment: :au
+        },
+        %Membrane.Opus{self_delimiting?: false}
+      ),
     availability: :on_request
 
   def_options optimize_for_non_fast_start?: [
@@ -48,7 +56,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   Upon receiving the notification, `Pad.ref(:output, track_id)` pads should be linked
   for all the `track_id` in the list.
-  The `content` field describes the kind of `Membrane.MP4.Payload` which is contained in the track.
+  The `content` field contains the stream format which is contained in the track.
   """
   @type new_tracks_t() ::
           {:new_tracks, [{track_id :: integer(), content :: struct()}]}
@@ -380,7 +388,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     new_tracks =
       state.samples_info.sample_tables
       |> Enum.map(fn {track_id, table} ->
-        content = table.sample_description.content
+        content = table.sample_description
         {track_id, content}
       end)
 
@@ -390,14 +398,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp get_stream_format(state) do
     state.samples_info.sample_tables
     |> Enum.map(fn {track_id, table} ->
-      stream_format = %Membrane.MP4.Payload{
-        content: table.sample_description.content,
-        timescale: table.timescale,
-        height: table.sample_description.height,
-        width: table.sample_description.width
-      }
-
-      {:stream_format, {Pad.ref(:output, track_id), stream_format}}
+      {:stream_format, {Pad.ref(:output, track_id), table.sample_description}}
     end)
   end
 

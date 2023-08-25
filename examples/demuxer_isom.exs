@@ -1,6 +1,6 @@
 Mix.install([
-  :membrane_aac_plugin,
-  :membrane_hackney_plugin,
+  {:membrane_aac_plugin, "~> 0.16.0"},
+  {:membrane_hackney_plugin, "~> 0.10.0"},
   {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()}
 ])
 
@@ -18,21 +18,19 @@ defmodule Example do
         location: @input_file,
         hackney_opts: [follow_redirect: true]
       })
-      |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
+      |> child(:demuxer, %Membrane.MP4.Demuxer.ISOM{optimize_for_non_fast_start?: true})
       |> via_out(Pad.ref(:output, 1))
-      |> child(:depayloader_video, Membrane.MP4.Depayloader.H264)
+      |> child(:parser_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
       |> child(:sink_video, %Membrane.File.Sink{location: @output_video}),
       get_child(:demuxer)
       |> via_out(Pad.ref(:output, 2))
-      |> child(:depayloader_audio, Membrane.MP4.Depayloader.AAC)
       |> child(:audio_parser, %Membrane.AAC.Parser{
-        in_encapsulation: :none,
         out_encapsulation: :ADTS
       })
       |> child(:sink_audio, %Membrane.File.Sink{location: @output_audio})
     ]
 
-    {[spec: structure, playback: :playing], %{children_with_eos: MapSet.new()}}
+    {[spec: structure], %{children_with_eos: MapSet.new()}}
   end
 
   # The rest of the module is used only for pipeline self-termination after processing finishes

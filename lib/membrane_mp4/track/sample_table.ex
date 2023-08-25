@@ -14,7 +14,7 @@ defmodule Membrane.MP4.Track.SampleTable do
           chunk: [binary],
           chunk_first_dts: non_neg_integer | nil,
           last_dts: non_neg_integer | nil,
-          sample_description: %{content: struct, height: non_neg_integer, width: non_neg_integer},
+          sample_description: struct,
           timescale: pos_integer,
           sample_count: non_neg_integer,
           sample_sizes: [pos_integer],
@@ -149,7 +149,7 @@ defmodule Membrane.MP4.Track.SampleTable do
   end
 
   defp maybe_store_sync_sample(sample_table, %Buffer{
-         metadata: %{mp4_payload: %{key_frame?: true}}
+         metadata: %{h264: %{key_frame?: true}}
        }) do
     Map.update!(sample_table, :sync_samples, &[sample_table.sample_count | &1])
   end

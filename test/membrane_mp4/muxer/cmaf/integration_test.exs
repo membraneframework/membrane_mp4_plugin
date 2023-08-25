@@ -45,19 +45,18 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   test "muxed audio and video" do
     structure = [
       child(:audio_source, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
-      |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none})
-      |> child(:audio_payloader, Membrane.MP4.Payloader.AAC),
+      |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}),
       child(:video_source, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
       |> child(:video_parser, %Membrane.H264.Parser{
-        generate_best_effort_timestamps: %{framerate: {30, 1}}
-      })
-      |> child(:video_payloader, Membrane.MP4.Payloader.H264),
+        generate_best_effort_timestamps: %{framerate: {30, 1}},
+        output_stream_structure: :avc1
+      }),
       child(:cmaf, %Membrane.MP4.Muxer.CMAF{
         segment_min_duration: Time.seconds(2)
       })
       |> child(:sink, Membrane.Testing.Sink),
-      get_child(:audio_payloader) |> get_child(:cmaf),
-      get_child(:video_payloader) |> get_child(:cmaf)
+      get_child(:audio_parser) |> get_child(:cmaf),
+      get_child(:video_parser) |> get_child(:cmaf)
     ]
 
     pipeline = Testing.Pipeline.start_link_supervised!(structure: structure)
@@ -179,26 +178,28 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
       structure = [
         child(:audio_source, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
-        |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none})
-        |> child(:audio_payloader, Membrane.MP4.Payloader.AAC),
+        |> child(:audio_parser, %Membrane.AAC.Parser{
+          out_encapsulation: :none,
+          output_config: :esds
+        }),
         # NOTE: keyframes are every 2 seconds
         child(:video_source, %Membrane.File.Source{location: "test/fixtures/in_video_gop_30.h264"})
         |> child(:video_parser, %Membrane.H264.Parser{
           # TODO: This test fails without `add_dts_offset: false` and it seems like a bug
           # in the muxer
-          generate_best_effort_timestamps: %{framerate: {30, 1}, add_dts_offset: false}
-        })
-        |> child(:video_payloader, Membrane.MP4.Payloader.H264),
+          generate_best_effort_timestamps: %{framerate: {30, 1}, add_dts_offset: false},
+          output_stream_structure: :avc1
+        }),
         child(:cmaf, %Membrane.MP4.Muxer.CMAF{
           segment_min_duration: segment_min_duration,
           chunk_target_duration: chunk_target_duration
         })
         |> child(:media_finalization_sender, %RequestMediaFinalizeSender{parent: parent})
         |> child(:sink, Membrane.Testing.Sink),
-        get_child(:audio_payloader)
+        get_child(:audio_parser)
         |> child(:audio_limiter, %BufferLimiter{parent: parent, tag: :audio})
         |> get_child(:cmaf),
-        get_child(:video_payloader)
+        get_child(:video_parser)
         |> child(:video_limiter, %BufferLimiter{parent: parent, tag: :video})
         |> get_child(:cmaf)
       ]
@@ -336,14 +337,14 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
     parser =
       case type do
-        :audio -> %Membrane.AAC.Parser{out_encapsulation: :none}
-        :video -> %Membrane.H264.Parser{generate_best_effort_timestamps: %{framerate: {30, 1}}}
-      end
+        :audio ->
+          %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}
 
-    payloader =
-      case type do
-        :audio -> Membrane.MP4.Payloader.AAC
-        :video -> Membrane.MP4.Payloader.H264
+        :video ->
+          %Membrane.H264.Parser{
+            generate_best_effort_timestamps: %{framerate: {30, 1}},
+            output_stream_structure: :avc1
+          }
       end
 
     segment_min_duration = Keyword.get(opts, :segment_min_duration, Time.seconds(2))
@@ -352,7 +353,6 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     structure = [
       child(:file, %Membrane.File.Source{location: file})
       |> child(:parser, parser)
-      |> child(:payloader, payloader)
       |> child(:cmaf, %Membrane.MP4.Muxer.CMAF{
         segment_min_duration: segment_min_duration,
         chunk_target_duration: chunk_target_duration

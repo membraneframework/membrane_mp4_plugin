@@ -1,9 +1,7 @@
 Mix.install([
-  :membrane_aac_plugin,
-  {:membrane_aac_format,
-   github: "membraneframework/membrane_aac_format", branch: "custom-sample-rate", override: true},
-  :membrane_h264_plugin,
-  :membrane_hackney_plugin,
+  {:membrane_aac_plugin, "~> 0.16.0"},
+  {:membrane_h264_plugin, "~> 0.7.0"},
+  {:membrane_hackney_plugin, "~> 0.10.0"},
   {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()}
 ])
 
@@ -23,22 +21,21 @@ defmodule Example do
         hackney_opts: [follow_redirect: true]
       })
       |> child(:video_parser, %Membrane.H264.Parser{
-        generate_best_effort_timestamps: %{framerate: {30, 1}}
-      })
-      |> child(:video_payloader, Membrane.MP4.Payloader.H264),
+        generate_best_effort_timestamps: %{framerate: {30, 1}},
+        output_stream_structure: :avc1
+      }),
       child(:audio_source, %Membrane.Hackney.Source{
         location: @audio_url,
         hackney_opts: [follow_redirect: true]
       })
-      |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none})
-      |> child(:audio_payloader, Membrane.MP4.Payloader.AAC),
+      |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}),
       child(:muxer, Membrane.MP4.Muxer.ISOM)
       |> child(:sink, %Membrane.File.Sink{location: @output_file}),
-      get_child(:audio_payloader) |> get_child(:muxer),
-      get_child(:video_payloader) |> get_child(:muxer)
+      get_child(:audio_parser) |> get_child(:muxer),
+      get_child(:video_parser) |> get_child(:muxer)
     ]
 
-    {[spec: structure, playback: :playing], %{}}
+    {[spec: structure], %{}}
   end
 
   # The rest of the module is used only for pipeline self-termination after processing finishes

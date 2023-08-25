@@ -19,7 +19,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
     %Membrane.Buffer{
       payload: <<>>,
       dts: dts,
-      metadata: %{duration: duration, mp4_payload: %{key_frame?: keyframe?}}
+      metadata: %{duration: duration, h264: %{key_frame?: keyframe?}}
     }
   end
 

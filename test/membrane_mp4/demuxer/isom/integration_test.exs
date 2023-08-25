@@ -1,6 +1,4 @@
 defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
-  @moduledoc false
-
   use ExUnit.Case, async: true
 
   import Membrane.ChildrenSpec
@@ -11,7 +9,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
   alias Membrane.Pad
   alias Membrane.Testing.Pipeline
 
-  describe "Demuxer and depayloader should allow for reading of" do
+  describe "Demuxer and parser should allow for reading of" do
     @tag :tmp_dir
     test "a single H264 track", %{tmp_dir: dir} do
       in_path = "test/fixtures/in_video.h264"
@@ -21,9 +19,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       muxing_spec = [
         child(:file, %Membrane.File.Source{location: in_path})
         |> child(:parser, %Membrane.H264.Parser{
-          generate_best_effort_timestamps: %{framerate: {30, 1}}
+          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          output_stream_structure: :avc1
         })
-        |> child(:payloader, Membrane.MP4.Payloader.H264)
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
           chunk_duration: Membrane.Time.seconds(1),
           fast_start: true
@@ -37,7 +35,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
         child(:file, %Membrane.File.Source{location: mp4_path})
         |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
         |> via_out(Pad.ref(:output, 1))
-        |> child(:depayloader, Membrane.MP4.Depayloader.H264)
+        |> child(:parser, %Membrane.H264.Parser{output_stream_structure: :annexb})
         |> child(:sink, %Membrane.File.Sink{location: out_path})
       ]
 
@@ -55,10 +53,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       muxing_spec = [
         child(:file, %Membrane.File.Source{location: in_path})
         |> child(:parser, %Membrane.AAC.Parser{
-          in_encapsulation: :ADTS,
-          out_encapsulation: :none
+          out_encapsulation: :none,
+          output_config: :esds
         })
-        |> child(:payloader, Membrane.MP4.Payloader.AAC)
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
           chunk_duration: Membrane.Time.seconds(1),
           fast_start: true
@@ -72,9 +69,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
         child(:file, %Membrane.File.Source{location: mp4_path})
         |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
         |> via_out(Pad.ref(:output, 1))
-        |> child(:depayloader, Membrane.MP4.Depayloader.AAC)
         |> child(:parser, %Membrane.AAC.Parser{
-          in_encapsulation: :none,
           out_encapsulation: :ADTS
         })
         |> child(:sink, %Membrane.File.Sink{location: out_path})
@@ -98,9 +93,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       muxing_spec = [
         child(:file_video, %Membrane.File.Source{location: in_video_path})
         |> child(:video_parser, %Membrane.H264.Parser{
-          generate_best_effort_timestamps: %{framerate: {30, 1}}
+          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          output_stream_structure: :avc1
         })
-        |> child(:video_payloader, Membrane.MP4.Payloader.H264)
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
           chunk_duration: Membrane.Time.seconds(1),
           fast_start: true
@@ -108,10 +103,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
         |> child(:sink, %Membrane.File.Sink{location: mp4_path}),
         child(:file_audio, %Membrane.File.Source{location: in_audio_path})
         |> child(:audio_parser, %Membrane.AAC.Parser{
-          in_encapsulation: :ADTS,
-          out_encapsulation: :none
+          out_encapsulation: :none,
+          output_config: :esds
         })
-        |> child(:audio_payloader, Membrane.MP4.Payloader.AAC)
         |> get_child(:muxer)
       ]
 
@@ -121,13 +115,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
         child(:file, %Membrane.File.Source{location: mp4_path})
         |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
         |> via_out(Pad.ref(:output, 1))
-        |> child(:depayloader_video, Membrane.MP4.Depayloader.H264)
+        |> child(:parser_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
         |> child(:sink_video, %Membrane.File.Sink{location: out_video_path}),
         get_child(:demuxer)
         |> via_out(Pad.ref(:output, 2))
-        |> child(:depayloader_audio, Membrane.MP4.Depayloader.AAC)
         |> child(:audio_parser, %Membrane.AAC.Parser{
-          in_encapsulation: :none,
           out_encapsulation: :ADTS
         })
         |> child(:sink_audio, %Membrane.File.Sink{location: out_audio_path})
@@ -149,7 +141,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       child(:file, %Membrane.File.Source{location: input_path})
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
       |> via_out(Pad.ref(:output, 1))
-      |> child(:depayloader_video, Membrane.MP4.Depayloader.H264)
+      |> child(:parser_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
       |> child(:sink, Membrane.Testing.Sink)
 
     Pipeline.start_link_supervised!(structure: demuxing_spec) |> wait_for_pipeline_termination()

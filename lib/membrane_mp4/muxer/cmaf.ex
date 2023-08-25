@@ -87,22 +87,30 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   > ## Note
   > If a stream contains non-key frames (like H264 P or B frames), they should be marked
-  > with a `mp4_payload: %{key_frame?: false}` metadata entry.
+  > with a `h264: %{key_frame?: false}` metadata entry.
   """
   use Membrane.Filter
 
   require Membrane.Logger
 
   alias __MODULE__.{Header, Segment, DurationRange, SegmentHelper}
-  alias Membrane.Buffer
-  alias Membrane.MP4.Payload.AVC1
+  alias Membrane.{Buffer, H264}
   alias Membrane.MP4.{Helper, Track}
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
 
   def_input_pad :input,
     availability: :on_request,
     demand_unit: :buffers,
-    accepted_format: Membrane.MP4.Payload
+    accepted_format:
+      any_of(
+        %Membrane.AAC{config: {:esds, _esds}},
+        %Membrane.Opus{self_delimiting?: false},
+        %Membrane.H264{
+          stream_structure: {avc, _dcr},
+          alignment: :au
+        }
+        when avc in [:avc1, :avc3]
+      )
 
   def_output_pad :output, accepted_format: Membrane.CMAF.Track
 
@@ -192,7 +200,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   @impl true
-  def handle_stream_format(pad, %Membrane.MP4.Payload{} = stream_format, ctx, state) do
+  def handle_stream_format(pad, stream_format, ctx, state) do
     ensure_max_one_video_pad!(pad, stream_format, ctx)
 
     is_video_pad = is_video(stream_format)
@@ -232,7 +240,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
-  defp is_video(stream_format_or_track), do: is_struct(stream_format_or_track.content, AVC1)
+  defp is_video(%Track{stream_format: stream_format}), do: is_struct(stream_format, H264)
+  defp is_video(stream_format), do: is_struct(stream_format, H264)
 
   defp find_video_pads(ctx) do
     ctx.pads
@@ -261,11 +270,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   defp stream_format_to_track(stream_format, track_id) do
-    stream_format
-    |> Map.from_struct()
-    |> Map.take([:width, :height, :content, :timescale])
-    |> Map.put(:id, track_id)
-    |> Track.new()
+    Track.new(track_id, stream_format)
   end
 
   @impl true
@@ -362,8 +367,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
     resolution =
       tracks
       |> Enum.find_value(fn
-        %Track{width: 0} -> nil
-        track -> {track.width, track.height}
+        %Track{stream_format: %H264{width: width, height: height}} -> {width, height}
+        _audio_track -> nil
       end)
 
     codecs = Map.new(tracks, fn track -> Track.get_encoding_info(track) end)
@@ -395,7 +400,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> Enum.map(fn {pad, samples} ->
         track_data = state.pad_to_track_data[pad]
 
-        %{timescale: timescale} = ctx.pads[pad].stream_format
+        %{timescale: timescale} = track_data.track
         first_sample = hd(samples)
         last_sample = List.last(samples)
 
@@ -475,7 +480,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       [video_pad] ->
         case segment do
           %{^video_pad => samples} ->
-            hd(samples).metadata.mp4_payload.key_frame?
+            hd(samples).metadata.h264.key_frame?
 
           _other ->
             true
@@ -492,7 +497,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   defp generate_sample_flags(metadata) do
-    key_frame? = metadata |> Map.get(:mp4_payload, %{}) |> Map.get(:key_frame?, true)
+    key_frame? = metadata |> Map.get(:h264, %{}) |> Map.get(:key_frame?, true)
 
     is_leading = 0
     depends_on = if key_frame?, do: 2, else: 1
