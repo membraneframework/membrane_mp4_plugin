@@ -23,7 +23,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
 
   describe "Demuxer should allow for transmuxing of" do
     @tag :tmp_dir
-    test "a single H264 track", %{tmp_dir: dir} do
+    test "a single fast start H264 track", %{tmp_dir: dir} do
       in_path = "test/fixtures/isom/ref_video_fast_start.mp4"
       out_path = Path.join(dir, "out")
 
@@ -37,8 +37,36 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     end
 
     @tag :tmp_dir
-    test "a single AAC track", %{tmp_dir: dir} do
+    test "a single fast start AAC track", %{tmp_dir: dir} do
       in_path = "test/fixtures/isom/ref_aac_fast_start.mp4"
+      out_path = Path.join(dir, "out")
+
+      pipeline =
+        start_testing_pipeline!(
+          input_file: in_path,
+          output_file: out_path
+        )
+
+      perform_test(pipeline, "aac", out_path)
+    end
+
+    @tag :tmp_dir
+    test "a single non-fast-start H264 track", %{tmp_dir: dir} do
+      in_path = "test/fixtures/isom/ref_video.mp4"
+      out_path = Path.join(dir, "out")
+
+      pipeline =
+        start_testing_pipeline!(
+          input_file: in_path,
+          output_file: out_path
+        )
+
+      perform_test(pipeline, "video", out_path)
+    end
+
+    @tag :tmp_dir
+    test "a single non-fast-start AAC track", %{tmp_dir: dir} do
+      in_path = "test/fixtures/isom/ref_aac.mp4"
       out_path = Path.join(dir, "out")
 
       pipeline =

@@ -237,7 +237,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       ctx == :started_parsing_mdat and all_headers_read? ->
         :mdat_reading
 
-      ctx == :started_parsing_mdat and not all_headers_read? ->
+      ctx == :started_parsing_mdat and not all_headers_read? and
+          state.optimize_for_non_fast_start? ->
         :skip_mdat
 
       true ->
