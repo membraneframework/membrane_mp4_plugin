@@ -6,8 +6,9 @@ defmodule Membrane.MP4.Track do
   to build a sample table of a regular MP4 container. Samples that were stored
   can be flushed later in form of chunks.
   """
+  require Membrane.H264
   alias __MODULE__.SampleTable
-  alias Membrane.AAC
+  alias Membrane.{AAC, H264}
   alias Membrane.MP4.Helper
 
   @type t :: %__MODULE__{
@@ -67,29 +68,27 @@ defmodule Membrane.MP4.Track do
 
   def get_encoding_info(%__MODULE__{
         stream_format: %Membrane.AAC{
-          config: {:esds, esds}
+          profile: profile,
+          channels: channels,
+          sample_rate: sample_rate
         }
       }) do
-    with <<_elementary_stream_id::16, _priority::8, rest::binary>> <- find_esds_section(3, esds),
-         <<_section_4::binary-size(13), rest::binary>> <- find_esds_section(4, rest),
-         <<aot_id::5, frequency_id::4, channel_config_id::4, _rest::bitstring>> <-
-           find_esds_section(5, rest) do
-      map = %{
-        aot_id: aot_id,
-        channels: channel_config_id,
-        frequency: AAC.sampling_frequency_id_to_sample_rate(frequency_id)
-      }
+    map = %{
+      aot_id: AAC.profile_to_aot_id(profile),
+      channels: AAC.channels_to_channel_config_id(channels),
+      frequency: sample_rate
+    }
 
-      {:mp4a, map}
-    end
+    {:mp4a, map}
   end
 
   def get_encoding_info(%__MODULE__{
-        stream_format: %Membrane.H264{
-          stream_structure: {avc, <<1, profile, compatibility, level, _rest::binary>>}
+        stream_format: %H264{
+          stream_structure:
+            {_avc, <<1, profile, compatibility, level, _rest::binary>>} = structure
         }
       })
-      when avc in [:avc1, :avc3] do
+      when H264.is_avc(structure) do
     map = %{
       profile: profile,
       compatibility: compatibility,
@@ -108,21 +107,6 @@ defmodule Membrane.MP4.Track do
       %Membrane.H264{framerate: nil} -> 30 * 1024
       %Membrane.H264{framerate: {0, _denominator}} -> 30 * 1024
       %Membrane.H264{framerate: {nominator, _denominator}} -> nominator * 1024
-    end
-  end
-
-  defp find_esds_section(section_number, payload) do
-    case payload do
-      <<^section_number::8, 128, 128, 128, section_size::8, payload::binary-size(section_size),
-        __rest::binary>> ->
-        payload
-
-      <<_other_section::8, 128, 128, 128, section_size::8, _payload::binary-size(section_size),
-        rest::binary>> ->
-        find_esds_section(section_number, rest)
-
-      _other ->
-        nil
     end
   end
 

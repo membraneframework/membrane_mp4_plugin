@@ -1,7 +1,7 @@
 defmodule Membrane.MP4.Plugin.MixProject do
   use Mix.Project
 
-  @version "0.29.0"
+  @version "0.29.1"
   @github_url "https://github.com/membraneframework/membrane_mp4_plugin"
 
   def project do
@@ -41,7 +41,7 @@ defmodule Membrane.MP4.Plugin.MixProject do
       {:membrane_mp4_format, "~> 0.8.0"},
       {:membrane_cmaf_format, "~> 0.7.0"},
       {:membrane_aac_format, "~> 0.8.0"},
-      {:membrane_h264_format, "~> 0.6.0"},
+      {:membrane_h264_format, "~> 0.6.1"},
       {:membrane_opus_format, "~> 0.3.0"},
       {:membrane_file_plugin, "~> 0.15.0"},
       {:membrane_h264_plugin, "~> 0.7.0"},

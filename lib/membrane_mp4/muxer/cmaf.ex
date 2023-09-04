@@ -93,8 +93,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   require Membrane.Logger
 
+  require Membrane.H264
   alias __MODULE__.{Header, Segment, DurationRange, SegmentHelper}
-  alias Membrane.{Buffer, H264}
+  alias Membrane.{AAC, Buffer, H264, Opus}
   alias Membrane.MP4.{Helper, Track}
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
 
@@ -103,13 +104,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
     demand_unit: :buffers,
     accepted_format:
       any_of(
-        %Membrane.AAC{config: {:esds, _esds}},
-        %Membrane.Opus{self_delimiting?: false},
-        %Membrane.H264{
-          stream_structure: {avc, _dcr},
-          alignment: :au
-        }
-        when avc in [:avc1, :avc3]
+        %AAC{config: {:esds, _esds}},
+        %Opus{self_delimiting?: false},
+        %H264{stream_structure: structure, alignment: :au} when H264.is_avc(structure)
       )
 
   def_output_pad :output, accepted_format: Membrane.CMAF.Track

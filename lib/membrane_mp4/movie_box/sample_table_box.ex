@@ -1,6 +1,7 @@
 defmodule Membrane.MP4.MovieBox.SampleTableBox do
   @moduledoc false
 
+  require Membrane.H264
   alias Membrane.MP4.{Container, Helper, Track.SampleTable}
   alias Membrane.{AAC, H264, Opus}
 
@@ -68,11 +69,11 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
   end
 
   defp assemble_sample_description(%H264{
-         stream_structure: {avc, dcr},
+         stream_structure: {_avc, dcr} = structure,
          width: width,
          height: height
        })
-       when avc in [:avc1, :avc3] do
+       when H264.is_avc(structure) do
     [
       avc1: %{
         children: [

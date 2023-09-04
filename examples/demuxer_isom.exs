@@ -18,7 +18,7 @@ defmodule Example do
         location: @input_file,
         hackney_opts: [follow_redirect: true]
       })
-      |> child(:demuxer, %Membrane.MP4.Demuxer.ISOM{optimize_for_non_fast_start?: true})
+      |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
       |> via_out(Pad.ref(:output, 1))
       |> child(:parser_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
       |> child(:sink_video, %Membrane.File.Sink{location: @output_video}),
