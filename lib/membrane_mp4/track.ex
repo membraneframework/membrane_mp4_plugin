@@ -6,8 +6,9 @@ defmodule Membrane.MP4.Track do
   to build a sample table of a regular MP4 container. Samples that were stored
   can be flushed later in form of chunks.
   """
+  require Membrane.H264
   alias __MODULE__.SampleTable
-  alias Membrane.AAC
+  alias Membrane.{AAC, H264}
   alias Membrane.MP4.Helper
 
   @type t :: %__MODULE__{
@@ -82,11 +83,12 @@ defmodule Membrane.MP4.Track do
   end
 
   def get_encoding_info(%__MODULE__{
-        stream_format: %Membrane.H264{
-          stream_structure: {avc, <<1, profile, compatibility, level, _rest::binary>>}
+        stream_format: %H264{
+          stream_structure:
+            {_avc, <<1, profile, compatibility, level, _rest::binary>>} = structure
         }
       })
-      when avc in [:avc1, :avc3] do
+      when H264.is_avc(structure) do
     map = %{
       profile: profile,
       compatibility: compatibility,
