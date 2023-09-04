@@ -79,7 +79,6 @@ defmodule Membrane.MP4.Track do
     }
 
     {:mp4a, map}
-    # end
   end
 
   def get_encoding_info(%__MODULE__{
