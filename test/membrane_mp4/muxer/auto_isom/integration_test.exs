@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
+defmodule Membrane.MP4.Muxer.AutoISOM.IntegrationTest do
   use ExUnit.Case, async: true
 
   import Membrane.ChildrenSpec
@@ -43,7 +43,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
     assert_mp4_equal(out_path, ref_path)
   end
 
-  describe "Muxer.ISOM should mux" do
+  describe "Muxer.AutoISOM should mux" do
     test "single H264 track" do
       prepare_test("video")
 
@@ -53,7 +53,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
           generate_best_effort_timestamps: %{framerate: {30, 1}},
           output_stream_structure: :avc1
         })
-        |> child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
+        |> child(:muxer, %Membrane.MP4.Muxer.AutoISOM{chunk_duration: Time.seconds(1)})
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("video")})
       ]
 
@@ -68,7 +68,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       structure = [
         child(:file, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
         |> child(:parser, %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds})
-        |> child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
+        |> child(:muxer, %Membrane.MP4.Muxer.AutoISOM{chunk_duration: Time.seconds(1)})
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("aac")})
       ]
 
@@ -83,7 +83,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       structure = [
         child(:file, %Membrane.File.Source{location: "test/fixtures/in_audio.opus"})
         |> child(:parser, %Membrane.Opus.Parser{input_delimitted?: true, delimitation: :undelimit})
-        |> child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
+        |> child(:muxer, %Membrane.MP4.Muxer.AutoISOM{chunk_duration: Time.seconds(1)})
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("opus")})
       ]
 
@@ -106,7 +106,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
           out_encapsulation: :none,
           output_config: :esds
         }),
-        child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
+        child(:muxer, %Membrane.MP4.Muxer.AutoISOM{chunk_duration: Time.seconds(1)})
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("two_tracks")}),
         get_child(:video_parser) |> get_child(:muxer),
         get_child(:audio_parser) |> get_child(:muxer)
@@ -118,7 +118,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
     end
   end
 
-  describe "Muxer.ISOM with fast_start enabled should mux" do
+  describe "Muxer.AutoISOM with fast_start enabled should mux" do
     test "single H264 track" do
       prepare_test("video_fast_start")
 
@@ -128,7 +128,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
           generate_best_effort_timestamps: %{framerate: {30, 1}},
           output_stream_structure: :avc1
         })
-        |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
+        |> child(:muxer, %Membrane.MP4.Muxer.AutoISOM{
           chunk_duration: Time.seconds(1),
           fast_start: true
         })
@@ -146,7 +146,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       structure = [
         child(:file, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
         |> child(:parser, %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds})
-        |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
+        |> child(:muxer, %Membrane.MP4.Muxer.AutoISOM{
           chunk_duration: Time.seconds(1),
           fast_start: true
         })
@@ -172,7 +172,10 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
           out_encapsulation: :none,
           output_config: :esds
         }),
-        child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true})
+        child(:muxer, %Membrane.MP4.Muxer.AutoISOM{
+          chunk_duration: Time.seconds(1),
+          fast_start: true
+        })
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("two_tracks_fast_start")}),
         get_child(:video_parser) |> get_child(:muxer),
         get_child(:audio_parser) |> get_child(:muxer)
@@ -184,7 +187,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
     end
   end
 
-  describe "When fed a variable parameter h264 stream, Muxer.ISOM should" do
+  describe "When fed a variable parameter h264 stream, Muxer.AutoISOM should" do
     test "raise when stream format's inband_parameters are not used" do
       structure = [
         child(:file, %Membrane.File.Source{location: "test/fixtures/in_video_vp.h264"})
@@ -192,7 +195,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
           generate_best_effort_timestamps: %{framerate: {30, 1}},
           output_stream_structure: :avc1
         })
-        |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
+        |> child(:muxer, %Membrane.MP4.Muxer.AutoISOM{
           chunk_duration: Time.seconds(1),
           fast_start: true
         })
