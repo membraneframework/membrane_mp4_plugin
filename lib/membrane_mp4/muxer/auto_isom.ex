@@ -190,31 +190,8 @@ defmodule Membrane.MP4.Muxer.AutoISOM do
           state
           |> Map.update!(:mdat_size, &(&1 + byte_size(chunk)))
           |> put_in([:pad_to_track, pad_id, :track_data], track_data)
-          |> update_in([:pad_to_track, pad_id], fn track ->
-            use Ratio, comparison: true
 
-            chunk_dts_bound = track.chunk_dts_bound + state.chunk_duration
-
-            [buffers_to_store, awaiting_buffers] =
-              track.awaiting_buffers
-              |> Enum.reverse()
-              |> Enum.split_while(&(&1.dts <= chunk_dts_bound))
-              |> Tuple.to_list()
-              |> Enum.map(&Enum.reverse/1)
-
-            track_data =
-              buffers_to_store
-              |> Enum.reduce(track.track_data, fn buffer, track_data ->
-                Track.store_sample(track_data, buffer)
-              end)
-
-            %{
-              chunk_dts_bound: chunk_dts_bound,
-              awaiting_buffers: awaiting_buffers,
-              track_data: track_data,
-              chunk_completed?: awaiting_buffers != []
-            }
-          end)
+        state = update_track_after_flushing_chunk(pad_id, state)
 
         {action, state}
       end)
@@ -227,6 +204,34 @@ defmodule Membrane.MP4.Muxer.AutoISOM do
       |> Enum.map(fn {pad_ref, _data} -> {:resume_auto_demand, pad_ref} end)
 
     {buffer_actions ++ resume_demand_actions, state}
+  end
+
+  defp update_track_after_flushing_chunk(pad_id, state) do
+    use Ratio, comparison: true
+
+    update_in(state, [:pad_to_track, pad_id], fn track ->
+      chunk_dts_bound = track.chunk_dts_bound + state.chunk_duration
+
+      [buffers_to_store, awaiting_buffers] =
+        track.awaiting_buffers
+        |> Enum.reverse()
+        |> Enum.split_while(&(&1.dts <= chunk_dts_bound))
+        |> Tuple.to_list()
+        |> Enum.map(&Enum.reverse/1)
+
+      track_data =
+        buffers_to_store
+        |> Enum.reduce(track.track_data, fn buffer, track_data ->
+          Track.store_sample(track_data, buffer)
+        end)
+
+      %{
+        chunk_dts_bound: chunk_dts_bound,
+        awaiting_buffers: awaiting_buffers,
+        track_data: track_data,
+        chunk_completed?: awaiting_buffers != []
+      }
+    end)
   end
 
   defp awaitng_buffers_in_upperbound?(pad_ref, state) do
