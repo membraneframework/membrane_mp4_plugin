@@ -1,6 +1,6 @@
 defmodule Membrane.MP4.Muxer.AutoISOM do
   @moduledoc """
-  Ala ma kota.
+  Puts payloaded streams into an MPEG-4 container.
   """
   use Membrane.Filter
 
