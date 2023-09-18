@@ -1,6 +1,6 @@
-defmodule Membrane.MP4.Muxer.ISOM do
+defmodule Membrane.MP4.Muxer.AutoISOM do
   @moduledoc """
-  Puts payloaded streams into an MPEG-4 container.
+  Ala ma kota.
   """
   use Membrane.Filter
 
@@ -10,10 +10,9 @@ defmodule Membrane.MP4.Muxer.ISOM do
   @ftyp FileTypeBox.assemble("isom", ["isom", "iso2", "avc1", "mp41"])
   @ftyp_size @ftyp |> Container.serialize!() |> byte_size()
   @mdat_header_size 8
+  @track_awaiting_buffers_upperbound 1000
 
   def_input_pad :input,
-    demand_unit: :buffers,
-    flow_control: :manual,
     accepted_format:
       any_of(
         %Membrane.AAC{config: {:esds, _esds}},
@@ -23,11 +22,12 @@ defmodule Membrane.MP4.Muxer.ISOM do
         },
         %Membrane.Opus{self_delimiting?: false}
       ),
-    availability: :on_request
+    availability: :on_request,
+    flow_control: :auto
 
   def_output_pad :output,
     accepted_format: %RemoteStream{type: :bytestream, content_format: MP4},
-    flow_control: :manual
+    flow_control: :auto
 
   def_options fast_start: [
                 spec: boolean(),
@@ -62,47 +62,37 @@ defmodule Membrane.MP4.Muxer.ISOM do
       |> Map.from_struct()
       |> Map.merge(%{
         mdat_size: 0,
-        next_track_id: 1,
-        pad_order: [],
-        pad_to_track: %{}
+        pad_to_track: %{},
+        next_track_id: 1
       })
 
     {[], state}
   end
 
   @impl true
-  def handle_pad_added(Pad.ref(:input, pad_ref), _ctx, state) do
-    {track_id, state} = Map.get_and_update!(state, :next_track_id, &{&1, &1 + 1})
-
-    state =
-      state
-      |> Map.update!(:pad_order, &[pad_ref | &1])
-      |> put_in([:pad_to_track, pad_ref], track_id)
-
-    {[], state}
+  def handle_pad_added(Pad.ref(:input, pad_id), _ctx, state) do
+    state
+    |> put_in([:pad_to_track, pad_id], %{
+      track_data: nil,
+      awaiting_buffers: [],
+      chunk_dts_bound: nil,
+      chunk_completed?: false
+    })
+    |> then(&{[], &1})
   end
 
   @impl true
-  def handle_stream_format(
-        Pad.ref(:input, pad_ref) = pad,
-        stream_format,
-        ctx,
-        state
-      ) do
-    cond do
-      # Handle receiving the first stream format on the given pad
-      is_nil(ctx.pads[pad].stream_format) ->
-        update_in(state, [:pad_to_track, pad_ref], fn track_id ->
-          Track.new(track_id, stream_format)
-        end)
+  def handle_stream_format(Pad.ref(:input, pad_id), stream_format, ctx, state) do
+    case ctx.old_stream_format do
+      nil ->
+        # Handle receiving the first stream format on the given pad
+        {track_id, state} = Map.get_and_update!(state, :next_track_id, &{&1, &1 + 1})
+        put_in(state, [:pad_to_track, pad_id, :track_data], Track.new(track_id, stream_format))
 
-      # Handle receiving all but the first stream format on the given pad,
-      # when stream format is duplicated - ignore
-      ctx.pads[pad].stream_format == stream_format ->
+      ^stream_format ->
         state
 
-      # otherwise we can assume that output will be corrupted
-      true ->
+      _ohter ->
         raise "ISOM Muxer doesn't support variable parameters"
     end
     |> then(&{[], &1})
@@ -122,68 +112,174 @@ defmodule Membrane.MP4.Muxer.ISOM do
   end
 
   @impl true
-  def handle_demand(:output, _size, :buffers, _ctx, state) do
-    next_ref = hd(state.pad_order)
-
-    {[demand: {Pad.ref(:input, next_ref), 1}], state}
-  end
-
-  @impl true
-  def handle_buffer(Pad.ref(:input, pad_ref), buffer, _ctx, state) do
-    # In case DTS is not set, use PTS. This is the case for audio tracks or H264 originated
-    # from an RTP stream. ISO base media file format specification uses DTS for calculating
-    # decoding deltas, and so is the implementation of sample table in this plugin.
+  def handle_buffer(Pad.ref(:input, pad_id) = pad_ref, buffer, ctx, state) do
     buffer = %Buffer{buffer | dts: Buffer.get_dts_or_pts(buffer)}
 
-    {maybe_buffer, state} =
-      state
-      |> update_in([:pad_to_track, pad_ref], &Track.store_sample(&1, buffer))
-      |> maybe_flush_chunk(pad_ref)
+    {flush_tracks_actions, state} =
+      store_buffer(pad_id, buffer, state)
+      |> maybe_flush_tracks(ctx)
 
-    {maybe_buffer ++ [redemand: :output], state}
+    actions = maybe_pause_demand(pad_ref, state, ctx) ++ flush_tracks_actions
+
+    {actions, state}
   end
 
-  @impl true
-  def handle_end_of_stream(Pad.ref(:input, pad_ref), _ctx, state) do
-    {buffer, state} = do_flush_chunk(state, pad_ref)
-    state = Map.update!(state, :pad_order, &List.delete(&1, pad_ref))
+  defp maybe_pause_demand(Pad.ref(:input, pad_id) = pad_ref, state, ctx) do
+    track = get_in(state, [:pad_to_track, pad_id])
 
-    if state.pad_order != [] do
-      {buffer ++ [redemand: :output], state}
+    if track.chunk_completed? and not ctx.pads[pad_ref].auto_demand_paused? and
+         length(track.awaiting_buffers) >= @track_awaiting_buffers_upperbound do
+      [pause_auto_demand: pad_ref]
     else
-      actions = finalize_mp4(state)
-      {buffer ++ actions ++ [end_of_stream: :output], state}
+      []
     end
   end
 
-  defp maybe_flush_chunk(state, pad_ref) do
-    use Ratio, comparison: true
-    track = get_in(state, [:pad_to_track, pad_ref])
+  defp store_buffer(pad_id, buffer, state) do
+    update_in(
+      state,
+      [:pad_to_track, pad_id],
+      fn track ->
+        use Ratio, comparison: true
 
-    if Track.current_chunk_duration(track) >= state.chunk_duration do
-      do_flush_chunk(state, pad_ref)
+        cond do
+          # first buffer on pad
+          track.chunk_dts_bound == nil ->
+            %{
+              track
+              | chunk_dts_bound: buffer.dts + state.chunk_duration,
+                track_data: Track.store_sample(track.track_data, buffer)
+            }
+
+          # buffer dts is not greater than chunk dts bound
+          buffer.dts <= track.chunk_dts_bound ->
+            %{track | track_data: Track.store_sample(track.track_data, buffer)}
+
+          # buffer dts is greater than chunch dts bound
+          true ->
+            %{track | awaiting_buffers: [buffer | track.awaiting_buffers], chunk_completed?: true}
+        end
+      end
+    )
+  end
+
+  defp maybe_flush_tracks(state, ctx) do
+    if all_chunks_completed?(state) do
+      do_flush_tracks(state, ctx)
     else
       {[], state}
     end
   end
 
-  defp do_flush_chunk(state, pad_ref) do
-    {chunk, track} =
-      state
-      |> get_in([:pad_to_track, pad_ref])
+  defp all_chunks_completed?(state) do
+    state.pad_to_track
+    |> Enum.all?(fn {_pad_id, track} -> track.chunk_completed? end)
+  end
+
+  defp do_flush_tracks(state, ctx) do
+    {buffer_actions, state} =
+      Enum.map_reduce(state.pad_to_track, state, fn {pad_id, _track}, state ->
+        {chunk, track_data} =
+          state
+          |> get_in([:pad_to_track, pad_id, :track_data])
+          |> Track.flush_chunk(chunk_offset(state))
+
+        action = {:buffer, {:output, %Buffer{payload: chunk}}}
+
+        state =
+          state
+          |> Map.update!(:mdat_size, &(&1 + byte_size(chunk)))
+          |> put_in([:pad_to_track, pad_id, :track_data], track_data)
+
+        state = update_track_after_flushing_chunk(pad_id, state)
+
+        {action, state}
+      end)
+
+    resume_demand_actions =
+      ctx.pads
+      |> Enum.filter(fn {pad_ref, pad_data} ->
+        pad_data.auto_demand_paused? and awaitng_buffers_in_upperbound?(pad_ref, state)
+      end)
+      |> Enum.map(fn {pad_ref, _data} -> {:resume_auto_demand, pad_ref} end)
+
+    {buffer_actions ++ resume_demand_actions, state}
+  end
+
+  defp update_track_after_flushing_chunk(pad_id, state) do
+    use Ratio, comparison: true
+
+    update_in(state, [:pad_to_track, pad_id], fn track ->
+      chunk_dts_bound = track.chunk_dts_bound + state.chunk_duration
+
+      [buffers_to_store, awaiting_buffers] =
+        track.awaiting_buffers
+        |> Enum.reverse()
+        |> Enum.split_while(&(&1.dts <= chunk_dts_bound))
+        |> Tuple.to_list()
+        |> Enum.map(&Enum.reverse/1)
+
+      track_data =
+        buffers_to_store
+        |> Enum.reduce(track.track_data, fn buffer, track_data ->
+          Track.store_sample(track_data, buffer)
+        end)
+
+      %{
+        chunk_dts_bound: chunk_dts_bound,
+        awaiting_buffers: awaiting_buffers,
+        track_data: track_data,
+        chunk_completed?: awaiting_buffers != []
+      }
+    end)
+  end
+
+  defp awaitng_buffers_in_upperbound?(pad_ref, state) do
+    length(state.pad_to_track[pad_ref].awaiting_buffers) < @track_awaiting_buffers_upperbound
+  end
+
+  defp chunk_offset(%{mdat_size: mdat_size}),
+    do: @ftyp_size + @mdat_header_size + mdat_size
+
+  @impl true
+  def handle_end_of_stream(Pad.ref(:input, pad_id), ctx, state) do
+    track = get_in(state, [:pad_to_track, pad_id])
+
+    {chunk, track_data} =
+      track.awaiting_buffers
+      |> List.foldr(track.track_data, fn buffer, track_data ->
+        Track.store_sample(track_data, buffer)
+      end)
       |> Track.flush_chunk(chunk_offset(state))
+
+    buffer = [buffer: {:output, %Buffer{payload: chunk}}]
 
     state =
       state
-      |> Map.put(:mdat_size, state.mdat_size + byte_size(chunk))
-      |> put_in([:pad_to_track, pad_ref], track)
-      |> Map.update!(:pad_order, &shift_left/1)
+      |> Map.update!(:mdat_size, &(&1 + byte_size(chunk)))
+      |> put_in([:pad_to_track, pad_id, :track_data], track_data)
 
-    {[buffer: {:output, %Buffer{payload: chunk}}], state}
+    all_input_pads_with_eos? =
+      Enum.all?(ctx.pads, fn {_pad_ref, pad_data} ->
+        pad_data.direction == :output or pad_data.end_of_stream?
+      end)
+
+    actions =
+      if all_input_pads_with_eos?,
+        do: buffer ++ finalize_mp4(state) ++ [end_of_stream: :output],
+        else: buffer
+
+    {actions, state}
   end
 
+  # --- CAREFUL, REWRITE IT
   defp finalize_mp4(state) do
-    movie_box = state.pad_to_track |> Map.values() |> Enum.sort_by(& &1.id) |> MovieBox.assemble()
+    movie_box =
+      state.pad_to_track
+      |> Enum.map(fn {_pad_id, track} -> track.track_data end)
+      |> Enum.sort_by(& &1.id)
+      |> MovieBox.assemble()
+
     after_ftyp = {:bof, @ftyp_size}
     mdat_total_size = @mdat_header_size + state.mdat_size
 
@@ -193,7 +289,10 @@ defmodule Membrane.MP4.Muxer.ISOM do
     ]
 
     if state.fast_start do
-      moov = movie_box |> prepare_for_fast_start() |> Container.serialize!()
+      moov =
+        movie_box
+        |> prepare_for_fast_start()
+        |> Container.serialize!()
 
       update_mdat_actions ++
         [
@@ -231,11 +330,4 @@ defmodule Membrane.MP4.Muxer.ISOM do
     |> Keyword.merge(track_boxes_with_offset)
     |> then(&[moov: %{children: &1, fields: %{}}])
   end
-
-  defp chunk_offset(%{mdat_size: mdat_size}),
-    do: @ftyp_size + @mdat_header_size + mdat_size
-
-  defp shift_left([]), do: []
-
-  defp shift_left([first | rest]), do: rest ++ [first]
 end
