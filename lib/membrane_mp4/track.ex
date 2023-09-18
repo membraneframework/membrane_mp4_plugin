@@ -42,11 +42,6 @@ defmodule Membrane.MP4.Track do
     Map.update!(track, :sample_table, &SampleTable.store_sample(&1, buffer))
   end
 
-  @spec stored_samples_number(t()) :: non_neg_integer()
-  def stored_samples_number(%__MODULE__{sample_table: sample_table}) do
-    SampleTable.stored_samples_number(sample_table)
-  end
-
   @spec current_chunk_duration(__MODULE__.t()) :: non_neg_integer
   def current_chunk_duration(%{sample_table: sample_table}) do
     SampleTable.chunk_duration(sample_table)

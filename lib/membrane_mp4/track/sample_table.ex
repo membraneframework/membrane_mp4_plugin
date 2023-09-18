@@ -75,9 +75,6 @@ defmodule Membrane.MP4.Track.SampleTable do
     sample_table.last_dts - sample_table.chunk_first_dts
   end
 
-  @spec stored_samples_number(t()) :: non_neg_integer()
-  def stored_samples_number(%__MODULE__{chunk: chunk}), do: length(chunk)
-
   @spec flush_chunk(__MODULE__.t(), non_neg_integer) :: {binary, __MODULE__.t()}
   def flush_chunk(%{chunk: []} = sample_table, _chunk_offset),
     do: {<<>>, sample_table}
