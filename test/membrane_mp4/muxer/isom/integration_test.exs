@@ -206,7 +206,9 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       # on CircleCI, :sink raises before :muxer, with reason:
       # Failed to truncate file #PID<0.1000.0>: :einval
       # Link to Jira ticket: https://membraneframework.atlassian.net/browse/MS-602
-      assert_receive {:DOWN, ^monitor_ref, :process, ^pid, {:membrane_child_crash, _child}}, 1_000
+      assert_receive {:DOWN, ^monitor_ref, :process, ^pid,
+                      {:membrane_child_crash, _child, _error}},
+                     1_000
     end
   end
 end
