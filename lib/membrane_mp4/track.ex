@@ -69,10 +69,6 @@ defmodule Membrane.MP4.Track do
 
   @spec flush_chunk(__MODULE__.t(), non_neg_integer) :: {binary, __MODULE__.t()}
   def flush_chunk(track, chunk_offset) do
-    if track.chunk_duration == nil do
-      raise "chunk cannot be flushed before setting chunk duration"
-    end
-
     {chunk, sample_table} = SampleTable.flush_chunk(track.sample_table, chunk_offset)
 
     track =
