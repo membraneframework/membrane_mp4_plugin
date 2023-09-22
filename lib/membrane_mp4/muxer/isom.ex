@@ -90,7 +90,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
       # Handle receiving the first stream format on the given pad
       is_nil(ctx.pads[pad].stream_format) ->
         update_in(state, [:pad_to_track, pad_ref], fn track_id ->
-          Track.new(track_id, stream_format)
+          Track.new(track_id, stream_format, state.chunk_duration)
         end)
 
       # Handle receiving all but the first stream format on the given pad,
@@ -154,10 +154,9 @@ defmodule Membrane.MP4.Muxer.ISOM do
   end
 
   defp maybe_flush_chunk(state, pad_ref) do
-    use Ratio, comparison: true
     track = get_in(state, [:pad_to_track, pad_ref])
 
-    if Track.current_chunk_duration(track) >= state.chunk_duration do
+    if Track.completed?(track) do
       do_flush_chunk(state, pad_ref)
     else
       {[], state}
