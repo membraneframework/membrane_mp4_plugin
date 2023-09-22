@@ -84,8 +84,7 @@ defmodule Membrane.MP4.Track do
 
   def get_encoding_info(%__MODULE__{
         stream_format: %H264{
-          stream_structure:
-            {_avc, <<1, profile, compatibility, level, _rest::binary>>} = structure
+          stream_structure: {avc, <<1, profile, compatibility, level, _rest::binary>>} = structure
         }
       })
       when H264.is_avc(structure) do
@@ -95,7 +94,7 @@ defmodule Membrane.MP4.Track do
       level: level
     }
 
-    {:avc1, map}
+    {avc, map}
   end
 
   def get_encoding_info(_unknown), do: nil
