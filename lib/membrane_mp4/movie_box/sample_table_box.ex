@@ -69,35 +69,36 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
   end
 
   defp assemble_sample_description(%H264{
-         stream_structure: {_avc, dcr} = structure,
+         stream_structure: {avc, dcr} = structure,
          width: width,
          height: height
        })
        when H264.is_avc(structure) do
     [
-      avc1: %{
-        children: [
-          avcC: %{
-            content: dcr
-          },
-          pasp: %{
-            children: [],
-            fields: %{h_spacing: 1, v_spacing: 1}
-          }
-        ],
-        fields: %{
-          compressor_name: <<0::size(32)-unit(8)>>,
-          depth: 24,
-          flags: 0,
-          frame_count: 1,
-          height: height,
-          horizresolution: {0, 0},
-          num_of_entries: 1,
-          version: 0,
-          vertresolution: {0, 0},
-          width: width
-        }
-      }
+      {avc,
+       %{
+         children: [
+           avcC: %{
+             content: dcr
+           },
+           pasp: %{
+             children: [],
+             fields: %{h_spacing: 1, v_spacing: 1}
+           }
+         ],
+         fields: %{
+           compressor_name: <<0::size(32)-unit(8)>>,
+           depth: 24,
+           flags: 0,
+           frame_count: 1,
+           height: height,
+           horizresolution: {0, 0},
+           num_of_entries: 1,
+           version: 0,
+           vertresolution: {0, 0},
+           width: width
+         }
+       }}
     ]
   end
 
@@ -234,11 +235,12 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     sizes |> Enum.map(fn %{entry_size: size} -> size end)
   end
 
-  defp unpack_sample_description(%{children: [{:avc1, %{children: boxes, fields: fields}}]}) do
+  defp unpack_sample_description(%{children: [{avc, %{children: boxes, fields: fields}}]})
+       when avc in [:avc1, :avc3] do
     %H264{
       width: fields.width,
       height: fields.height,
-      stream_structure: {:avc1, boxes[:avcC].content}
+      stream_structure: {avc, boxes[:avcC].content}
     }
   end
 

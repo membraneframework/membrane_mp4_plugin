@@ -14,6 +14,34 @@ defmodule Membrane.MP4.Container.Schema do
     flags: {:uint24, store: :fo_flags}
   ]
 
+  @avc_schema [
+    version: 0,
+    fields:
+      @full_box ++
+        [
+          num_of_entries: :uint32,
+          reserved: <<0::128>>,
+          width: :uint16,
+          height: :uint16,
+          horizresolution: :fp16d16,
+          vertresolution: :fp16d16,
+          reserved: <<0::32>>,
+          frame_count: :uint16,
+          compressor_name: :str256,
+          depth: :uint16,
+          reserved: <<-1::16-integer>>
+        ],
+    avcC: [
+      black_box?: true
+    ],
+    pasp: [
+      fields: [
+        h_spacing: :uint32,
+        v_spacing: :uint32
+      ]
+    ]
+  ]
+
   @schema_def ftyp: [
                 fields: [
                   major_brand: :str32,
@@ -148,33 +176,8 @@ defmodule Membrane.MP4.Container.Schema do
                               [
                                 entry_count: :uint32
                               ],
-                          avc1: [
-                            version: 0,
-                            fields:
-                              @full_box ++
-                                [
-                                  num_of_entries: :uint32,
-                                  reserved: <<0::128>>,
-                                  width: :uint16,
-                                  height: :uint16,
-                                  horizresolution: :fp16d16,
-                                  vertresolution: :fp16d16,
-                                  reserved: <<0::32>>,
-                                  frame_count: :uint16,
-                                  compressor_name: :str256,
-                                  depth: :uint16,
-                                  reserved: <<-1::16-integer>>
-                                ],
-                            avcC: [
-                              black_box?: true
-                            ],
-                            pasp: [
-                              fields: [
-                                h_spacing: :uint32,
-                                v_spacing: :uint32
-                              ]
-                            ]
-                          ],
+                          avc1: @avc_schema,
+                          avc3: @avc_schema,
                           mp4a: [
                             fields: [
                               reserved: <<0::6*8>>,
