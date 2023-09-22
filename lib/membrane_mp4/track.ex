@@ -27,10 +27,11 @@ defmodule Membrane.MP4.Track do
   defstruct @enforce_keys ++
               [duration: nil, movie_duration: nil, chunk_dts_overbound: nil, chunk_duration: nil]
 
-  @spec new(pos_integer(), struct()) :: __MODULE__.t()
-  def new(id, stream_format) do
+  @spec new(pos_integer(), struct(), non_neg_integer() | nil) :: __MODULE__.t()
+  def new(id, stream_format, chunk_duration \\ nil) do
     %__MODULE__{
       id: id,
+      chunk_duration: chunk_duration,
       stream_format: stream_format,
       sample_table: %SampleTable{
         sample_description: stream_format,
@@ -40,18 +41,14 @@ defmodule Membrane.MP4.Track do
     }
   end
 
-  @spec set_chunk_duration(t(), non_neg_integer()) :: t()
-  def set_chunk_duration(track, chunk_duration),
-    do: %{track | chunk_duration: chunk_duration}
-
   @spec completed?(t()) :: boolean()
   def completed?(%__MODULE__{} = track) do
     use Ratio, comparision: true
 
-    last_dts = SampleTable.last_dts(track.sample_table)
+    last_dts = track.sample_table.last_dts
+    bound = track.chunk_dts_overbound
 
-    last_dts != nil and track.chunk_dts_overbound != nil and
-      last_dts >= track.chunk_dts_overbound
+    last_dts != nil and bound != nil and last_dts >= bound
   end
 
   @spec store_sample(__MODULE__.t(), Membrane.Buffer.t()) :: __MODULE__.t()
