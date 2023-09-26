@@ -412,12 +412,12 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     raise "All tracks have corresponding pad already connected"
   end
 
-  def handle_pad_added(Pad.ref(:output, track_id), ctx, state) do
+  def handle_pad_added(Pad.ref(:output, _track_id), ctx, state) do
     all_pads_connected? = all_pads_connected?(ctx, state)
 
     {actions, state} =
       if all_pads_connected? do
-        {buffer_actions, state} = flush_samples(state, track_id)
+        {buffer_actions, state} = flush_samples(state)
         maybe_stream_format = if state.samples_info != nil, do: get_stream_format(state), else: []
         maybe_eos = if state.end_of_stream?, do: get_end_of_stream_actions(ctx), else: []
 
@@ -460,15 +460,19 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     Range.size(tracks) == length(pads)
   end
 
-  defp flush_samples(state, track_id) do
-    buffers =
-      Map.get(state.buffered_samples, track_id, [])
-      |> Enum.reverse()
-      |> Enum.map(fn {buffer, ^track_id} -> buffer end)
+  defp flush_samples(state) do
+    actions =
+      Enum.map(state.buffered_samples, fn {track_id, track_samples} ->
+        buffers =
+          track_samples
+          |> Enum.reverse()
+          |> Enum.map(fn {buffer, ^track_id} -> buffer end)
 
-    actions = [buffer: {Pad.ref(:output, track_id), buffers}]
+        {:buffer, {Pad.ref(:output, track_id), buffers}}
+      end)
 
-    {actions, put_in(state, [:buffered_samples, track_id], [])}
+    state = %{state | buffered_samples: %{}}
+    {actions, state}
   end
 
   defp get_end_of_stream_actions(ctx) do
