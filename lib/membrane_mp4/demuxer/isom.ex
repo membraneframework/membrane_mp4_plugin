@@ -461,15 +461,18 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp flush_samples(state) do
-    Enum.flat_map_reduce(state.buffered_samples, state, fn {track_id, track_samples}, state ->
-      buffers =
-        track_samples
-        |> Enum.reverse()
-        |> Enum.map(fn {buffer, ^track_id} -> buffer end)
+    actions =
+      Enum.map(state.buffered_samples, fn {track_id, track_samples} ->
+        buffers =
+          track_samples
+          |> Enum.reverse()
+          |> Enum.map(fn {buffer, ^track_id} -> buffer end)
 
-      new_actions = [buffer: {Pad.ref(:output, track_id), buffers}]
-      {new_actions, put_in(state, [:buffered_samples, track_id], [])}
-    end)
+        {:buffer, {Pad.ref(:output, track_id), buffers}}
+      end)
+
+    state = %{state | buffered_samples: %{}}
+    {actions, state}
   end
 
   defp get_end_of_stream_actions(ctx) do
