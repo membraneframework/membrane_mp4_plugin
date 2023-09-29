@@ -194,7 +194,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         })
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
           chunk_duration: Time.seconds(1),
-          fast_start: true
+          # fast_start: false
         })
         |> child(:sink, %Membrane.File.Sink{location: "/dev/null"})
       ]
@@ -207,7 +207,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       # Failed to truncate file #PID<0.1000.0>: :einval
       # Link to Jira ticket: https://membraneframework.atlassian.net/browse/MS-602
       assert_receive {:DOWN, ^monitor_ref, :process, ^pid,
-                      {:membrane_child_crash, _child, _error}},
+                      {:membrane_child_crash, :muxer, _error}},
                      1_000
     end
   end
