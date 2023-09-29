@@ -205,7 +205,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       assert_receive {:DOWN, ^monitor_ref, :process, ^pid,
                       {:membrane_child_crash, :muxer,
                        {%RuntimeError{message: "ISOM Muxer doesn't support variable parameters"},
-                        _}}},
+                        _stacktrace}}},
                      1_000
     end
   end
