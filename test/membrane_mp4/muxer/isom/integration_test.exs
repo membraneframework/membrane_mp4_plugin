@@ -196,7 +196,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
           chunk_duration: Time.seconds(1),
           # fast_start: false
         })
-        |> child(:sink, %Membrane.File.Sink{location: "/dev/null"})
+        |> child(:sink, Membrane.Fake.Sink.Buffers)
       ]
 
       {:ok, _supervisor_pid, pid} = Pipeline.start(structure: structure)
