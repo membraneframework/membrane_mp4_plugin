@@ -11,7 +11,9 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
   """
   alias Membrane.MP4.{Container, MovieBox.SampleTableBox, Track}
 
-  defguardp is_audio(track) when not is_struct(track.stream_format, Membrane.H264)
+  defguardp is_audio(track)
+            when not is_struct(track.stream_format, Membrane.H264) and
+                   not is_struct(track.stream_format, Membrane.H265)
 
   @spec assemble(Track.t()) :: Container.t()
   def assemble(track) do

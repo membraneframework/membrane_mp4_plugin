@@ -3,7 +3,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
   require Membrane.H264
   alias Membrane.MP4.{Container, Helper, Track.SampleTable}
-  alias Membrane.{AAC, H264, Opus}
+  alias Membrane.{AAC, H264, H265, Opus}
 
   @spec assemble(SampleTable.t()) :: Container.t()
   def assemble(table) do
@@ -79,6 +79,39 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
        %{
          children: [
            avcC: %{
+             content: dcr
+           },
+           pasp: %{
+             children: [],
+             fields: %{h_spacing: 1, v_spacing: 1}
+           }
+         ],
+         fields: %{
+           compressor_name: <<0::size(32)-unit(8)>>,
+           depth: 24,
+           flags: 0,
+           frame_count: 1,
+           height: height,
+           horizresolution: {0, 0},
+           num_of_entries: 1,
+           version: 0,
+           vertresolution: {0, 0},
+           width: width
+         }
+       }}
+    ]
+  end
+
+  defp assemble_sample_description(%H265{
+         stream_structure: {hvc, dcr},
+         width: width,
+         height: height
+       }) do
+    [
+      {hvc,
+       %{
+         children: [
+           hvcC: %{
              content: dcr
            },
            pasp: %{
@@ -241,6 +274,15 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
       width: fields.width,
       height: fields.height,
       stream_structure: {avc, boxes[:avcC].content}
+    }
+  end
+
+  defp unpack_sample_description(%{children: [{hevc, %{children: boxes, fields: fields}}]})
+       when hevc in [:hvc1, :hev1] do
+    %H265{
+      width: fields.width,
+      height: fields.height,
+      stream_structure: {hevc, boxes[:hvcC].content}
     }
   end
 

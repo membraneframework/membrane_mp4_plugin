@@ -148,9 +148,8 @@ defmodule Membrane.MP4.Track.SampleTable do
     end)
   end
 
-  defp maybe_store_sync_sample(sample_table, %Buffer{
-         metadata: %{h264: %{key_frame?: true}}
-       }) do
+  defp maybe_store_sync_sample(sample_table, %Buffer{metadata: metadata})
+       when metadata.h264.key_frame? or metadata.h265.key_frame? do
     Map.update!(sample_table, :sync_samples, &[sample_table.sample_count | &1])
   end
 
