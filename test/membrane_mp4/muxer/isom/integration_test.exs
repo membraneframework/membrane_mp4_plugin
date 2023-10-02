@@ -196,18 +196,16 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
           chunk_duration: Time.seconds(1),
           fast_start: true
         })
-        |> child(:sink, %Membrane.File.Sink{location: "/dev/null"})
+        |> child(:sink, Membrane.Fake.Sink.Buffers)
       ]
 
       {:ok, _supervisor_pid, pid} = Pipeline.start(structure: structure)
       monitor_ref = Process.monitor(pid)
 
-      # In the line below, `_child` should be replaced with `:muxer`, but, for some reason,
-      # on CircleCI, :sink raises before :muxer, with reason:
-      # Failed to truncate file #PID<0.1000.0>: :einval
-      # Link to Jira ticket: https://membraneframework.atlassian.net/browse/MS-602
       assert_receive {:DOWN, ^monitor_ref, :process, ^pid,
-                      {:membrane_child_crash, _child, _error}},
+                      {:membrane_child_crash, :muxer,
+                       {%RuntimeError{message: "ISOM Muxer doesn't support variable parameters"},
+                        _stacktrace}}},
                      1_000
     end
   end

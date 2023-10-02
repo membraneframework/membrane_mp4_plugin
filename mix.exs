@@ -49,6 +49,7 @@ defmodule Membrane.MP4.Plugin.MixProject do
       {:membrane_aac_plugin, "~> 0.16.0", only: :test},
       {:membrane_opus_plugin, "~> 0.17.0", only: :test},
       {:membrane_stream_plugin, "~> 0.3.0", only: :test},
+      {:membrane_fake_plugin, "~> 0.10.0", only: :test},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
       {:dialyxir, ">= 0.0.0", only: :dev, runtime: false},
       {:credo, ">= 0.0.0", only: :dev, runtime: false}
