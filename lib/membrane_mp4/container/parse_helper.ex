@@ -133,10 +133,13 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
-  defp parse_field(data, {name, :str}, context) do
+  defp parse_field(data, {_name, :str}, context) do
     case String.split(data, "\0", parts: 2) do
-      [str, rest] -> {:ok, {str, rest}, context}
-      _unknown_format -> parse_field_error(data, name)
+      [str, rest] ->
+        {:ok, {str, rest}, context}
+
+      [str] ->
+        {:ok, {str, <<>>}, context}
     end
   end
 

@@ -14,13 +14,14 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   alias Membrane.MP4.Container
   alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
 
-  def_input_pad :input,
+  def_input_pad(:input,
     accepted_format:
       %RemoteStream{type: :bytestream, content_format: content_format}
       when content_format in [nil, MP4],
     demand_unit: :buffers
+  )
 
-  def_output_pad :output,
+  def_output_pad(:output,
     accepted_format:
       any_of(
         %Membrane.AAC{config: {:esds, _esds}},
@@ -31,25 +32,28 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         %Membrane.Opus{self_delimiting?: false}
       ),
     availability: :on_request
+  )
 
-  def_options optimize_for_non_fast_start?: [
-                default: false,
-                spec: boolean(),
-                description: """
-                When set to `true`, the demuxer is optimized for working with non-fast_start MP4
-                stream (that means - with a stream, in which the :moov box is put after the :mdat box)
-                You might consider setting that option to `true` if the following two conditions are met:
-                - you are processing large non-fast_start MP4 files
-                - the source of the stream is a "seekable source" - currently the only possible
-                option is to use a `Membrane.File.Source` with `seekable?: true` option.
+  def_options(
+    optimize_for_non_fast_start?: [
+      default: false,
+      spec: boolean(),
+      description: """
+      When set to `true`, the demuxer is optimized for working with non-fast_start MP4
+      stream (that means - with a stream, in which the :moov box is put after the :mdat box)
+      You might consider setting that option to `true` if the following two conditions are met:
+      - you are processing large non-fast_start MP4 files
+      - the source of the stream is a "seekable source" - currently the only possible
+      option is to use a `Membrane.File.Source` with `seekable?: true` option.
 
-                When set to `false`, no optimization will be performed, so in case of processing the
-                non-fast_start MP4 stream, the whole content of the :mdat box will be stored in
-                memory.
+      When set to `false`, no optimization will be performed, so in case of processing the
+      non-fast_start MP4 stream, the whole content of the :mdat box will be stored in
+      memory.
 
-                Defaults to `false`.
-                """
-              ]
+      Defaults to `false`.
+      """
+    ]
+  )
 
   @typedoc """
   Notification sent when the tracks are identified in the MP4.
@@ -62,7 +66,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
           {:new_tracks, [{track_id :: integer(), content :: struct()}]}
 
   @header_boxes [:ftyp, :moov]
-  @header_size 8
+  @default_header_size 8
 
   @impl true
   def handle_init(_ctx, options) do
@@ -77,7 +81,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       fsm_state: :metadata_reading,
       boxes_size: 0,
       mdat_beginning: nil,
-      mdat_size: nil
+      mdat_size: nil,
+      mdat_header_size: @default_header_size
     }
 
     {[], state}
@@ -197,6 +202,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     }
 
     maybe_header = parse_header(rest)
+    mdat_header_size = if maybe_header, do: maybe_header.header_size, else: @default_header_size
+    state = %{state | mdat_header_size: mdat_header_size}
 
     update_fsm_state_ctx =
       if :mdat in Keyword.keys(state.boxes) or
@@ -290,13 +297,17 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     fsm_state
   end
 
-  defp handle_non_fast_start_optimization(%{fsm_state: :skip_mdat} = state) do
-    box_after_mdat_beginning = state.mdat_beginning + @header_size + state.mdat_size
+  defp handle_non_fast_start_optimization(
+         %{fsm_state: :skip_mdat, mdat_header_size: mdat_header_size} = state
+       ) do
+    box_after_mdat_beginning = state.mdat_beginning + mdat_header_size + state.mdat_size
     seek(state, box_after_mdat_beginning, :infinity, false)
   end
 
-  defp handle_non_fast_start_optimization(%{fsm_state: :go_back_to_mdat} = state) do
-    seek(state, state.mdat_beginning, state.mdat_size + @header_size, false)
+  defp handle_non_fast_start_optimization(
+         %{fsm_state: :go_back_to_mdat, mdat_header_size: mdat_header_size} = state
+       ) do
+    seek(state, state.mdat_beginning, state.mdat_size + mdat_header_size, false)
   end
 
   defp handle_non_fast_start_optimization(state) do
@@ -337,7 +348,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       if Keyword.has_key?(state.boxes, :mdat) do
         state.boxes[:mdat].content
       else
-        <<_header::binary-size(@header_size), content::binary>> = state.partial
+        <<_header::binary-size(state.mdat_header_size), content::binary>> = state.partial
         content
       end
 

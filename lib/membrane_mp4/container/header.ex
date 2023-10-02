@@ -5,18 +5,19 @@ defmodule Membrane.MP4.Container.Header do
   The `content_size` field is equal to the box size minus the size of the header (8 bytes).
   """
 
-  @enforce_keys [:name, :content_size]
+  @enforce_keys [:name, :content_size, :header_size]
 
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
           name: atom(),
-          content_size: non_neg_integer()
+          content_size: non_neg_integer(),
+          header_size: non_neg_integer()
         }
 
   @name_size 4
-  @size_size 4
-  @header_size @name_size + @size_size
+  @compact_size_size 4
+  @large_size_size 8
 
   @doc """
   Parses the header of a box.
@@ -25,12 +26,25 @@ defmodule Membrane.MP4.Container.Header do
   """
   @spec parse(binary()) :: {:ok, t, leftover :: binary()} | {:error, :not_enough_data}
   def parse(
-        <<size::integer-size(@size_size)-unit(8), name::binary-size(@name_size), rest::binary>>
+        <<compact_size::integer-size(@compact_size_size)-unit(8), name::binary-size(@name_size),
+          rest::binary>>
       ) do
+    {size, rest} =
+      if compact_size == 1 do
+        <<large_size::64, new_rest::binary>> = rest
+        {large_size, new_rest}
+      else
+        {compact_size, rest}
+      end
+
+    header_size =
+      @name_size + @compact_size_size + if compact_size == 1, do: @large_size_size, else: 0
+
     {:ok,
      %__MODULE__{
        name: parse_box_name(name),
-       content_size: size - @header_size
+       content_size: size - header_size,
+       header_size: header_size
      }, rest}
   end
 
