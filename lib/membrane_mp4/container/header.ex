@@ -30,11 +30,16 @@ defmodule Membrane.MP4.Container.Header do
           rest::binary>>
       ) do
     {size, rest} =
-      if compact_size == 1 do
-        <<large_size::64, new_rest::binary>> = rest
-        {large_size, new_rest}
-      else
-        {compact_size, rest}
+      case compact_size do
+        0 ->
+          {@compact_size_size + @name_size + byte_size(rest), rest}
+
+        1 ->
+          <<large_size::64, new_rest::binary>> = rest
+          {large_size, new_rest}
+
+        size ->
+          {size, rest}
       end
 
     header_size =
