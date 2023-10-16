@@ -66,7 +66,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
           {:new_tracks, [{track_id :: integer(), content :: struct()}]}
 
   @header_boxes [:ftyp, :moov]
-  @default_header_size 8
 
   @impl true
   def handle_init(_ctx, options) do
@@ -82,7 +81,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       boxes_size: 0,
       mdat_beginning: nil,
       mdat_size: nil,
-      mdat_header_size: @default_header_size
+      mdat_header_size: nil
     }
 
     {[], state}
@@ -202,8 +201,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     }
 
     maybe_header = parse_header(rest)
-    mdat_header_size = if maybe_header, do: maybe_header.header_size, else: @default_header_size
-    state = %{state | mdat_header_size: mdat_header_size}
+
+    state =
+      if maybe_header,
+        do: %{
+          state
+          | mdat_size: maybe_header.content_size,
+            mdat_header_size: maybe_header.header_size
+        },
+        else: state
 
     update_fsm_state_ctx =
       if :mdat in Keyword.keys(state.boxes) or
@@ -211,10 +217,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         :started_parsing_mdat
       end
 
-    state = update_fsm_state(state, update_fsm_state_ctx)
-    partial = if state.fsm_state in [:skip_mdat, :go_back_to_mdat], do: <<>>, else: rest
-
-    state = %{state | partial: partial}
+    state = update_fsm_state(state, update_fsm_state_ctx) |> set_partial(rest)
 
     cond do
       state.fsm_state == :mdat_reading ->
@@ -223,7 +226,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       state.optimize_for_non_fast_start? ->
         state =
           if state.fsm_state == :skip_mdat,
-            do: %{state | mdat_beginning: state.boxes_size, mdat_size: maybe_header.content_size},
+            do: %{state | mdat_beginning: state.boxes_size},
             else: state
 
         handle_non_fast_start_optimization(state)
@@ -231,6 +234,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       true ->
         {[demand: :input], state}
     end
+  end
+
+  defp set_partial(state, rest) do
+    partial = if state.fsm_state in [:skip_mdat, :go_back_to_mdat], do: <<>>, else: rest
+    %{state | partial: partial}
   end
 
   defp update_fsm_state(state, ctx \\ nil) do
@@ -297,17 +305,13 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     fsm_state
   end
 
-  defp handle_non_fast_start_optimization(
-         %{fsm_state: :skip_mdat, mdat_header_size: mdat_header_size} = state
-       ) do
-    box_after_mdat_beginning = state.mdat_beginning + mdat_header_size + state.mdat_size
+  defp handle_non_fast_start_optimization(%{fsm_state: :skip_mdat} = state) do
+    box_after_mdat_beginning = state.mdat_beginning + state.mdat_header_size + state.mdat_size
     seek(state, box_after_mdat_beginning, :infinity, false)
   end
 
-  defp handle_non_fast_start_optimization(
-         %{fsm_state: :go_back_to_mdat, mdat_header_size: mdat_header_size} = state
-       ) do
-    seek(state, state.mdat_beginning, state.mdat_size + mdat_header_size, false)
+  defp handle_non_fast_start_optimization(%{fsm_state: :go_back_to_mdat} = state) do
+    seek(state, state.mdat_beginning, state.mdat_size + state.mdat_header_size, false)
   end
 
   defp handle_non_fast_start_optimization(state) do
@@ -343,12 +347,13 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     # Parse the data we received so far (partial or the whole mdat box in a single buffer) and
     # either store or send the data (if all pads are connected)
+    mdat_header_size = state.mdat_header_size
 
     data =
       if Keyword.has_key?(state.boxes, :mdat) do
         state.boxes[:mdat].content
       else
-        <<_header::binary-size(state.mdat_header_size), content::binary>> = state.partial
+        <<_header::binary-size(mdat_header_size), content::binary>> = state.partial
         content
       end
 
