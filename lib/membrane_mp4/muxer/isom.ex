@@ -20,6 +20,10 @@ defmodule Membrane.MP4.Muxer.ISOM do
           stream_structure: {:avc1, _dcr},
           alignment: :au
         },
+        %Membrane.H265{
+          stream_structure: {_hevc, _dcr},
+          alignment: :au
+        },
         %Membrane.Opus{self_delimiting?: false}
       ),
     availability: :on_request

@@ -62,6 +62,24 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       perform_test(pid, "video")
     end
 
+    test "single H265 track" do
+      prepare_test("video_hevc")
+
+      structure = [
+        child(:file, %Membrane.File.Source{location: "test/fixtures/in_video_hevc.h265"})
+        |> child(:parser, %Membrane.H265.Parser{
+          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          output_stream_structure: :hvc1
+        })
+        |> child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
+        |> child(:sink, %Membrane.File.Sink{location: out_path_for("video_hevc")})
+      ]
+
+      pid = Pipeline.start_link_supervised!(structure: structure)
+
+      perform_test(pid, "video_hevc")
+    end
+
     test "single AAC track" do
       prepare_test("aac")
 

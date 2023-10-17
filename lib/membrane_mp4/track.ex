@@ -8,7 +8,7 @@ defmodule Membrane.MP4.Track do
   """
   require Membrane.H264
   alias __MODULE__.SampleTable
-  alias Membrane.{AAC, H264}
+  alias Membrane.{AAC, H264, H265}
   alias Membrane.MP4.Helper
 
   @type t :: %__MODULE__{
@@ -125,11 +125,20 @@ defmodule Membrane.MP4.Track do
 
   defp get_timescale(stream_format) do
     case stream_format do
-      %Membrane.Opus{} -> 48_000
-      %Membrane.AAC{sample_rate: sample_rate} -> sample_rate
-      %Membrane.H264{framerate: nil} -> 30 * 1024
-      %Membrane.H264{framerate: {0, _denominator}} -> 30 * 1024
-      %Membrane.H264{framerate: {nominator, _denominator}} -> nominator * 1024
+      %Membrane.Opus{} ->
+        48_000
+
+      %Membrane.AAC{sample_rate: sample_rate} ->
+        sample_rate
+
+      %module{framerate: nil} when module in [H264, H265] ->
+        30 * 1024
+
+      %module{framerate: {0, _denominator}} when module in [H264, H265] ->
+        30 * 1024
+
+      %module{framerate: {nominator, _denominator}} when module in [H264, H265] ->
+        nominator * 1024
     end
   end
 

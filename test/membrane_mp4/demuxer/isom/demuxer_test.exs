@@ -65,6 +65,20 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     end
 
     @tag :tmp_dir
+    test "a single non-fast-start H265 track", %{tmp_dir: dir} do
+      in_path = "test/fixtures/isom/ref_video_hevc.mp4"
+      out_path = Path.join(dir, "out")
+
+      pipeline =
+        start_testing_pipeline!(
+          input_file: in_path,
+          output_file: out_path
+        )
+
+      perform_test(pipeline, "video_hevc", out_path)
+    end
+
+    @tag :tmp_dir
     test "a single non-fast-start AAC track", %{tmp_dir: dir} do
       in_path = "test/fixtures/isom/ref_aac.mp4"
       out_path = Path.join(dir, "out")
