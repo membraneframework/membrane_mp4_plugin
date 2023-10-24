@@ -14,14 +14,13 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   alias Membrane.MP4.Container
   alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
 
-  def_input_pad(:input,
+  def_input_pad :input,
     accepted_format:
       %RemoteStream{type: :bytestream, content_format: content_format}
       when content_format in [nil, MP4],
     demand_unit: :buffers
-  )
 
-  def_output_pad(:output,
+  def_output_pad :output,
     accepted_format:
       any_of(
         %Membrane.AAC{config: {:esds, _esds}},
@@ -32,28 +31,25 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         %Membrane.Opus{self_delimiting?: false}
       ),
     availability: :on_request
-  )
 
-  def_options(
-    optimize_for_non_fast_start?: [
-      default: false,
-      spec: boolean(),
-      description: """
-      When set to `true`, the demuxer is optimized for working with non-fast_start MP4
-      stream (that means - with a stream, in which the :moov box is put after the :mdat box)
-      You might consider setting that option to `true` if the following two conditions are met:
-      - you are processing large non-fast_start MP4 files
-      - the source of the stream is a "seekable source" - currently the only possible
-      option is to use a `Membrane.File.Source` with `seekable?: true` option.
+  def_options optimize_for_non_fast_start?: [
+                default: false,
+                spec: boolean(),
+                description: """
+                When set to `true`, the demuxer is optimized for working with non-fast_start MP4
+                stream (that means - with a stream, in which the :moov box is put after the :mdat box)
+                You might consider setting that option to `true` if the following two conditions are met:
+                - you are processing large non-fast_start MP4 files
+                - the source of the stream is a "seekable source" - currently the only possible
+                option is to use a `Membrane.File.Source` with `seekable?: true` option.
 
-      When set to `false`, no optimization will be performed, so in case of processing the
-      non-fast_start MP4 stream, the whole content of the :mdat box will be stored in
-      memory.
+                When set to `false`, no optimization will be performed, so in case of processing the
+                non-fast_start MP4 stream, the whole content of the :mdat box will be stored in
+                memory.
 
-      Defaults to `false`.
-      """
-    ]
-  )
+                Defaults to `false`.
+                """
+              ]
 
   @typedoc """
   Notification sent when the tracks are identified in the MP4.

@@ -29,26 +29,26 @@ defmodule Membrane.MP4.Container.Header do
         <<compact_size::integer-size(@compact_size_size)-unit(8), name::binary-size(@name_size),
           rest::binary>>
       ) do
-    {size, rest} =
+    {header_size, content_size, rest} =
       case compact_size do
         0 ->
-          {@compact_size_size + @name_size + byte_size(rest), rest}
+          header_size = @compact_size_size + @name_size
+          {header_size, byte_size(rest), rest}
 
         1 ->
+          header_size = @compact_size_size + @large_size_size + @name_size
           <<large_size::64, new_rest::binary>> = rest
-          {large_size, new_rest}
+          {header_size, large_size - header_size, new_rest}
 
         size ->
-          {size, rest}
+          header_size = @compact_size_size + @name_size
+          {header_size, size - header_size, rest}
       end
-
-    header_size =
-      @name_size + @compact_size_size + if compact_size == 1, do: @large_size_size, else: 0
 
     {:ok,
      %__MODULE__{
        name: parse_box_name(name),
-       content_size: size - header_size,
+       content_size: content_size,
        header_size: header_size
      }, rest}
   end
