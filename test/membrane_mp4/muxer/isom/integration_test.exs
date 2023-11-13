@@ -57,28 +57,36 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("video")})
       ]
 
-      pid = Pipeline.start_link_supervised!(structure: structure)
+      pid = Pipeline.start_link_supervised!(spec: structure)
 
       perform_test(pid, "video")
     end
 
-    test "single H265 track" do
-      prepare_test("video_hevc")
+    # This test is commented because membrane_h265_plugin is not
+    # mantained by Membrane Team and the latest version of it
+    # depends on membrane_core v0.12, while membran_mp4_plugin
+    # depends on membrane_core v1.0. This test should be uncommented
+    # after the release of a new version of membrane_h265_plugin,
+    # containing an upgrade of a dependency to membrane_core to at
+    # least "~> 1.0".
 
-      structure = [
-        child(:file, %Membrane.File.Source{location: "test/fixtures/in_video_hevc.h265"})
-        |> child(:parser, %Membrane.H265.Parser{
-          generate_best_effort_timestamps: %{framerate: {30, 1}},
-          output_stream_structure: :hvc1
-        })
-        |> child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
-        |> child(:sink, %Membrane.File.Sink{location: out_path_for("video_hevc")})
-      ]
+    # test "single H265 track" do
+    #   prepare_test("video_hevc")
 
-      pid = Pipeline.start_link_supervised!(structure: structure)
+    #   structure = [
+    #     child(:file, %Membrane.File.Source{location: "test/fixtures/in_video_hevc.h265"})
+    #     |> child(:parser, %Membrane.H265.Parser{
+    #       generate_best_effort_timestamps: %{framerate: {30, 1}},
+    #       output_stream_structure: :hvc1
+    #     })
+    #     |> child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
+    #     |> child(:sink, %Membrane.File.Sink{location: out_path_for("video_hevc")})
+    #   ]
 
-      perform_test(pid, "video_hevc")
-    end
+    #   pid = Pipeline.start_link_supervised!(spec: structure)
+
+    #   perform_test(pid, "video_hevc")
+    # end
 
     test "single AAC track" do
       prepare_test("aac")
@@ -90,7 +98,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("aac")})
       ]
 
-      pid = Pipeline.start_link_supervised!(structure: structure)
+      pid = Pipeline.start_link_supervised!(spec: structure)
 
       perform_test(pid, "aac")
     end
@@ -105,7 +113,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("opus")})
       ]
 
-      pid = Pipeline.start_link_supervised!(structure: structure)
+      pid = Pipeline.start_link_supervised!(spec: structure)
 
       perform_test(pid, "opus")
     end
@@ -114,12 +122,18 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       prepare_test("two_tracks")
 
       structure = [
-        child(:video_file, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
+        child(:video_file, %Membrane.File.Source{
+          location: "test/fixtures/in_video.h264",
+          chunk_size: 2_000_048
+        })
         |> child(:video_parser, %Membrane.H264.Parser{
           generate_best_effort_timestamps: %{framerate: {30, 1}},
           output_stream_structure: :avc1
         }),
-        child(:audio_file, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
+        child(:audio_file, %Membrane.File.Source{
+          location: "test/fixtures/in_audio.aac",
+          chunk_size: 2_000_048
+        })
         |> child(:audio_parser, %Membrane.AAC.Parser{
           out_encapsulation: :none,
           output_config: :esds
@@ -130,7 +144,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         get_child(:audio_parser) |> get_child(:muxer)
       ]
 
-      pid = Pipeline.start_link_supervised!(structure: structure)
+      pid = Pipeline.start_link_supervised!(spec: structure)
 
       perform_test(pid, "two_tracks")
     end
@@ -153,7 +167,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("video_fast_start")})
       ]
 
-      pid = Pipeline.start_link_supervised!(structure: structure)
+      pid = Pipeline.start_link_supervised!(spec: structure)
 
       perform_test(pid, "video_fast_start")
     end
@@ -171,7 +185,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("aac_fast_start")})
       ]
 
-      pid = Pipeline.start_link_supervised!(structure: structure)
+      pid = Pipeline.start_link_supervised!(spec: structure)
 
       perform_test(pid, "aac_fast_start")
     end
@@ -196,7 +210,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         get_child(:audio_parser) |> get_child(:muxer)
       ]
 
-      pid = Pipeline.start_link_supervised!(structure: structure)
+      pid = Pipeline.start_link_supervised!(spec: structure)
 
       perform_test(pid, "two_tracks_fast_start")
     end
@@ -217,7 +231,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
         |> child(:sink, Membrane.Fake.Sink.Buffers)
       ]
 
-      {:ok, _supervisor_pid, pid} = Pipeline.start(structure: structure)
+      {:ok, _supervisor_pid, pid} = Pipeline.start(spec: structure)
       monitor_ref = Process.monitor(pid)
 
       assert_receive {:DOWN, ^monitor_ref, :process, ^pid,

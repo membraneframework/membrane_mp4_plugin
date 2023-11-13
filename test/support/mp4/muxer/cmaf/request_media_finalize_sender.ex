@@ -8,20 +8,16 @@ defmodule Membrane.MP4.Muxer.CMAF.RequestMediaFinalizeSender do
   def_options parent: [
                 spec: pid(),
                 description: """
-                Parent process that is responsible for 
+                Parent process that is responsible for
                 triggering request send.
                 """
               ]
 
   def_input_pad :input,
     availability: :always,
-    demand_unit: :buffers,
-    demand_mode: :auto,
     accepted_format: _any
 
   def_output_pad :output,
-    availability: :always,
-    demand_mode: :auto,
     accepted_format: _any
 
   @spec send_request(pid()) :: :ok
@@ -39,7 +35,7 @@ defmodule Membrane.MP4.Muxer.CMAF.RequestMediaFinalizeSender do
   end
 
   @impl true
-  def handle_process(:input, buffer, _ctx, state) do
+  def handle_buffer(:input, buffer, _ctx, state) do
     {[buffer: {:output, buffer}], state}
   end
 

@@ -59,7 +59,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       get_child(:video_parser) |> get_child(:cmaf)
     ]
 
-    pipeline = Testing.Pipeline.start_link_supervised!(structure: structure)
+    pipeline = Testing.Pipeline.start_link_supervised!(spec: structure)
 
     assert_sink_stream_format(pipeline, :sink, %Membrane.CMAF.Track{
       header: header,
@@ -204,8 +204,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
         |> get_child(:cmaf)
       ]
 
-      pipeline = Testing.Pipeline.start_link_supervised!(structure: structure)
-      assert_pipeline_play(pipeline)
+      pipeline = Testing.Pipeline.start_link_supervised!(spec: structure)
 
       assert_receive {:buffer_limiter, :audio, audio_limiter}
       assert_receive {:buffer_limiter, :video, video_limiter}
@@ -360,8 +359,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       |> child(:sink, Membrane.Testing.Sink)
     ]
 
-    pipeline = Testing.Pipeline.start_link_supervised!(structure: structure)
-    assert_pipeline_play(pipeline)
+    pipeline = Testing.Pipeline.start_link_supervised!(spec: structure)
 
     assert_sink_stream_format(pipeline, :sink, %Membrane.CMAF.Track{
       header: header,

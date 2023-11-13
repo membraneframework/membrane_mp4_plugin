@@ -18,6 +18,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     accepted_format:
       %RemoteStream{type: :bytestream, content_format: content_format}
       when content_format in [nil, MP4],
+    flow_control: :manual,
     demand_unit: :buffers
 
   def_output_pad :output,
@@ -34,7 +35,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         },
         %Membrane.Opus{self_delimiting?: false}
       ),
-    availability: :on_request
+    availability: :on_request,
+    flow_control: :manual
 
   def_options optimize_for_non_fast_start?: [
                 default: false,
@@ -141,7 +143,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {[], state}
   end
 
-  def handle_process(
+  def handle_buffer(
         :input,
         _buffer,
         _ctx,
@@ -154,7 +156,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   @impl true
-  def handle_process(
+  def handle_buffer(
         :input,
         buffer,
         ctx,
@@ -175,7 +177,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {buffers ++ redemands, %{state | samples_info: samples_info, partial: rest}}
   end
 
-  def handle_process(
+  def handle_buffer(
         :input,
         buffer,
         _ctx,
@@ -190,7 +192,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {[], %{state | samples_info: samples_info, partial: rest}}
   end
 
-  def handle_process(:input, buffer, ctx, state) do
+  def handle_buffer(:input, buffer, ctx, state) do
     {new_boxes, rest} = Container.parse!(state.partial <> buffer.payload)
 
     state = %{

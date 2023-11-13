@@ -52,7 +52,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       |> child(:parser_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
       |> child(:sink, Membrane.Testing.Sink)
 
-    Pipeline.start_link_supervised!(structure: demuxing_spec) |> wait_for_pipeline_termination()
+    Pipeline.start_link_supervised!(spec: demuxing_spec) |> wait_for_pipeline_termination()
     demuxing_buffers = flush_buffers()
 
     ref_spec =
@@ -60,7 +60,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       |> child(:deserializer, Membrane.Stream.Deserializer)
       |> child(:sink, Membrane.Testing.Sink)
 
-    Pipeline.start_link_supervised!(structure: ref_spec) |> wait_for_pipeline_termination()
+    Pipeline.start_link_supervised!(spec: ref_spec) |> wait_for_pipeline_termination()
     ref_buffers = flush_buffers()
     assert demuxing_buffers == ref_buffers
   end
@@ -85,7 +85,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       |> child(:sink, %Membrane.File.Sink{location: mp4_path})
     ]
 
-    Pipeline.start_link_supervised!(structure: muxing_spec) |> wait_for_pipeline_termination()
+    Pipeline.start_link_supervised!(spec: muxing_spec) |> wait_for_pipeline_termination()
 
     demuxing_spec = [
       child(:file, %Membrane.File.Source{location: mp4_path})
@@ -95,7 +95,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       |> child(:sink, %Membrane.File.Sink{location: out_path})
     ]
 
-    Pipeline.start_link_supervised!(structure: demuxing_spec) |> wait_for_pipeline_termination()
+    Pipeline.start_link_supervised!(spec: demuxing_spec) |> wait_for_pipeline_termination()
 
     assert_files_equal(out_path, in_path)
   end
@@ -118,7 +118,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       |> child(:sink, %Membrane.File.Sink{location: mp4_path})
     ]
 
-    Pipeline.start_link_supervised!(structure: muxing_spec) |> wait_for_pipeline_termination()
+    Pipeline.start_link_supervised!(spec: muxing_spec) |> wait_for_pipeline_termination()
 
     demuxing_spec = [
       child(:file, %Membrane.File.Source{location: mp4_path})
@@ -130,7 +130,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       |> child(:sink, %Membrane.File.Sink{location: out_path})
     ]
 
-    Pipeline.start_link_supervised!(structure: demuxing_spec) |> wait_for_pipeline_termination()
+    Pipeline.start_link_supervised!(spec: demuxing_spec) |> wait_for_pipeline_termination()
 
     assert_files_equal(out_path, in_path)
   end
@@ -163,7 +163,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       |> get_child(:muxer)
     ]
 
-    Pipeline.start_link_supervised!(structure: muxing_spec) |> wait_for_pipeline_termination()
+    Pipeline.start_link_supervised!(spec: muxing_spec) |> wait_for_pipeline_termination()
 
     demuxing_spec = [
       child(:file, %Membrane.File.Source{location: mp4_path})
@@ -179,7 +179,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
       |> child(:sink_audio, %Membrane.File.Sink{location: out_audio_path})
     ]
 
-    Pipeline.start_link_supervised!(structure: demuxing_spec)
+    Pipeline.start_link_supervised!(spec: demuxing_spec)
     |> wait_for_pipeline_termination([:sink_audio, :sink_video])
 
     assert_files_equal(out_video_path, in_video_path)

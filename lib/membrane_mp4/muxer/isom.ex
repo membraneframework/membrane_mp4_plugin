@@ -12,6 +12,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
   @mdat_header_size 8
 
   def_input_pad :input,
+    flow_control: :manual,
     demand_unit: :buffers,
     accepted_format:
       any_of(
@@ -28,7 +29,9 @@ defmodule Membrane.MP4.Muxer.ISOM do
       ),
     availability: :on_request
 
-  def_output_pad :output, accepted_format: %RemoteStream{type: :bytestream, content_format: MP4}
+  def_output_pad :output,
+    accepted_format: %RemoteStream{type: :bytestream, content_format: MP4},
+    flow_control: :manual
 
   def_options fast_start: [
                 spec: boolean(),
@@ -130,7 +133,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
   end
 
   @impl true
-  def handle_process(Pad.ref(:input, pad_ref), buffer, _ctx, state) do
+  def handle_buffer(Pad.ref(:input, pad_ref), buffer, _ctx, state) do
     # In case DTS is not set, use PTS. This is the case for audio tracks or H264 originated
     # from an RTP stream. ISO base media file format specification uses DTS for calculating
     # decoding deltas, and so is the implementation of sample table in this plugin.
