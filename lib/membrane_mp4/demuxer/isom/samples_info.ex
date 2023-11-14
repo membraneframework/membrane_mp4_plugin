@@ -89,7 +89,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
          track_id: track_id,
          sample_composition_offset: sample_composition_offset
        }) do
-    use Ratio
+    use Numbers, overload_operators: true
     timescale = samples_info.timescales[track_id]
 
     {dts, pts} =

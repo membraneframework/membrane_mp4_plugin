@@ -106,7 +106,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
         |> child(:sink, %Membrane.File.Sink{location: out_path})
       ]
 
-      pipeline = Pipeline.start_link_supervised!(structure: structure)
+      pipeline = Pipeline.start_link_supervised!(spec: structure)
 
       perform_test(pipeline, "video", out_path)
     end
@@ -123,7 +123,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
         |> child(:sink, %Membrane.File.Sink{location: out_path})
       ]
 
-      pipeline = Pipeline.start_link_supervised!(structure: structure)
+      pipeline = Pipeline.start_link_supervised!(spec: structure)
 
       perform_test(pipeline, "video", out_path)
     end
@@ -215,22 +215,19 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
       |> child(:sink, %Membrane.File.Sink{location: opts[:output_file]})
     ]
 
-    Pipeline.start_link_supervised!(structure: structure)
+    Pipeline.start_link_supervised!(spec: structure)
   end
 
   defp start_remote_pipeline!(opts) do
-    structure = [
+    spec =
       child(:file, %Membrane.File.Source{
         location: opts[:filename],
         chunk_size: opts[:file_source_chunk_size]
       })
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
-    ]
-
-    actions = [spec: {structure, []}, playback: :playing]
 
     pipeline = RCPipeline.start_link!()
-    RCPipeline.exec_actions(pipeline, actions)
+    RCPipeline.exec_actions(pipeline, spec: spec)
     RCPipeline.subscribe(pipeline, %RCMessage.Notification{})
     RCPipeline.subscribe(pipeline, %RCMessage.EndOfStream{})
 

@@ -214,10 +214,10 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   """
   @spec force_collect(t(), Membrane.Time.t()) :: {[Membrane.Buffer.t()], t()}
   def force_collect(%__MODULE__{collectable?: false} = queue, max_duration) do
-    use Ratio, comparison: true
+    use Numbers, overload_operators: true, comparison: true
 
     {excess_samples, target_samples} =
-      Enum.split_while(queue.target_samples, &(&1.dts > max_duration))
+      Enum.split_while(queue.target_samples, &Ratio.gt?(&1.dts, max_duration))
 
     result = Enum.reverse(target_samples)
 

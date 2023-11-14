@@ -43,7 +43,7 @@ defmodule Membrane.MP4.Track do
 
   @spec completed?(t()) :: boolean()
   def completed?(%__MODULE__{} = track) do
-    use Ratio, comparision: true
+    use Numbers, overload_operators: true
 
     last_dts = track.sample_table.last_dts
     bound = track.chunk_dts_overbound
@@ -143,7 +143,7 @@ defmodule Membrane.MP4.Track do
   end
 
   defp put_durations(track, movie_timescale) do
-    use Ratio
+    use Numbers, overload_operators: true
 
     duration =
       track.sample_table.decoding_deltas

@@ -68,6 +68,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.TransmuxingTest do
       |> child(:sink, %Membrane.File.Sink{location: opts[:output_file]})
     ]
 
-    Pipeline.start_link_supervised!(structure: structure)
+    Pipeline.start_link_supervised!(spec: structure)
   end
 end

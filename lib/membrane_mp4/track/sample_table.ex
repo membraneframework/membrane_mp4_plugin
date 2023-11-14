@@ -71,7 +71,7 @@ defmodule Membrane.MP4.Track.SampleTable do
   def chunk_duration(%{chunk_first_dts: nil}), do: 0
 
   def chunk_duration(sample_table) do
-    use Ratio
+    use Numbers, overload_operators: true
     sample_table.last_dts - sample_table.chunk_first_dts
   end
 
@@ -129,7 +129,7 @@ defmodule Membrane.MP4.Track.SampleTable do
 
   defp update_decoding_deltas(sample_table, %Buffer{dts: dts}) do
     Map.update!(sample_table, :decoding_deltas, fn previous_deltas ->
-      use Ratio
+      use Numbers, overload_operators: true
       new_delta = dts - sample_table.last_dts
 
       case previous_deltas do

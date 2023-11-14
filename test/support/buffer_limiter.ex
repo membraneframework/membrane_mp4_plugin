@@ -1,6 +1,6 @@
 defmodule Membrane.MP4.BufferLimiter do
   @moduledoc """
-  Filter responsible for collecting buffers as long as there is no pending 
+  Filter responsible for collecting buffers as long as there is no pending
   release request.
   """
   use Membrane.Filter
@@ -8,7 +8,7 @@ defmodule Membrane.MP4.BufferLimiter do
   def_options parent: [
                 spec: pid(),
                 description: """
-                Parent process that is responsible for 
+                Parent process that is responsible for
                 unblocking buffers.
                 """
               ],
@@ -20,12 +20,13 @@ defmodule Membrane.MP4.BufferLimiter do
               ]
 
   def_input_pad :input,
-    availability: :always,
+    flow_control: :manual,
     demand_unit: :buffers,
     accepted_format: _any
 
   def_output_pad :output,
-    accepted_format: _any
+    accepted_format: _any,
+    flow_control: :manual
 
   @spec release_buffers(pid(), pos_integer()) :: reference()
   def release_buffers(limiter, n) do
@@ -58,7 +59,7 @@ defmodule Membrane.MP4.BufferLimiter do
   end
 
   @impl true
-  def handle_process(:input, buffer, _ctx, state) do
+  def handle_buffer(:input, buffer, _ctx, state) do
     queue = Qex.push(state.queue, buffer)
     state = %{state | queue: queue}
 

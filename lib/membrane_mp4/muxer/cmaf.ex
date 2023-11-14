@@ -101,6 +101,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   def_input_pad :input,
     availability: :on_request,
+    flow_control: :manual,
     demand_unit: :buffers,
     accepted_format:
       any_of(
@@ -109,7 +110,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
         %H264{stream_structure: structure, alignment: :au} when H264.is_avc(structure)
       )
 
-  def_output_pad :output, accepted_format: Membrane.CMAF.Track
+  def_output_pad :output, accepted_format: Membrane.CMAF.Track, flow_control: :manual
 
   def_options segment_min_duration: [
                 spec: Membrane.Time.t(),
@@ -271,8 +272,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   @impl true
-  def handle_process(Pad.ref(:input, _id) = pad, sample, ctx, state) do
-    use Ratio, comparison: true
+  def handle_buffer(Pad.ref(:input, _id) = pad, sample, ctx, state) do
+    use Numbers, overload_operators: true, comparison: true
 
     # In case DTS is not set, use PTS. This is the case for audio tracks or H264 originated
     # from an RTP stream. ISO base media file format specification uses DTS for calculating
@@ -389,7 +390,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   defp generate_segment(acc, ctx, state) do
-    use Ratio, comparison: true
+    use Numbers, overload_operators: true, comparison: true
 
     tracks_data =
       acc
@@ -510,7 +511,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   # Update the duration of the awaiting sample and insert the current sample into the queue
   defp process_buffer_awaiting_duration(state, pad, sample) do
-    use Ratio
+    use Numbers, overload_operators: true
 
     prev_sample = state.pad_to_track_data[pad].buffer_awaiting_duration
 
@@ -550,8 +551,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
     if chunk_target_duration < @min_chunk_duration do
       raise """
         Chunk target duration is smaller than minimal duration.
-        Duration: #{Membrane.Time.round_to_milliseconds(chunk_target_duration)}
-        Minumum: #{Membrane.Time.round_to_milliseconds(@min_chunk_duration)}
+        Duration: #{Membrane.Time.as_milliseconds(chunk_target_duration, :round)}
+        Minumum: #{Membrane.Time.as_milliseconds(@min_chunk_duration, :round)}
       """
     end
 
