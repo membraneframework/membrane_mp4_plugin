@@ -94,8 +94,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
   require Membrane.Logger
 
   require Membrane.H264
+  require Membrane.H265
   alias __MODULE__.{Header, Segment, DurationRange, SegmentHelper}
-  alias Membrane.{AAC, Buffer, H264, Opus}
+  alias Membrane.{AAC, Buffer, H264, H265, Opus}
   alias Membrane.MP4.{Helper, Track}
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
 
@@ -107,7 +108,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
       any_of(
         %AAC{config: {:esds, _esds}},
         %Opus{self_delimiting?: false},
-        %H264{stream_structure: structure, alignment: :au} when H264.is_avc(structure)
+        %H264{stream_structure: structure, alignment: :au} when H264.is_avc(structure),
+        %H265{stream_structure: structure, alignment: :au} when H265.is_hvc(structure)
       )
 
   def_output_pad :output, accepted_format: Membrane.CMAF.Track, flow_control: :manual
@@ -238,8 +240,11 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
-  defp is_video(%Track{stream_format: stream_format}), do: is_struct(stream_format, H264)
-  defp is_video(stream_format), do: is_struct(stream_format, H264)
+  defp is_video(%Track{stream_format: stream_format}),
+    do: is_struct(stream_format, H264) or is_struct(stream_format, H265)
+
+  defp is_video(stream_format),
+    do: is_struct(stream_format, H264) or is_struct(stream_format, H265)
 
   defp find_video_pads(ctx) do
     ctx.pads
@@ -478,7 +483,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       [video_pad] ->
         case segment do
           %{^video_pad => samples} ->
-            hd(samples).metadata.h264.key_frame?
+            SegmentHelper.is_key_frame(hd(samples))
 
           _other ->
             true
@@ -495,7 +500,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   defp generate_sample_flags(metadata) do
-    key_frame? = metadata |> Map.get(:h264, %{}) |> Map.get(:key_frame?, true)
+    key_frame? =
+      case metadata do
+        %{h264: %{key_frame?: false}} -> false
+        %{h265: %{key_frame?: false}} -> false
+        _metadata -> true
+      end
 
     is_leading = 0
     depends_on = if key_frame?, do: 2, else: 1

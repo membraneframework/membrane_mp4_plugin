@@ -62,31 +62,23 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       perform_test(pid, "video")
     end
 
-    # This test is commented because membrane_h265_plugin is not
-    # mantained by Membrane Team and the latest version of it
-    # depends on membrane_core v0.12, while membran_mp4_plugin
-    # depends on membrane_core v1.0. This test should be uncommented
-    # after the release of a new version of membrane_h265_plugin,
-    # containing an upgrade of a dependency to membrane_core to at
-    # least "~> 1.0".
+    test "single H265 track" do
+      prepare_test("video_hevc")
 
-    # test "single H265 track" do
-    #   prepare_test("video_hevc")
+      structure = [
+        child(:file, %Membrane.File.Source{location: "test/fixtures/in_video_hevc.h265"})
+        |> child(:parser, %Membrane.H265.Parser{
+          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          output_stream_structure: :hvc1
+        })
+        |> child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
+        |> child(:sink, %Membrane.File.Sink{location: out_path_for("video_hevc")})
+      ]
 
-    #   structure = [
-    #     child(:file, %Membrane.File.Source{location: "test/fixtures/in_video_hevc.h265"})
-    #     |> child(:parser, %Membrane.H265.Parser{
-    #       generate_best_effort_timestamps: %{framerate: {30, 1}},
-    #       output_stream_structure: :hvc1
-    #     })
-    #     |> child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
-    #     |> child(:sink, %Membrane.File.Sink{location: out_path_for("video_hevc")})
-    #   ]
+      pid = Pipeline.start_link_supervised!(spec: structure)
 
-    #   pid = Pipeline.start_link_supervised!(spec: structure)
-
-    #   perform_test(pid, "video_hevc")
-    # end
+      perform_test(pid, "video_hevc")
+    end
 
     test "single AAC track" do
       prepare_test("aac")
