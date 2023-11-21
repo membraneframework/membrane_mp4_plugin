@@ -1,6 +1,8 @@
 defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   @moduledoc false
 
+  import Membrane.MP4.Helper, only: [key_frame?: 1]
+
   alias Membrane.MP4.Muxer.CMAF.DurationRange
 
   defstruct collectable?: false,
@@ -136,7 +138,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
       collected_samples_duration: collected_samples_duration
     } = queue
 
-    if queue.track_with_keyframes? and key_frame?(sample) do
+    if queue.track_with_keyframes? and key_frame?(sample.metadata) do
       %__MODULE__{
         queue
         | collectable?: true,
@@ -160,7 +162,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
       collected_samples_duration: collected_samples_duration
     } = queue
 
-    if (queue.track_with_keyframes? and key_frame?(sample)) or
+    if (queue.track_with_keyframes? and key_frame?(sample.metadata)) or
          not queue.track_with_keyframes? do
       %__MODULE__{
         queue
@@ -183,7 +185,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     if queue.collectable? do
       %__MODULE__{queue | excess_samples: [sample | queue.excess_samples]}
     else
-      if queue.track_with_keyframes? and key_frame?(sample) do
+      if queue.track_with_keyframes? and key_frame?(sample.metadata) do
         target_samples = queue.excess_samples ++ queue.target_samples
 
         %__MODULE__{
@@ -326,8 +328,4 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
         excess_samples: []
     }
   end
-
-  defp key_frame?(%{metadata: %{h264: %{key_frame?: true}}}), do: true
-  defp key_frame?(%{metadata: %{h265: %{key_frame?: true}}}), do: true
-  defp key_frame?(_sample), do: false
 end

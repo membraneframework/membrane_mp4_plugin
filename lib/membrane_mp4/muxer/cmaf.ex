@@ -482,11 +482,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
       [video_pad] ->
         case segment do
-          %{^video_pad => samples} ->
-            SegmentHelper.is_key_frame(hd(samples))
-
-          _other ->
-            true
+          %{^video_pad => samples} -> Helper.key_frame?(hd(samples).metadata)
+          _other -> true
         end
     end
   end
@@ -500,12 +497,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   defp generate_sample_flags(metadata) do
-    key_frame? =
-      case metadata do
-        %{h264: %{key_frame?: false}} -> false
-        %{h265: %{key_frame?: false}} -> false
-        _metadata -> true
-      end
+    key_frame? = Helper.key_frame?(metadata)
 
     is_leading = 0
     depends_on = if key_frame?, do: 2, else: 1
