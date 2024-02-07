@@ -395,8 +395,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   @impl true
-  def handle_event(Pad.ref(:input, _ref), event, _ctx, state) do
-    {[forward: event], state}
+  def handle_event(Pad.ref(:input, _ref) = pad, event, _ctx, state) do
+    output_pad = state.input_to_output_pad[pad]
+
+    {[event: {output_pad, event}], state}
   end
 
   @impl true
