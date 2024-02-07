@@ -4,10 +4,12 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
   import Membrane.ChildrenSpec
   import Membrane.Testing.Assertions
 
+  require Membrane.Pad
+
   alias Membrane.MP4.BufferLimiter
   alias Membrane.MP4.Container
   alias Membrane.MP4.Muxer.CMAF.RequestMediaFinalizeSender
-  alias Membrane.{Testing, Time}
+  alias Membrane.{Pad, Testing, Time}
 
   # Fixtures used in CMAF tests below were generated using `membrane_http_adaptive_stream_plugin`
   # with `muxer_segment_duration` option set to `Membrane.Time.seconds(2)`.
@@ -63,7 +65,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}),
       child(:video_source, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
       |> child(:video_parser, %Membrane.H264.Parser{
-        generate_best_effort_timestamps: %{framerate: {30, 1}},
+        generate_best_effort_timestamps: %{framerate: {30, 1}, add_dts_offest: false},
         output_stream_structure: :avc1
       }),
       child(:cmaf, %Membrane.MP4.Muxer.CMAF{
@@ -88,11 +90,79 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     1..2
     |> Enum.map(fn i ->
       assert_sink_buffer(pipeline, :sink, buffer)
+
       assert_mp4_equal(buffer.payload, "muxed_audio_video/segment_#{i}.m4s")
     end)
 
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
+
+    :ok = Testing.Pipeline.terminate(pipeline)
+  end
+
+  test "synchronized audio and video" do
+    structure = [
+      child(:cmaf, %Membrane.MP4.Muxer.CMAF{
+        segment_min_duration: Time.seconds(2)
+      }),
+      child(:audio_source, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
+      |> child(:audio_parser, %Membrane.AAC.Parser{out_encapsulation: :none, output_config: :esds}),
+      child(:video_source, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
+      |> child(:video_parser, %Membrane.H264.Parser{
+        generate_best_effort_timestamps: %{framerate: {30, 1}, add_dts_offset: true},
+        output_stream_structure: :avc1
+      }),
+      ###
+      get_child(:video_parser)
+      |> via_in(Pad.ref(:input, :video))
+      |> get_child(:cmaf),
+      get_child(:audio_parser)
+      |> via_in(Pad.ref(:input, :audio))
+      |> get_child(:cmaf),
+      ###
+      get_child(:cmaf)
+      |> via_out(:output)
+      |> child(:video_sink, Membrane.Testing.Sink),
+      get_child(:cmaf)
+      |> via_out(Pad.ref(:synced_output, :audio))
+      |> child(:audio_sink, Membrane.Testing.Sink)
+    ]
+
+    pipeline = Testing.Pipeline.start_link_supervised!(spec: structure)
+
+    assert_sink_stream_format(pipeline, :audio_sink, %Membrane.CMAF.Track{
+      header: header,
+      content_type: :audio
+    })
+
+    assert_mp4_equal(header, "ref_audio_header.mp4")
+
+    assert_sink_stream_format(pipeline, :video_sink, %Membrane.CMAF.Track{
+      header: header,
+      content_type: :video
+    })
+
+    assert_mp4_equal(header, "ref_video_header.mp4")
+
+    1..2
+    |> Enum.map(fn i ->
+      assert_sink_buffer(pipeline, :audio_sink, audio_buffer)
+
+      assert_sink_buffer(pipeline, :video_sink, video_buffer)
+
+      # NOTE: due to 'add_dts_offset' the video is moved back by 500ms
+      assert_in_delta audio_buffer.metadata.duration,
+                      video_buffer.metadata.duration,
+                      Membrane.Time.milliseconds(600)
+
+      assert_mp4_equal(video_buffer.payload, "ref_video_segment#{i}.m4s")
+    end)
+
+    assert_end_of_stream(pipeline, :audio_sink)
+    assert_end_of_stream(pipeline, :video_sink)
+
+    refute_sink_buffer(pipeline, :audio_sink, _buffer, 0)
+    refute_sink_buffer(pipeline, :video_sink, _buffer, 0)
 
     :ok = Testing.Pipeline.terminate(pipeline)
   end

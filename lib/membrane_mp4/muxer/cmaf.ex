@@ -3,23 +3,45 @@ defmodule Membrane.MP4.Muxer.CMAF do
   Puts a payloaded stream into [Common Media Application Format](https://www.wowza.com/blog/what-is-cmaf),
   an MP4-based container commonly used in adaptive streaming over HTTP.
 
-  The element supports up to 2 input tracks that can result in one output:
-    - audio input -> audio output
-    - video input -> video output
-    - video input + audio input -> muxed audio and video output
+
+  ## Input/Output tracks matrix
+  The basic muxer's functionality is to take a single media stream and put it into CMAF formatted track.
+
+  Sometimes one may need to mux several tracks together or make sure that output tracks are
+  synchronized with each other. Such behavior is also supported by the muxer's implementation.
+
+  By default any tracks linked to the muxer on input will be muxed together on the static `:output` pad.
+
+  If it is needed to serve audio separately one should add another dynamic pad `Pad.ref(:synced_output, "input pad id")`, this way
+  the muxer will know that the audio should not get muxed together with the video. The video will be still available on the static `:output` pad.
+  The amount of audio and video samples should be the same as they were muxed together into a single segment.
+
+  This approach enforces that there is no more than a single video track. A video track is always used as a synchronization point 
+  therefore having more than one would make the synchronization decisions ambiguous. The amount of audio tracks on the other
+  hand is not limited.
+
+  As a rule of thumb, if there is no need to synchronize tracks just use separate muxer instances.
+
+  The example matrix of possible input/ouput tracks is as follows:
+  - audio input -> audio output (`:output` pad)
+  - video input -> video output (`:output` pad)
+  - audio input + video input  -> muxed audio/video output (`:output` pad)
+  - audio input + video input  -> audio output (e.g. `Pad.ref(:synced_output, :audio)`)  + video output (`:output` pad)
+  - audio1 input + ... + audion input + video input  -> audio outputs (e.g. `Pad.ref(:synced_output, :audio1)` + `Pad.ref(:synced_output, :audion)` + ...)  + video output (`:output` pad)
 
   ## Media objects
   Accordingly to the spec, the `#{inspect(__MODULE__)}` is able to assemble the following media entities:
-    * `headers` - media initialization object. Contains information necessary to play the media segments (when binary
-    concatenated with a media segment it creates a valid MP4 file). The media header is sent as an output pad's stream format.
+    * `header` - media initialization object. Contains information necessary to play the media segments.
+    The media header content is sent inside of a stream format on the target output pad.
 
-  * `segments` - media data that when combined with media headers can be played independently to other segments.
+  * `segment` - a sequence of one or more consecutive fragments belonging to a particular track that are playable on their own
+    when combined with a media header.
     Segments due to their nature (video decoding) must start with a key frame (doesn't apply to audio-only tracks) which
     is a main driver when collecting video samples and deciding when a segment should be created
 
-  * `chunks` - fragmented media data that when binary concatenated should make up a regular segment. Chunks
-    no longer have the requirement to start with a key frame (except for the first chunk that starts a new segment)
-    and their main goal is to reduce the latency of creating the media segments (chunks can be delivered to a client faster so it can
+  * `chunk` - a fragment consisting of a subset of media samples, not necessairly playable on its own. Chunk
+    no longer has the requirement to start with a key frame (except for the first chunk that starts a new segment)
+    and its main goal is to reduce the latency of creating the media segments (chunks can be delivered to a client faster so it can
     start playing them before a full segment gets assembled)
 
   ### Segment/Chunk metadata
@@ -36,8 +58,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
     `:segment_min_duration` options passed when initializing `#{inspect(__MODULE__)}`.
 
   It is expected that the segment will not be shorter than the specified minimum duration value
-  and the aim is to end the segment as soon as the next key frames arrives that will become
-  a part of a new segment.
+  and the aim is to end the segment as soon as the next key frames arrives (for audio-only tracks the segment can be ended after each sample) 
+  that will become a part of a new segment.
 
   If a user prefers to have segments of unified durations then he needs to take into consideration
   the incoming keyframes interval. For instance, if a keyframe interval is 2 seconds and the goal is to have
@@ -114,6 +136,11 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   def_output_pad :output, accepted_format: Membrane.CMAF.Track, flow_control: :manual
 
+  def_output_pad :synced_output,
+    availability: :on_request,
+    flow_control: :manual,
+    accepted_format: Membrane.CMAF.Track
+
   def_options segment_min_duration: [
                 spec: Membrane.Time.t(),
                 default: Membrane.Time.seconds(2),
@@ -143,15 +170,14 @@ defmodule Membrane.MP4.Muxer.CMAF do
       options
       |> Map.from_struct()
       |> Map.merge(%{
-        seq_num: 0,
         # stream format waiting to be sent after receiving the next buffer.
         # Holds the structure {stream_format_timestamp, stream_format}
-        awaiting_stream_format: nil,
+        awaiting_stream_formats: %{},
         pad_to_track_data: %{},
-        # ID for the next input track
-        next_track_id: 1,
+        pads_registration_order: [],
         sample_queues: %{},
-        finish_current_segment?: false
+        finish_current_segment?: false,
+        video_pads: []
       })
       |> set_chunk_duration_range()
 
@@ -162,15 +188,15 @@ defmodule Membrane.MP4.Muxer.CMAF do
   def handle_pad_added(_pad, ctx, _state) when ctx.playback == :playing,
     do:
       raise(
-        "New tracks can be added to #{inspect(__MODULE__)} only before playback transition to :playing"
+        "New pads can be added to #{inspect(__MODULE__)} only before playback transition to :playing"
       )
 
   @impl true
   def handle_pad_added(Pad.ref(:input, _id) = pad, _ctx, state) do
-    {track_id, state} = Map.get_and_update!(state, :next_track_id, &{&1, &1 + 1})
-
+    # NOTE: by default we assign `1` track id. It will be updated once all input pads are linked
+    # in case of muxed tracks.
     track_data = %{
-      id: track_id,
+      id: 1,
       track: nil,
       # base timestamp of the current segment, initialized with DTS of the first buffer
       # and then incremented by duration of every produced segment
@@ -185,23 +211,105 @@ defmodule Membrane.MP4.Muxer.CMAF do
     |> put_in([:sample_queues, pad], %SamplesQueue{
       duration_range: state.chunk_duration_range || DurationRange.new(state.segment_min_duration)
     })
+    |> Map.update!(:pads_registration_order, &[pad | &1])
     |> then(&{[], &1})
   end
 
   @impl true
-  def handle_demand(:output, _size, _unit, _ctx, state) do
-    {pad, _elapsed_time} =
-      state.pad_to_track_data
-      |> Enum.map(fn {pad, track_data} -> {pad, track_data.end_timestamp} end)
-      |> Enum.reject(fn {_key, timestamp} -> is_nil(timestamp) end)
-      |> Enum.min_by(fn {_key, timestamp} -> Ratio.to_float(timestamp) end)
+  def handle_pad_added(Pad.ref(:synced_output, _id), _ctx, state) do
+    {[], state}
+  end
 
-    {[demand: {pad, 1}], state}
+  @impl true
+  def handle_playing(ctx, state) do
+    {registration_order, state} = Map.pop!(state, :pads_registration_order)
+
+    registration_order = Enum.reverse(registration_order)
+
+    pads = Map.keys(ctx.pads)
+
+    input_pads = Enum.filter(pads, &match?(Pad.ref(:input, _id), &1))
+    synced_output_pads = Enum.filter(pads, &match?(Pad.ref(:synced_output, _id), &1))
+
+    synced_input_pads =
+      Enum.map(synced_output_pads, fn Pad.ref(:synced_output, id) -> Pad.ref(:input, id) end)
+
+    muxed_input_pads = input_pads -- synced_input_pads
+
+    if unlinked_pad =
+         Enum.find(synced_output_pads, fn Pad.ref(:synced_output, id) ->
+           Pad.ref(:input, id) not in pads
+         end) do
+      raise """
+      Expected all `:synced_output` pads to have corresponding input pad. 
+      Found synced pad `#{inspect(unlinked_pad)}` without an input pad.
+      """
+    end
+
+    input_groups =
+      synced_input_pads
+      |> Map.new(fn Pad.ref(:input, id) ->
+        {Pad.ref(:synced_output, id), [Pad.ref(:input, id)]}
+      end)
+      |> Map.put(:output, muxed_input_pads)
+
+    input_to_output_pad =
+      input_groups
+      |> Enum.flat_map(fn {output_pad, input_pads} ->
+        Enum.map(input_pads, &{&1, output_pad})
+      end)
+      |> Map.new()
+
+    state =
+      Map.merge(state, %{
+        input_groups: input_groups,
+        input_to_output_pad: input_to_output_pad,
+        seq_nums: Map.new(input_groups, fn {output_pad, _input_pads} -> {output_pad, 0} end)
+      })
+
+    muxed_input_pad_track_ids =
+      muxed_input_pads
+      |> Enum.sort_by(fn pad -> Enum.find_index(registration_order, &(&1 == pad)) end)
+      |> Enum.with_index(1)
+
+    state =
+      Enum.reduce(muxed_input_pad_track_ids, state, fn {pad, track_id}, state ->
+        update_in(state, [:pad_to_track_data, pad], &%{&1 | id: track_id})
+      end)
+
+    demands = Enum.map(input_pads, &{:demand, &1})
+
+    {demands, state}
+  end
+
+  @impl true
+  def handle_demand(:output, _size, _unit, _ctx, state) do
+    case state.input_groups.output do
+      [input_pad] ->
+        {[demand: {input_pad, 1}], state}
+
+      input_pads ->
+        state.pad_to_track_data
+        |> Map.take(input_pads)
+        |> Enum.map(fn {pad, track_data} -> {pad, track_data.end_timestamp} end)
+        |> Enum.reject(fn {_key, timestamp} -> is_nil(timestamp) end)
+        |> Enum.min_by(fn {_key, timestamp} -> Ratio.to_float(timestamp) end)
+        |> then(fn {pad, _time} -> {[demand: {pad, 1}], state} end)
+    end
+  end
+
+  @impl true
+  def handle_demand(pad, _size, _unit, _ctx, state) do
+    [input_pad] = state.input_groups[pad]
+
+    {[demand: {input_pad, 1}], state}
   end
 
   @impl true
   def handle_stream_format(pad, stream_format, ctx, state) do
-    ensure_max_one_video_pad!(pad, stream_format, ctx)
+    ensure_max_one_video_pad!(pad, stream_format, state)
+
+    output_pad = state.input_to_output_pad[pad]
 
     is_video_pad = is_video(stream_format)
 
@@ -209,27 +317,33 @@ defmodule Membrane.MP4.Muxer.CMAF do
       state
       |> update_in(
         [:pad_to_track_data, pad],
-        &%{&1 | track: stream_format_to_track(stream_format, &1.id)}
+        &%{&1 | track: Track.new(&1.id, stream_format)}
       )
       |> update_in(
         [:sample_queues, pad],
         &%SamplesQueue{&1 | track_with_keyframes?: is_video_pad}
       )
+      |> Map.update!(:video_pads, fn pads ->
+        cond do
+          pad in pads ->
+            pads
 
-    has_all_input_stream_formats? =
-      ctx.pads
-      |> Map.drop([:output, pad])
-      |> Map.values()
-      |> Enum.all?(&(&1.stream_format != nil))
+          is_video_pad ->
+            [pad | pads]
 
-    if has_all_input_stream_formats? do
-      stream_format = generate_output_stream_format(state)
+          true ->
+            pads
+        end
+      end)
+
+    if are_all_group_pads_ready?(pad, ctx, state) do
+      stream_format = generate_output_stream_format(output_pad, state)
 
       cond do
-        is_nil(ctx.pads.output.stream_format) ->
-          {[stream_format: {:output, stream_format}], state}
+        is_nil(ctx.pads[output_pad].stream_format) ->
+          {[stream_format: {output_pad, stream_format}], state}
 
-        stream_format != ctx.pads.output.stream_format ->
+        stream_format != ctx.pads[output_pad].stream_format ->
           {[], SegmentHelper.put_awaiting_stream_format(pad, stream_format, state)}
 
         true ->
@@ -238,42 +352,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
     else
       {[], state}
     end
-  end
-
-  defp is_video(%Track{stream_format: stream_format}),
-    do: is_struct(stream_format, H264) or is_struct(stream_format, H265)
-
-  defp is_video(stream_format),
-    do: is_struct(stream_format, H264) or is_struct(stream_format, H265)
-
-  defp find_video_pads(ctx) do
-    ctx.pads
-    |> Enum.filter(fn
-      {Pad.ref(:input, _id), data} ->
-        data.stream_format != nil and is_video(data.stream_format)
-
-      _other ->
-        false
-    end)
-    |> Enum.map(fn {pad, _data} -> pad end)
-  end
-
-  defp ensure_max_one_video_pad!(pad, stream_format, ctx) do
-    is_video_pad = is_video(stream_format)
-
-    if is_video_pad do
-      video_pads = find_video_pads(ctx)
-
-      has_other_video_pad? = video_pads != [] and video_pads != [pad]
-
-      if has_other_video_pad? do
-        raise "CMAF muxer can only handle at most one video pad"
-      end
-    end
-  end
-
-  defp stream_format_to_track(stream_format, track_id) do
-    Track.new(track_id, stream_format)
   end
 
   @impl true
@@ -296,19 +374,23 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     case segment do
       {:segment, segment, state} ->
-        {buffer, state} = generate_segment(segment, ctx, state)
+        {buffers, state} = generate_segment_actions(segment, ctx, state)
 
-        actions = [buffer: {:output, buffer}] ++ stream_format_action ++ [redemand: :output]
+        actions =
+          buffers ++
+            stream_format_action ++
+            Enum.map(buffers, fn {:buffer, {pad, _buffer}} -> {:redemand, pad} end)
 
         {actions, state}
 
       {:no_segment, state} ->
-        {[redemand: :output], state}
+        output_pad = state.input_to_output_pad[pad]
+        {[redemand: output_pad], state}
     end
   end
 
   @impl true
-  def handle_event(:output, %__MODULE__.RequestMediaFinalization{}, _ctx, state) do
+  def handle_event(_pad, %__MODULE__.RequestMediaFinalization{}, _ctx, state) do
     {[], %{state | finish_current_segment?: true}}
   end
 
@@ -320,52 +402,80 @@ defmodule Membrane.MP4.Muxer.CMAF do
   @impl true
   def handle_end_of_stream(Pad.ref(:input, _track_id) = pad, ctx, state) do
     cache = Map.fetch!(state.sample_queues, pad)
+    output_pad = state.input_to_output_pad[pad]
+
+    input_pads = Map.keys(state.input_to_output_pad) -- [pad]
 
     processing_finished? =
       ctx.pads
-      |> Map.drop([:output, pad])
+      |> Map.take(input_pads)
       |> Map.values()
       |> Enum.all?(& &1.end_of_stream?)
 
     if SamplesQueue.empty?(cache) do
       if processing_finished? do
-        {[end_of_stream: :output], state}
+        {[end_of_stream: output_pad], state}
       else
-        {[redemand: :output], state}
+        {[redemand: output_pad], state}
       end
     else
-      generate_end_of_stream_segment(processing_finished?, cache, pad, ctx, state)
+      generate_end_of_stream_segment(processing_finished?, pad, ctx, state)
     end
   end
 
-  defp generate_end_of_stream_segment(processing_finished?, cache, pad, ctx, state) do
-    sample = state.pad_to_track_data[pad].buffer_awaiting_duration
+  defp generate_end_of_stream_segment(false, pad, _ctx, state) do
+    output_pad = state.input_to_output_pad[pad]
 
-    sample_metadata =
-      Map.put(sample.metadata, :duration, SamplesQueue.last_sample(cache).metadata.duration)
+    state = put_in(state, [:pad_to_track_data, pad, :end_timestamp], nil)
 
-    sample = %Buffer{sample | metadata: sample_metadata}
+    {[redemand: output_pad], state}
+  end
 
-    cache = SamplesQueue.force_push(cache, sample)
-    state = put_in(state, [:sample_queues, pad], cache)
+  defp generate_end_of_stream_segment(true, _pad, ctx, state) do
+    state =
+      for {pad, track_data} <- state.pad_to_track_data, reduce: state do
+        state ->
+          queue = Map.fetch!(state.sample_queues, pad)
+          sample = track_data.buffer_awaiting_duration
 
-    if processing_finished? do
-      with {:segment, segment, state} when map_size(segment) > 0 <-
-             SegmentHelper.take_all_samples(state) do
-        {buffer, state} = generate_segment(segment, ctx, state)
-        {[buffer: {:output, buffer}, end_of_stream: :output], state}
-      else
-        {:segment, _segment, state} -> {[end_of_stream: :output], state}
+          sample_metadata =
+            Map.put(sample.metadata, :duration, SamplesQueue.last_sample(queue).metadata.duration)
+
+          sample = %Buffer{sample | metadata: sample_metadata}
+
+          queue = SamplesQueue.force_push(queue, sample)
+          put_in(state, [:sample_queues, pad], queue)
       end
-    else
-      state = put_in(state, [:pad_to_track_data, pad, :end_timestamp], nil)
 
-      {[redemand: :output], state}
+    end_of_streams =
+      ctx.pads
+      |> Enum.filter(fn
+        {:output, data} -> not data.end_of_stream?
+        {Pad.ref(:synced_output, _id), data} -> not data.end_of_stream?
+        _other -> false
+      end)
+      |> Enum.map(fn {pad, _data} ->
+        {:end_of_stream, pad}
+      end)
+
+    case SegmentHelper.take_all_samples(state) do
+      {:segment, segment, state} when map_size(segment) > 0 ->
+        {buffers, state} = generate_segment_actions(segment, ctx, state)
+
+        {buffers ++ end_of_streams, state}
+
+      {:segment, _segment, state} ->
+        {end_of_streams, state}
     end
   end
 
-  defp generate_output_stream_format(state) do
-    tracks = Enum.map(state.pad_to_track_data, fn {_pad, track_data} -> track_data.track end)
+  defp generate_output_stream_format(output_pad, state) do
+    input_pads = state.input_groups[output_pad]
+
+    tracks =
+      state.pad_to_track_data
+      |> Map.take(input_pads)
+      |> Enum.map(fn {_pad, track_data} -> track_data.track end)
 
     resolution =
       tracks
@@ -374,7 +484,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
         _audio_track -> nil
       end)
 
-    codecs = Map.new(tracks, fn track -> Track.get_encoding_info(track) end)
+    codecs = Map.new(tracks, &Track.get_encoding_info/1)
 
     header = Header.serialize(tracks)
 
@@ -394,53 +504,83 @@ defmodule Membrane.MP4.Muxer.CMAF do
     }
   end
 
-  defp generate_segment(acc, ctx, state) do
-    use Numbers, overload_operators: true, comparison: true
+  defp generate_samples_table(samples, timescale) do
+    Enum.map(samples, fn sample ->
+      %{
+        sample_size: byte_size(sample.payload),
+        sample_flags: generate_sample_flags(sample.metadata),
+        sample_duration:
+          sample.metadata.duration
+          |> Helper.timescalify(timescale)
+          |> Ratio.trunc(),
+        sample_offset: Helper.timescalify(sample.pts - sample.dts, timescale)
+      }
+    end)
+  end
 
-    tracks_data =
-      acc
-      |> Enum.filter(fn {_pad, samples} -> not Enum.empty?(samples) end)
-      |> Enum.map(fn {pad, samples} ->
-        track_data = state.pad_to_track_data[pad]
+  defp generate_samples_data(samples) do
+    samples
+    |> Enum.map(& &1.payload)
+    |> IO.iodata_to_binary()
+  end
 
-        %{timescale: timescale} = track_data.track
-        first_sample = hd(samples)
-        last_sample = List.last(samples)
+  defp calculate_segment_duration(samples) do
+    first_sample = hd(samples)
+    last_sample = List.last(samples)
 
-        samples_table =
-          samples
-          |> Enum.map(fn sample ->
-            %{
-              sample_size: byte_size(sample.payload),
-              sample_flags: generate_sample_flags(sample.metadata),
-              sample_duration:
-                Helper.timescalify(
-                  sample.metadata.duration,
-                  timescale
-                )
-                |> Ratio.trunc(),
-              sample_offset: Helper.timescalify(sample.pts - sample.dts, timescale)
-            }
+    last_sample.dts - first_sample.dts + last_sample.metadata.duration
+  end
+
+  defp generate_input_group_tracks_data(
+         input_group,
+         acc,
+         state
+       ) do
+    {output_pad, input_pads} = input_group
+
+    acc
+    |> Map.take(input_pads)
+    |> Enum.filter(fn {_pad, samples} -> not Enum.empty?(samples) end)
+    |> Enum.map(fn {pad, samples} ->
+      track_data = state.pad_to_track_data[pad]
+
+      %{timescale: timescale} = track_data.track
+
+      duration = calculate_segment_duration(samples)
+
+      %{
+        pad: pad,
+        id: track_data.id,
+        sequence_number: state.seq_nums[output_pad],
+        timescale: timescale,
+        base_timestamp:
+          track_data.segment_base_timestamp
+          |> Helper.timescalify(timescale)
+          |> Ratio.trunc(),
+        unscaled_duration: duration,
+        duration: Helper.timescalify(duration, timescale),
+        samples_table: generate_samples_table(samples, timescale),
+        samples_data: generate_samples_data(samples)
+      }
+    end)
+    |> case do
+      [] ->
+        {[], state}
+
+      tracks_data ->
+        state =
+          tracks_data
+          |> Enum.reduce(state, fn %{unscaled_duration: duration, pad: pad}, state ->
+            update_in(state, [:pad_to_track_data, pad, :segment_base_timestamp], &(&1 + duration))
           end)
+          |> update_in([:seq_nums, output_pad], &(&1 + 1))
 
-        samples_data = Enum.map_join(samples, & &1.payload)
+        {[{input_group, tracks_data}], state}
+    end
+  end
 
-        duration = last_sample.dts - first_sample.dts + last_sample.metadata.duration
-
-        %{
-          pad: pad,
-          id: state.pad_to_track_data[pad].id,
-          sequence_number: state.seq_num,
-          base_timestamp:
-            Helper.timescalify(track_data.segment_base_timestamp, timescale)
-            |> Ratio.trunc(),
-          unscaled_duration: duration,
-          duration: Helper.timescalify(duration, timescale),
-          timescale: timescale,
-          samples_table: samples_table,
-          samples_data: samples_data
-        }
-      end)
+  defp generate_input_group_action({input_group, tracks_data}, acc, state) do
+    {output_pad, _input_pads} = input_group
 
     payload = Segment.serialize(tracks_data)
 
@@ -454,29 +594,40 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     metadata = %{
       duration: duration,
-      independent?: is_segment_independent(acc, ctx),
+      independent?: is_segment_independent(acc, state),
       last_chunk?: is_segment_finished(state)
     }
 
-    buffer = %Buffer{payload: payload, metadata: metadata}
-
-    # Update segment base timestamps for each track
-    state =
-      Enum.reduce(tracks_data, state, fn %{unscaled_duration: duration, pad: pad}, state ->
-        update_in(state, [:pad_to_track_data, pad, :segment_base_timestamp], &(&1 + duration))
-      end)
-      |> Map.update!(:seq_num, &(&1 + 1))
-      |> Map.update!(:finish_current_segment?, fn finish_current_segment? ->
-        non_ending_chunk? = metadata.last_chunk? == false
-
-        finish_current_segment? and non_ending_chunk?
-      end)
-
-    {buffer, state}
+    {:buffer, {output_pad, %Buffer{payload: payload, metadata: metadata}}}
   end
 
-  defp is_segment_independent(segment, ctx) do
-    case find_video_pads(ctx) do
+  defp update_finish_current_segment_state(actions, state) do
+    last_chunk? =
+      Enum.any?(actions, fn {:buffer, {_pad, buffer}} -> buffer.metadata.last_chunk? end)
+
+    Map.update!(state, :finish_current_segment?, fn finish_current_segment? ->
+      non_ending_chunk? = last_chunk? == false
+
+      finish_current_segment? and non_ending_chunk?
+    end)
+  end
+
+  defp generate_segment_actions(acc, _ctx, state) do
+    use Numbers, overload_operators: true, comparison: true
+
+    state.input_groups
+    |> Enum.flat_map_reduce(state, &generate_input_group_tracks_data(&1, acc, &2))
+    |> then(fn {data, state} ->
+      actions = Enum.map(data, &generate_input_group_action(&1, acc, state))
+
+      state = update_finish_current_segment_state(actions, state)
+
+      {actions, state}
+    end)
+  end
+
+  defp is_segment_independent(segment, state) do
+    case state.video_pads do
       [] ->
         true
 
@@ -570,5 +721,33 @@ defmodule Membrane.MP4.Muxer.CMAF do
     state
     |> Map.delete(:chunk_target_duration)
     |> Map.put(:chunk_duration_range, nil)
+  end
+
+  defp are_all_group_pads_ready?(pad, ctx, state) do
+    output_pad = state.input_to_output_pad[pad]
+
+    other_input_pads = state.input_groups[output_pad] -- [pad]
+
+    ctx.pads
+    |> Map.take(other_input_pads)
+    |> Enum.all?(fn {_pad, data} -> data.stream_format != nil end)
+  end
+
+  defp is_video(%Track{stream_format: stream_format}),
+    do: is_struct(stream_format, H264) or is_struct(stream_format, H265)
+
+  defp is_video(stream_format),
+    do: is_struct(stream_format, H264) or is_struct(stream_format, H265)
+
+  defp ensure_max_one_video_pad!(pad, stream_format, state) do
+    is_video_pad = is_video(stream_format)
+
+    if is_video_pad do
+      has_other_video_pad? = state.video_pads != [] and state.video_pads != [pad]
+
+      if has_other_video_pad? do
+        raise "CMAF muxer can only handle at most one video pad"
+      end
+    end
   end
 end

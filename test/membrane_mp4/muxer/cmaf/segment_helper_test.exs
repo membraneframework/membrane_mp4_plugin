@@ -9,10 +9,12 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelperTest do
     chunk_duration_range = DurationRange.new(1, 50)
 
     state = %{
-      awaiting_stream_format: nil,
+      awaiting_stream_formats: %{},
       segment_min_duration: 100,
       chunk_duration_range: chunk_duration_range,
       finish_current_segment?: false,
+      input_to_output_pad: %{audio: :output, video: :output},
+      input_groups: %{output: [:audio, :video]},
       pad_to_track_data: %{
         audio: %{segment_base_timestamp: 0, chunks_duration: 0, buffer_awaiting_duration: nil},
         video: %{segment_base_timestamp: 0, chunks_duration: 0, buffer_awaiting_duration: nil}
@@ -33,6 +35,15 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelperTest do
 
       {buffer, state} ->
         SegmentHelper.push_chunk(state, pad, buffer)
+    end
+  end
+
+  defp push_n_buffers(type, range, state) do
+    for i <- range, reduce: state do
+      state ->
+        {:no_segment, state} = push_buffer(type, buffer_with_timestamp(type, i), state)
+
+        state
     end
   end
 
@@ -76,34 +87,17 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelperTest do
 
   @stream_format :stream_format
   test "new stream format forces segment collection", %{state: state} do
-    # push first couple of video samples
+    # push first couple of video and audio samples
     state =
-      for i <- 1..10, reduce: state do
+      for {type, amount} <- [video: 10, audio: 20], reduce: state do
         state ->
-          {:no_segment, state} = push_buffer(:video, buffer_with_timestamp(:video, i), state)
-
-          state
-      end
-
-    # push first couple of audio samples
-    state =
-      for i <- 1..20, reduce: state do
-        state ->
-          {:no_segment, state} = push_buffer(:audio, buffer_with_timestamp(:audio, i), state)
-
-          state
+          push_n_buffers(type, 1..amount, state)
       end
 
     state = SegmentHelper.put_awaiting_stream_format(:video, @stream_format, state)
 
     # push couple of audio samples after new video stream format
-    state =
-      for i <- 21..30, reduce: state do
-        state ->
-          {:no_segment, state} = push_buffer(:audio, buffer_with_timestamp(:audio, i), state)
-
-          state
-      end
+    state = push_n_buffers(:audio, 21..30, state)
 
     state = SegmentHelper.update_awaiting_stream_format(state, :video)
 
