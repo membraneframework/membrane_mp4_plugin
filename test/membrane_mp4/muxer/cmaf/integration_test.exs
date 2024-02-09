@@ -121,10 +121,10 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       |> get_child(:cmaf),
       ###
       get_child(:cmaf)
-      |> via_out(:output)
+      |> via_out(Pad.ref(:output, :video), options: [tracks: [:video]])
       |> child(:video_sink, Membrane.Testing.Sink),
       get_child(:cmaf)
-      |> via_out(Pad.ref(:synced_output, :audio))
+      |> via_out(Pad.ref(:output, :audio), options: [tracks: [:audio]])
       |> child(:audio_sink, Membrane.Testing.Sink)
     ]
 

@@ -10,11 +10,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
   Sometimes one may need to mux several tracks together or make sure that output tracks are
   synchronized with each other. Such behavior is also supported by the muxer's implementation.
 
-  By default any tracks linked to the muxer on input will be muxed together on the static `:output` pad.
+  Each output pad can specify which input pads needs to be muxed together by specifying `:tracks` option.
 
-  If it is needed to serve audio separately one should add another dynamic pad `Pad.ref(:synced_output, "input pad id")`, this way
-  the muxer will know that the audio should not get muxed together with the video. The video will be still available on the static `:output` pad.
-  The amount of audio and video samples should be the same as they were muxed together into a single segment.
+  One may also want to have separate output pads that are internally synchronized with each other (then 
+  the `:tracks` should contain only a single id). By synchronization we mean that the muxer will try its best
+  to produce equal length segments for output pads. The synchronization relies on the video track (the video 
+  track can only be cut at keyframe boundries, audio track can be cut at any point).
 
   This approach enforces that there is no more than a single video track. A video track is always used as a synchronization point 
   therefore having more than one would make the synchronization decisions ambiguous. The amount of audio tracks on the other
@@ -23,11 +24,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
   As a rule of thumb, if there is no need to synchronize tracks just use separate muxer instances.
 
   The example matrix of possible input/ouput tracks is as follows:
-  - audio input -> audio output (`:output` pad)
-  - video input -> video output (`:output` pad)
-  - audio input + video input  -> muxed audio/video output (`:output` pad)
-  - audio input + video input  -> audio output (e.g. `Pad.ref(:synced_output, :audio)`)  + video output (`:output` pad)
-  - audio1 input + ... + audion input + video input  -> audio outputs (e.g. `Pad.ref(:synced_output, :audio1)` + `Pad.ref(:synced_output, :audion)` + ...)  + video output (`:output` pad)
+  - audio input -> audio output 
+  - video input -> video output
+  - audio input + video input  -> muxed audio/video output
+  - audio-1 input + ... + audio-n input + video input  -> audio-1 output + ... + audio-n output  + video output
 
   ## Media objects
   Accordingly to the spec, the `#{inspect(__MODULE__)}` is able to assemble the following media entities:
@@ -74,7 +74,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   It may happen that one may need to create a segment before it reaches the minimum duration (for purposes such as fast AD insertion).
 
   To instruct the muxer to finalize the current segment as soon as possible one can send `Membrane.MP4.Muxer.CMAF.RequestMediaFinalization`
-  event on the `:output` pad. The event will enforce the muxer to end the current segment as soon as possible (usually on the nearest key frame).
+  event on any `:output` pad. The event will enforce the muxer to end the current segment as soon as possible (usually on the nearest key frame).
   After the segment gets generated, the muxer will go back to its normal behaviour of creating segments.
 
   ## Chunk creation
@@ -134,12 +134,21 @@ defmodule Membrane.MP4.Muxer.CMAF do
         %H265{stream_structure: structure, alignment: :au} when H265.is_hvc(structure)
       )
 
-  def_output_pad :output, accepted_format: Membrane.CMAF.Track, flow_control: :manual
-
-  def_output_pad :synced_output,
+  def_output_pad :output,
     availability: :on_request,
-    flow_control: :manual,
-    accepted_format: Membrane.CMAF.Track
+    options: [
+      tracks: [
+        spec: [Membrane.Pad.dynamic_id()] | nil,
+        default: nil,
+        description: """
+        A list of the input pad ids that should be muxed together into a single output track.
+
+        If not specified the pad will include all unreferenced input pads.
+        """
+      ]
+    ],
+    accepted_format: Membrane.CMAF.Track,
+    flow_control: :manual
 
   def_options segment_min_duration: [
                 spec: Membrane.Time.t(),
@@ -216,7 +225,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   @impl true
-  def handle_pad_added(Pad.ref(:synced_output, _id), _ctx, state) do
+  def handle_pad_added(Pad.ref(:output, _id), _ctx, state) do
     {[], state}
   end
 
@@ -229,29 +238,16 @@ defmodule Membrane.MP4.Muxer.CMAF do
     pads = Map.keys(ctx.pads)
 
     input_pads = Enum.filter(pads, &match?(Pad.ref(:input, _id), &1))
-    synced_output_pads = Enum.filter(pads, &match?(Pad.ref(:synced_output, _id), &1))
 
-    synced_input_pads =
-      Enum.map(synced_output_pads, fn Pad.ref(:synced_output, id) -> Pad.ref(:input, id) end)
+    output_pads = Enum.filter(pads, &match?(Pad.ref(:output, _id), &1))
 
-    muxed_input_pads = input_pads -- synced_input_pads
-
-    if unlinked_pad =
-         Enum.find(synced_output_pads, fn Pad.ref(:synced_output, id) ->
-           Pad.ref(:input, id) not in pads
-         end) do
-      raise """
-      Expected all `:synced_output` pads to have corresponding input pad. 
-      Found synced pad `#{inspect(unlinked_pad)}` without an input pad.
-      """
+    if Enum.empty?(output_pads) do
+      raise "Expected at least single output pad"
     end
 
-    input_groups =
-      synced_input_pads
-      |> Map.new(fn Pad.ref(:input, id) ->
-        {Pad.ref(:synced_output, id), [Pad.ref(:input, id)]}
-      end)
-      |> Map.put(:output, muxed_input_pads)
+    input_groups = prepare_input_groups(input_pads, output_pads, ctx)
+
+    validate_input_groups!(input_pads, input_groups)
 
     input_to_output_pad =
       input_groups
@@ -264,13 +260,18 @@ defmodule Membrane.MP4.Muxer.CMAF do
       Map.merge(state, %{
         input_groups: input_groups,
         input_to_output_pad: input_to_output_pad,
-        seq_nums: Map.new(input_groups, fn {output_pad, _input_pads} -> {output_pad, 0} end)
+        seq_nums: Map.new(output_pads, &{&1, 0})
       })
 
     muxed_input_pad_track_ids =
-      muxed_input_pads
-      |> Enum.sort_by(fn pad -> Enum.find_index(registration_order, &(&1 == pad)) end)
-      |> Enum.with_index(1)
+      input_groups
+      |> Map.values()
+      |> Enum.reject(&(length(&1) == 1))
+      |> Enum.flat_map(fn pads ->
+        pads
+        |> Enum.sort_by(fn pad -> Enum.find_index(registration_order, &(&1 == pad)) end)
+        |> Enum.with_index(1)
+      end)
 
     state =
       Enum.reduce(muxed_input_pad_track_ids, state, fn {pad, track_id}, state ->
@@ -282,9 +283,44 @@ defmodule Membrane.MP4.Muxer.CMAF do
     {demands, state}
   end
 
+  defp prepare_input_groups(input_pads, output_pads, ctx) do
+    available_tracks = Enum.map(input_pads, fn Pad.ref(:input, id) -> id end)
+
+    Map.new(output_pads, fn output_pad ->
+      tracks = ctx.pads[output_pad].options.tracks || available_tracks
+
+      unless Enum.all?(tracks, &(&1 in available_tracks)) do
+        raise "Encountered unknown pad in specified tracks: #{inspect(tracks)}, available tracks: #{inspect(available_tracks)}"
+      end
+
+      input_pads =
+        tracks
+        |> Enum.uniq()
+        |> Enum.map(&Pad.ref(:input, &1))
+
+      {output_pad, input_pads}
+    end)
+  end
+
+  defp validate_input_groups!(input_pads, input_groups) do
+    [] =
+      input_groups
+      |> Map.values()
+      |> List.flatten()
+      |> Enum.reduce(input_pads, fn pad, pads_left ->
+        if pad in pads_left do
+          pads_left -- [pad]
+        else
+          raise "Input pad #{inspect(pad)} is already in use by other input group."
+        end
+      end)
+
+    :ok
+  end
+
   @impl true
-  def handle_demand(:output, _size, _unit, _ctx, state) do
-    case state.input_groups.output do
+  def handle_demand(Pad.ref(:output, _id) = pad, _size, _unit, _ctx, state) do
+    case state.input_groups[pad] do
       [input_pad] ->
         {[demand: {input_pad, 1}], state}
 
@@ -296,13 +332,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
         |> Enum.min_by(fn {_key, timestamp} -> Ratio.to_float(timestamp) end)
         |> then(fn {pad, _time} -> {[demand: {pad, 1}], state} end)
     end
-  end
-
-  @impl true
-  def handle_demand(pad, _size, _unit, _ctx, state) do
-    [input_pad] = state.input_groups[pad]
-
-    {[demand: {input_pad, 1}], state}
   end
 
   @impl true
@@ -416,7 +445,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     if SamplesQueue.empty?(cache) do
       if processing_finished? do
-        {[end_of_stream: output_pad], state}
+        end_of_streams = generate_output_end_of_streams(ctx)
+
+        {end_of_streams, state}
       else
         {[redemand: output_pad], state}
       end
@@ -449,16 +480,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
           put_in(state, [:sample_queues, pad], queue)
       end
 
-    end_of_streams =
-      ctx.pads
-      |> Enum.filter(fn
-        {:output, data} -> not data.end_of_stream?
-        {Pad.ref(:synced_output, _id), data} -> not data.end_of_stream?
-        _other -> false
-      end)
-      |> Enum.map(fn {pad, _data} ->
-        {:end_of_stream, pad}
-      end)
+    end_of_streams = generate_output_end_of_streams(ctx)
 
     case SegmentHelper.take_all_samples(state) do
       {:segment, segment, state} when map_size(segment) > 0 ->
@@ -504,6 +526,17 @@ defmodule Membrane.MP4.Muxer.CMAF do
       resolution: resolution,
       codecs: codecs
     }
+  end
+
+  defp generate_output_end_of_streams(ctx) do
+    ctx.pads
+    |> Enum.filter(fn
+      {Pad.ref(:output, _id), data} -> not data.end_of_stream?
+      _other -> false
+    end)
+    |> Enum.map(fn {pad, _data} ->
+      {:end_of_stream, pad}
+    end)
   end
 
   defp generate_samples_table(samples, timescale) do
