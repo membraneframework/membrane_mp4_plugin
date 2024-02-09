@@ -27,6 +27,21 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     :ok = Testing.Pipeline.terminate(pipeline)
   end
 
+  test "video hevc" do
+    pipeline = prepare_pipeline(:video_hevc, header_file: "ref_video_hevc_header.mp4")
+
+    1..2
+    |> Enum.map(fn i ->
+      assert_sink_buffer(pipeline, :sink, buffer)
+      assert_mp4_equal(buffer.payload, "ref_video_hevc_segment#{i}.m4s")
+    end)
+
+    assert_end_of_stream(pipeline, :sink)
+    refute_sink_buffer(pipeline, :sink, _buffer, 0)
+
+    :ok = Testing.Pipeline.terminate(pipeline)
+  end
+
   test "audio" do
     pipeline = prepare_pipeline(:audio)
 
@@ -323,7 +338,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     end
   end
 
-  defp prepare_pipeline(type, opts \\ []) when type in [:audio, :video] do
+  defp prepare_pipeline(type, opts \\ []) when type in [:audio, :video, :video_hevc] do
     file =
       Keyword.get(
         opts,
@@ -331,6 +346,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
         case type do
           :audio -> "test/fixtures/in_audio.aac"
           :video -> "test/fixtures/in_video.h264"
+          :video_hevc -> "test/fixtures/in_video_hevc.h265"
         end
       )
 
@@ -343,6 +359,12 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
           %Membrane.H264.Parser{
             generate_best_effort_timestamps: %{framerate: {30, 1}},
             output_stream_structure: :avc1
+          }
+
+        :video_hevc ->
+          %Membrane.H265.Parser{
+            generate_best_effort_timestamps: %{framerate: {30, 1}},
+            output_stream_structure: :hvc1
           }
       end
 

@@ -3,6 +3,8 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
 
   use Bunch
 
+  import Membrane.MP4.Helper, only: [key_frame?: 1]
+
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
   alias Membrane.Pad
 
@@ -44,7 +46,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
       ) do
     state = %{state | awaiting_stream_format: nil}
 
-    unless is_key_frame(state.pad_to_track_data[pad].buffer_awaiting_duration) do
+    unless key_frame?(state.pad_to_track_data[pad].buffer_awaiting_duration.metadata) do
       raise "Video sample received after new stream format must be a key frame"
     end
 
@@ -155,10 +157,6 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
       push_audio_chunk(state, queue, pad, sample)
     end
   end
-
-  @spec is_key_frame(Membrane.Buffer.t()) :: boolean()
-  def is_key_frame(%{metadata: metadata}),
-    do: Map.get(metadata, :h264, %{}) |> Map.get(:key_frame?, true)
 
   defp push_video_chunk(state, queue, pad, sample) do
     collected_duration = queue.collected_samples_duration
@@ -337,7 +335,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   defp maybe_reset_chunk_durations({:segment, segment, state}, next_sample) do
     min_duration = state.segment_min_duration
 
-    next_segment_independent? = is_key_frame(next_sample)
+    next_segment_independent? = key_frame?(next_sample.metadata)
 
     enough_duration? =
       Enum.all?(state.pad_to_track_data, fn {pad, data} ->

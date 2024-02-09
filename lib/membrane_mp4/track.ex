@@ -6,7 +6,7 @@ defmodule Membrane.MP4.Track do
   to build a sample table of a regular MP4 container. Samples that were stored
   can be flushed later in form of chunks.
   """
-  require Membrane.H264
+  require Membrane.{H264, H265}
   alias __MODULE__.SampleTable
   alias Membrane.{AAC, H264, H265}
   alias Membrane.MP4.Helper
@@ -86,8 +86,10 @@ defmodule Membrane.MP4.Track do
   end
 
   @spec get_encoding_info(__MODULE__.t()) ::
-          {:avc1, %{aot_id: binary(), channels: integer(), frequency: integer()}}
-          | {:mp4a, %{profile: binary(), compatibiliy: binary(), level: binary()}}
+          {:mp4a, %{aot_id: binary(), channels: integer(), frequency: integer()}}
+          | {:avc1, %{profile: binary(), compatibiliy: binary(), level: binary()}}
+          | {:hvc1,
+             %{profile: non_neg_integer(), tier: non_neg_integer(), level: non_neg_integer()}}
           | nil
 
   def get_encoding_info(%__MODULE__{
@@ -119,6 +121,22 @@ defmodule Membrane.MP4.Track do
     }
 
     {avc, map}
+  end
+
+  def get_encoding_info(%__MODULE__{
+        stream_format: %H265{stream_structure: {hevc, dcr} = structure}
+      })
+      when H265.is_hvc(structure) do
+    <<1, _profile_space::2, tier::1, profile::5, _interop_constraints::80, level, _rest::binary>> =
+      dcr
+
+    map = %{
+      profile: profile,
+      tier: tier,
+      level: level
+    }
+
+    {hevc, map}
   end
 
   def get_encoding_info(_unknown), do: nil
