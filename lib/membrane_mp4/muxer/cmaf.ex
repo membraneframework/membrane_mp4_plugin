@@ -138,8 +138,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
     availability: :on_request,
     options: [
       tracks: [
-        spec: [Membrane.Pad.dynamic_id()] | nil,
-        default: nil,
+        spec: [Membrane.Pad.dynamic_id()] | :all,
+        default: :all,
         description: """
         A list of the input pad ids that should be muxed together into a single output track.
 
@@ -186,7 +186,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
         pads_registration_order: [],
         sample_queues: %{},
         finish_current_segment?: false,
-        video_pads: []
+        video_pad: nil
       })
       |> set_chunk_duration_range()
 
@@ -245,9 +245,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
       raise "Expected at least single output pad"
     end
 
-    input_groups = prepare_input_groups(input_pads, output_pads, ctx)
-
-    validate_input_groups!(input_pads, input_groups)
+    input_groups =
+      input_pads
+      |> prepare_input_groups(output_pads, ctx)
+      |> tap(&validate_input_groups!/1)
 
     input_to_output_pad =
       input_groups
@@ -263,10 +264,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
         seq_nums: Map.new(output_pads, &{&1, 0})
       })
 
-    muxed_input_pad_track_ids =
+    input_pad_track_ids =
       input_groups
       |> Map.values()
-      |> Enum.reject(&(length(&1) == 1))
       |> Enum.flat_map(fn pads ->
         pads
         |> Enum.sort_by(fn pad -> Enum.find_index(registration_order, &(&1 == pad)) end)
@@ -274,9 +274,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       end)
 
     state =
-      Enum.reduce(muxed_input_pad_track_ids, state, fn {pad, track_id}, state ->
-        update_in(state, [:pad_to_track_data, pad], &%{&1 | id: track_id})
-      end)
+      Enum.reduce(input_pad_track_ids, state, &initialize_pad_track_data/2)
 
     demands = Enum.map(input_pads, &{:demand, &1})
 
@@ -287,7 +285,11 @@ defmodule Membrane.MP4.Muxer.CMAF do
     available_tracks = Enum.map(input_pads, fn Pad.ref(:input, id) -> id end)
 
     Map.new(output_pads, fn output_pad ->
-      tracks = ctx.pads[output_pad].options.tracks || available_tracks
+      tracks =
+        case ctx.pads[output_pad].options.tracks do
+          :all -> available_tracks
+          tracks when is_list(tracks) -> tracks
+        end
 
       unless Enum.all?(tracks, &(&1 in available_tracks)) do
         raise "Encountered unknown pad in specified tracks: #{inspect(tracks)}, available tracks: #{inspect(available_tracks)}"
@@ -302,20 +304,37 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end)
   end
 
-  defp validate_input_groups!(input_pads, input_groups) do
-    [] =
-      input_groups
-      |> Map.values()
-      |> List.flatten()
-      |> Enum.reduce(input_pads, fn pad, pads_left ->
-        if pad in pads_left do
-          pads_left -- [pad]
-        else
-          raise "Input pad #{inspect(pad)} is already in use by other input group."
-        end
-      end)
+  defp validate_input_groups!(input_groups) do
+    input_groups
+    |> Map.values()
+    |> List.flatten()
+    |> Bunch.Enum.duplicates()
+    |> case do
+      [] ->
+        :ok
 
-    :ok
+      pads ->
+        raise "Input pads #{inspect(pads)} are used in more than one input group."
+    end
+  end
+
+  defp initialize_pad_track_data({pad, track_id}, state) do
+    track_data = %{
+      id: track_id,
+      track: nil,
+      # base timestamp of the current segment, initialized with DTS of the first buffer
+      # and then incremented by duration of every produced segment
+      segment_base_timestamp: nil,
+      end_timestamp: 0,
+      buffer_awaiting_duration: nil,
+      chunks_duration: Membrane.Time.seconds(0)
+    }
+
+    state
+    |> put_in([:pad_to_track_data, pad], track_data)
+    |> put_in([:sample_queues, pad], %SamplesQueue{
+      duration_range: state.chunk_duration_range || DurationRange.new(state.segment_min_duration)
+    })
   end
 
   @impl true
@@ -352,16 +371,11 @@ defmodule Membrane.MP4.Muxer.CMAF do
         [:sample_queues, pad],
         &%SamplesQueue{&1 | track_with_keyframes?: is_video_pad}
       )
-      |> Map.update!(:video_pads, fn pads ->
-        cond do
-          pad in pads ->
-            pads
-
-          is_video_pad ->
-            [pad | pads]
-
-          true ->
-            pads
+      |> then(fn state ->
+        if is_video_pad do
+          %{state | video_pad: pad}
+        else
+          state
         end
       end)
 
@@ -514,7 +528,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     content_type =
       tracks
-      |> Enum.map(&if is_video(&1), do: :video, else: :audio)
+      |> Enum.map(&if is_video(&1.stream_format), do: :video, else: :audio)
       |> then(fn
         [item] -> item
         list -> list
@@ -573,44 +587,44 @@ defmodule Membrane.MP4.Muxer.CMAF do
        ) do
     {output_pad, input_pads} = input_group
 
-    acc
-    |> Map.take(input_pads)
-    |> Enum.filter(fn {_pad, samples} -> not Enum.empty?(samples) end)
-    |> Enum.map(fn {pad, samples} ->
-      track_data = state.pad_to_track_data[pad]
+    tracks_data =
+      acc
+      |> Map.take(input_pads)
+      |> Enum.filter(fn {_pad, samples} -> not Enum.empty?(samples) end)
+      |> Enum.map(fn {pad, samples} ->
+        track_data = state.pad_to_track_data[pad]
 
-      %{timescale: timescale} = track_data.track
+        %{timescale: timescale} = track_data.track
 
-      duration = calculate_segment_duration(samples)
+        duration = calculate_segment_duration(samples)
 
-      %{
-        pad: pad,
-        id: track_data.id,
-        sequence_number: state.seq_nums[output_pad],
-        timescale: timescale,
-        base_timestamp:
-          track_data.segment_base_timestamp
-          |> Helper.timescalify(timescale)
-          |> Ratio.trunc(),
-        unscaled_duration: duration,
-        duration: Helper.timescalify(duration, timescale),
-        samples_table: generate_samples_table(samples, timescale),
-        samples_data: generate_samples_data(samples)
-      }
-    end)
-    |> case do
-      [] ->
-        {[], state}
+        %{
+          pad: pad,
+          id: track_data.id,
+          sequence_number: state.seq_nums[output_pad],
+          timescale: timescale,
+          base_timestamp:
+            track_data.segment_base_timestamp
+            |> Helper.timescalify(timescale)
+            |> Ratio.trunc(),
+          unscaled_duration: duration,
+          duration: Helper.timescalify(duration, timescale),
+          samples_table: generate_samples_table(samples, timescale),
+          samples_data: generate_samples_data(samples)
+        }
+      end)
 
-      tracks_data ->
-        state =
-          tracks_data
-          |> Enum.reduce(state, fn %{unscaled_duration: duration, pad: pad}, state ->
-            update_in(state, [:pad_to_track_data, pad, :segment_base_timestamp], &(&1 + duration))
-          end)
-          |> update_in([:seq_nums, output_pad], &(&1 + 1))
+    if Enum.empty?(tracks_data) do
+      {[], state}
+    else
+      state =
+        tracks_data
+        |> Enum.reduce(state, fn %{unscaled_duration: duration, pad: pad}, state ->
+          update_in(state, [:pad_to_track_data, pad, :segment_base_timestamp], &(&1 + duration))
+        end)
+        |> update_in([:seq_nums, output_pad], &(&1 + 1))
 
-        {[{input_group, tracks_data}], state}
+      {[{input_group, tracks_data}], state}
     end
   end
 
@@ -662,15 +676,11 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   defp is_segment_independent(segment, state) do
-    case state.video_pads do
-      [] ->
-        true
+    video_pad = state.video_pad
 
-      [video_pad] ->
-        case segment do
-          %{^video_pad => samples} -> Helper.key_frame?(hd(samples).metadata)
-          _other -> true
-        end
+    case segment do
+      %{^video_pad => samples} -> Helper.key_frame?(hd(samples).metadata)
+      _other -> true
     end
   end
 
@@ -768,21 +778,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
     |> Enum.all?(fn {_pad, data} -> data.stream_format != nil end)
   end
 
-  defp is_video(%Track{stream_format: stream_format}),
-    do: is_struct(stream_format, H264) or is_struct(stream_format, H265)
-
   defp is_video(stream_format),
     do: is_struct(stream_format, H264) or is_struct(stream_format, H265)
 
   defp ensure_max_one_video_pad!(pad, stream_format, state) do
-    is_video_pad = is_video(stream_format)
-
-    if is_video_pad do
-      has_other_video_pad? = state.video_pads != [] and state.video_pads != [pad]
-
-      if has_other_video_pad? do
-        raise "CMAF muxer can only handle at most one video pad"
-      end
+    if is_video(stream_format) and state.video_pad != nil and state.video_pad != pad do
+      raise "CMAF muxer can only handle at most one video pad"
     end
   end
 end
