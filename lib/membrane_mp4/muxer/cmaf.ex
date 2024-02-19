@@ -114,11 +114,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
   use Membrane.Filter
 
   require Membrane.Logger
-
   require Membrane.H264
   require Membrane.H265
+
   alias __MODULE__.{Header, Segment, DurationRange, SegmentHelper}
-  alias Membrane.{AAC, Buffer, H264, H265, Opus}
+  alias Membrane.{AAC, H264, H265, Opus}
+  alias Membrane.Buffer
   alias Membrane.MP4.{Helper, Track}
   alias Membrane.MP4.Muxer.CMAF.TrackSamplesQueue, as: SamplesQueue
 
@@ -179,7 +180,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       options
       |> Map.from_struct()
       |> Map.merge(%{
-        # stream format waiting to be sent after receiving the next buffer.
+        # stream formats waiting to be sent after receiving the next buffer.
         # Holds the structure {stream_format_timestamp, stream_format}
         awaiting_stream_formats: %{},
         pad_to_track_data: %{},
@@ -202,26 +203,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   @impl true
   def handle_pad_added(Pad.ref(:input, _id) = pad, _ctx, state) do
-    # NOTE: by default we assign `1` track id. It will be updated once all input pads are linked
-    # in case of muxed tracks.
-    track_data = %{
-      id: 1,
-      track: nil,
-      # base timestamp of the current segment, initialized with DTS of the first buffer
-      # and then incremented by duration of every produced segment
-      segment_base_timestamp: nil,
-      end_timestamp: 0,
-      buffer_awaiting_duration: nil,
-      chunks_duration: Membrane.Time.seconds(0)
-    }
-
-    state
-    |> put_in([:pad_to_track_data, pad], track_data)
-    |> put_in([:sample_queues, pad], %SamplesQueue{
-      duration_range: state.chunk_duration_range || DurationRange.new(state.segment_min_duration)
-    })
-    |> Map.update!(:pads_registration_order, &[pad | &1])
-    |> then(&{[], &1})
+    {[], Map.update!(state, :pads_registration_order, &[pad | &1])}
   end
 
   @impl true
@@ -237,12 +219,13 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     pads = Map.keys(ctx.pads)
 
-    input_pads = Enum.filter(pads, &match?(Pad.ref(:input, _id), &1))
-
-    output_pads = Enum.filter(pads, &match?(Pad.ref(:output, _id), &1))
+    %{
+      input: input_pads,
+      output: output_pads
+    } = Enum.group_by(pads, fn Pad.ref(type, _id) -> type end)
 
     if Enum.empty?(output_pads) do
-      raise "Expected at least single output pad"
+      raise "Expected at least a single output pad"
     end
 
     input_groups =
@@ -279,62 +262,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
     demands = Enum.map(input_pads, &{:demand, &1})
 
     {demands, state}
-  end
-
-  defp prepare_input_groups(input_pads, output_pads, ctx) do
-    available_tracks = Enum.map(input_pads, fn Pad.ref(:input, id) -> id end)
-
-    Map.new(output_pads, fn output_pad ->
-      tracks =
-        case ctx.pads[output_pad].options.tracks do
-          :all -> available_tracks
-          tracks when is_list(tracks) -> tracks
-        end
-
-      unless Enum.all?(tracks, &(&1 in available_tracks)) do
-        raise "Encountered unknown pad in specified tracks: #{inspect(tracks)}, available tracks: #{inspect(available_tracks)}"
-      end
-
-      input_pads =
-        tracks
-        |> Enum.uniq()
-        |> Enum.map(&Pad.ref(:input, &1))
-
-      {output_pad, input_pads}
-    end)
-  end
-
-  defp validate_input_groups!(input_groups) do
-    input_groups
-    |> Map.values()
-    |> List.flatten()
-    |> Bunch.Enum.duplicates()
-    |> case do
-      [] ->
-        :ok
-
-      pads ->
-        raise "Input pads #{inspect(pads)} are used in more than one input group."
-    end
-  end
-
-  defp initialize_pad_track_data({pad, track_id}, state) do
-    track_data = %{
-      id: track_id,
-      track: nil,
-      # base timestamp of the current segment, initialized with DTS of the first buffer
-      # and then incremented by duration of every produced segment
-      segment_base_timestamp: nil,
-      end_timestamp: 0,
-      buffer_awaiting_duration: nil,
-      chunks_duration: Membrane.Time.seconds(0)
-    }
-
-    state
-    |> put_in([:pad_to_track_data, pad], track_data)
-    |> put_in([:sample_queues, pad], %SamplesQueue{
-      duration_range: state.chunk_duration_range || DurationRange.new(state.segment_min_duration)
-    })
   end
 
   @impl true
@@ -468,6 +395,62 @@ defmodule Membrane.MP4.Muxer.CMAF do
     else
       generate_end_of_stream_segment(processing_finished?, pad, ctx, state)
     end
+  end
+
+  defp prepare_input_groups(input_pads, output_pads, ctx) do
+    available_tracks = Enum.map(input_pads, fn Pad.ref(:input, id) -> id end)
+
+    Map.new(output_pads, fn output_pad ->
+      tracks =
+        case ctx.pads[output_pad].options.tracks do
+          :all -> available_tracks
+          tracks when is_list(tracks) -> tracks
+        end
+
+      unless Enum.all?(tracks, &(&1 in available_tracks)) do
+        raise "Encountered unknown pad in specified tracks: #{inspect(tracks)}, available tracks: #{inspect(available_tracks)}"
+      end
+
+      input_pads =
+        tracks
+        |> Enum.uniq()
+        |> Enum.map(&Pad.ref(:input, &1))
+
+      {output_pad, input_pads}
+    end)
+  end
+
+  defp validate_input_groups!(input_groups) do
+    input_groups
+    |> Map.values()
+    |> List.flatten()
+    |> Bunch.Enum.duplicates()
+    |> case do
+      [] ->
+        :ok
+
+      pads ->
+        raise "Input pads #{inspect(pads)} are used in more than one input group."
+    end
+  end
+
+  defp initialize_pad_track_data({pad, track_id}, state) do
+    track_data = %{
+      id: track_id,
+      track: nil,
+      # base timestamp of the current segment, initialized with DTS of the first buffer
+      # and then incremented by duration of every produced segment
+      segment_base_timestamp: nil,
+      end_timestamp: 0,
+      buffer_awaiting_duration: nil,
+      chunks_duration: Membrane.Time.seconds(0)
+    }
+
+    state
+    |> put_in([:pad_to_track_data, pad], track_data)
+    |> put_in([:sample_queues, pad], %SamplesQueue{
+      duration_range: state.chunk_duration_range || DurationRange.new(state.segment_min_duration)
+    })
   end
 
   defp generate_end_of_stream_segment(false, pad, _ctx, state) do
