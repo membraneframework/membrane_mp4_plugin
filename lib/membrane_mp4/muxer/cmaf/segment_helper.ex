@@ -26,36 +26,39 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   @spec collect_segment_samples(state :: term(), Pad.ref(), Membrane.Buffer.t() | nil) ::
           {actions :: [term()],
            {:segment, segment :: term(), state :: term()} | {:no_segment, state :: term()}}
-  def collect_segment_samples(%{awaiting_stream_format: nil} = state, _pad, nil),
-    do: {[], {:no_segment, state}}
+  def collect_segment_samples(state, pad, sample)
 
-  def collect_segment_samples(%{awaiting_stream_format: nil} = state, pad, sample),
-    do: do_collect_segment_samples(state, pad, sample)
+  def collect_segment_samples(state, pad, sample)
+      when map_size(state.awaiting_stream_formats) > 0 do
+    output_pad = state.input_to_output_pad[pad]
 
-  def collect_segment_samples(
-        %{awaiting_stream_format: {{:update_with_next, _pad}, _stream_format}} = state,
-        pad,
-        sample
-      ),
-      do: do_collect_segment_samples(state, pad, sample)
+    case state.awaiting_stream_formats do
+      %{^output_pad => {:stream_format, stream_format}} ->
+        unless key_frame?(state.pad_to_track_data[pad].buffer_awaiting_duration.metadata) do
+          raise "Video sample received after new stream format must be a key frame"
+        end
 
-  def collect_segment_samples(
-        %{awaiting_stream_format: {:stream_format, stream_format}} = state,
-        pad,
-        sample
-      ) do
-    state = %{state | awaiting_stream_format: nil}
+        {:no_segment, state} = force_push_segment(state, pad, sample)
 
-    unless key_frame?(state.pad_to_track_data[pad].buffer_awaiting_duration.metadata) do
-      raise "Video sample received after new stream format must be a key frame"
+        {:segment, segment, state} = take_all_samples_until(state, sample)
+
+        state = Map.update!(state, :awaiting_stream_formats, &Map.delete(&1, output_pad))
+
+        {[stream_format: {output_pad, stream_format}], {:segment, segment, state}}
+
+      _other ->
+        if sample do
+          do_collect_segment_samples(state, pad, sample)
+        else
+          {[], {:no_segment, state}}
+        end
     end
-
-    {:no_segment, state} = force_push_segment(state, pad, sample)
-
-    {:segment, _segment, _state} = result = take_all_samples_until(state, sample)
-
-    {[stream_format: {:output, stream_format}], result}
   end
+
+  def collect_segment_samples(state, _pad, nil), do: {[], {:no_segment, state}}
+
+  def collect_segment_samples(state, pad, sample),
+    do: do_collect_segment_samples(state, pad, sample)
 
   defp do_collect_segment_samples(state, pad, sample) do
     supports_partial_segments? = state.chunk_duration_range != nil
@@ -73,29 +76,43 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   """
   @spec put_awaiting_stream_format(Pad.ref(), term(), term()) :: term()
   def put_awaiting_stream_format(pad, stream_format, state) do
-    %{state | awaiting_stream_format: {{:update_with_next, pad}, stream_format}}
+    output_pad = state.input_to_output_pad[pad]
+
+    put_in(
+      state,
+      [:awaiting_stream_formats, output_pad],
+      {{:update_with_next, pad}, stream_format}
+    )
   end
 
   @doc """
   Updates the awaiting stream format to a ready state where it can be finally handled.
   """
   @spec update_awaiting_stream_format(state :: term(), Pad.ref()) :: state :: term()
-  def update_awaiting_stream_format(
-        %{awaiting_stream_format: {{:update_with_next, pad}, stream_format}} = state,
-        pad
-      ) do
-    %{state | awaiting_stream_format: {:stream_format, stream_format}}
-  end
+  def update_awaiting_stream_format(state, pad)
 
-  def update_awaiting_stream_format(state, _pad), do: state
+  def update_awaiting_stream_format(state, _pad)
+      when map_size(state.awaiting_stream_formats) == 0,
+      do: state
+
+  def update_awaiting_stream_format(state, pad) do
+    output_pad = state.input_to_output_pad[pad]
+
+    case state.awaiting_stream_formats do
+      %{^output_pad => {{:update_with_next, ^pad}, stream_format}} ->
+        put_in(state, [:awaiting_stream_formats, output_pad], {:stream_format, stream_format})
+
+      _other ->
+        state
+    end
+  end
 
   @spec push_segment(state_t(), Membrane.Pad.ref(), Membrane.Buffer.t()) ::
           {:no_segment, state_t()} | {:segment, segment_t(), state_t()}
   def push_segment(state, pad, sample) do
     queue = Map.fetch!(state.sample_queues, pad)
-    is_video = queue.track_with_keyframes?
 
-    if is_video do
+    if queue.track_with_keyframes? do
       push_video_segment(state, queue, pad, sample)
     else
       push_audio_segment(state, queue, pad, sample)
@@ -129,20 +146,29 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   defp push_audio_segment(state, queue, pad, sample) do
     base_timestamp = max_segment_base_timestamp(state)
 
-    any_video_tracks? =
-      Enum.any?(state.sample_queues, fn {_pad, queue} -> queue.track_with_keyframes? end)
+    {video_pad, video_queue} =
+      Enum.find(state.sample_queues, {nil, nil}, fn {_pad, queue} ->
+        queue.track_with_keyframes?
+      end)
 
     queue =
-      if any_video_tracks? do
+      if video_queue do
         SamplesQueue.force_push(queue, sample)
       else
         SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
       end
 
-    if queue.collectable? do
-      collect_samples_for_audio_track(pad, queue, state)
-    else
-      {:no_segment, update_queue_for(pad, queue, state)}
+    cond do
+      queue.collectable? ->
+        collect_samples_for_audio_track(pad, queue, state)
+
+      video_queue && video_queue.collectable? ->
+        state = update_queue_for(pad, queue, state)
+
+        collect_samples_for_video_track(video_pad, video_queue, state)
+
+      true ->
+        {:no_segment, update_queue_for(pad, queue, state)}
     end
   end
 
@@ -227,26 +253,35 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   end
 
   defp push_audio_chunk(state, queue, pad, sample) do
-    any_video_tracks? =
-      Enum.any?(state.sample_queues, fn {_pad, queue} -> queue.track_with_keyframes? end)
+    {video_pad, video_queue} =
+      Enum.find(state.sample_queues, {nil, nil}, fn {_pad, queue} ->
+        queue.track_with_keyframes?
+      end)
 
-    # if we have any video track then let the video track decide when to collect audio tracks
-    if any_video_tracks? do
-      queue = SamplesQueue.force_push(queue, sample)
+    queue =
+      if video_queue do
+        SamplesQueue.force_push(queue, sample)
+      else
+        base_timestamp = max_segment_base_timestamp(state)
 
-      {:no_segment, update_queue_for(pad, queue, state)}
-    else
-      base_timestamp = max_segment_base_timestamp(state)
+        SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
+      end
 
-      queue = SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
-
-      if queue.collectable? do
+    cond do
+      queue.collectable? ->
         pad
         |> collect_samples_for_audio_track(queue, state)
         |> maybe_reset_chunk_durations(sample)
-      else
+
+      video_queue && video_queue.collectable? ->
+        state = update_queue_for(pad, queue, state)
+
+        video_pad
+        |> collect_samples_for_video_track(video_queue, state)
+        |> maybe_reset_chunk_durations(sample)
+
+      true ->
         {:no_segment, update_queue_for(pad, queue, state)}
-      end
     end
   end
 
