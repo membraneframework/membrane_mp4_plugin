@@ -441,7 +441,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       # decoding timestamp of the current segment, initialized with DTS of the first buffer
       # and then incremented by duration of every produced segment
       segment_decoding_timestamp: nil,
-      # presentation timestamp of the current segment, initialized with DTS of the first buffer
+      # presentation timestamp of the current segment, initialized with PTS of the first buffer
       # and then incremented by duration of every produced segment
       segment_presentation_timestamp: nil,
       end_timestamp: 0,
