@@ -16,8 +16,18 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelperTest do
       input_to_output_pad: %{audio: :output, video: :output},
       input_groups: %{output: [:audio, :video]},
       pad_to_track_data: %{
-        audio: %{segment_base_timestamp: 0, chunks_duration: 0, buffer_awaiting_duration: nil},
-        video: %{segment_base_timestamp: 0, chunks_duration: 0, buffer_awaiting_duration: nil}
+        audio: %{
+          segment_decoding_timestamp: 0,
+          segment_presentation_timestamp: 0,
+          chunks_duration: 0,
+          buffer_awaiting_duration: nil
+        },
+        video: %{
+          segment_decoding_timestamp: 0,
+          segment_presentation_timestamp: 0,
+          chunks_duration: 0,
+          buffer_awaiting_duration: nil
+        }
       },
       sample_queues: %{
         audio: %Queue{track_with_keyframes?: false, duration_range: chunk_duration_range},
