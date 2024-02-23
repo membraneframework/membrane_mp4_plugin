@@ -187,7 +187,9 @@ defmodule Membrane.MP4.Muxer.CMAF do
         pads_registration_order: [],
         sample_queues: %{},
         finish_current_segment?: false,
-        video_pad: nil
+        video_pad: nil,
+        all_input_pads_ready?: false,
+        buffers_awaiting_init: []
       })
       |> set_chunk_duration_range()
 
@@ -309,15 +311,26 @@ defmodule Membrane.MP4.Muxer.CMAF do
     if are_all_group_pads_ready?(pad, ctx, state) do
       stream_format = generate_output_stream_format(output_pad, state)
 
+      old_input_pads_ready? = state.all_input_pads_ready?
+
+      state = update_input_pads_ready(pad, ctx, state)
+
+      {actions, state} =
+        if old_input_pads_ready? != state.all_input_pads_ready? do
+          replay_init_buffers(ctx, state)
+        else
+          {[], state}
+        end
+
       cond do
         is_nil(ctx.pads[output_pad].stream_format) ->
-          {[stream_format: {output_pad, stream_format}], state}
+          {[{:stream_format, {output_pad, stream_format}} | actions], state}
 
         stream_format != ctx.pads[output_pad].stream_format ->
-          {[], SegmentHelper.put_awaiting_stream_format(pad, stream_format, state)}
+          {actions, SegmentHelper.put_awaiting_stream_format(pad, stream_format, state)}
 
         true ->
-          {[], state}
+          {actions, state}
       end
     else
       {[], state}
@@ -325,7 +338,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
   end
 
   @impl true
-  def handle_buffer(Pad.ref(:input, _id) = pad, sample, ctx, state) do
+  def handle_buffer(Pad.ref(:input, _id) = pad, sample, ctx, state)
+      when state.all_input_pads_ready? do
     use Numbers, overload_operators: true, comparison: true
 
     # In case DTS is not set, use PTS. This is the case for audio tracks or H264 originated
@@ -335,7 +349,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     {sample, state} =
       state
-      |> maybe_init_segment_base_timestamp(pad, sample)
+      |> maybe_init_segment_timestamps(pad, sample)
       |> process_buffer_awaiting_duration(pad, sample)
 
     state = SegmentHelper.update_awaiting_stream_format(state, pad)
@@ -357,6 +371,11 @@ defmodule Membrane.MP4.Muxer.CMAF do
         output_pad = state.input_to_output_pad[pad]
         {[redemand: output_pad], state}
     end
+  end
+
+  @impl true
+  def handle_buffer(pad, sample, _ctx, state) do
+    {[], %{state | buffers_awaiting_init: [{pad, sample} | state.buffers_awaiting_init]}}
   end
 
   @impl true
@@ -438,9 +457,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
     track_data = %{
       id: track_id,
       track: nil,
-      # base timestamp of the current segment, initialized with DTS of the first buffer
+      # decoding timestamp of the current segment, initialized with DTS of the first buffer
       # and then incremented by duration of every produced segment
-      segment_base_timestamp: nil,
+      segment_decoding_timestamp: nil,
+      # presentation timestamp of the current segment, initialized with PTS of the first buffer
+      # and then incremented by duration of every produced segment
+      segment_presentation_timestamp: nil,
       end_timestamp: 0,
       buffer_awaiting_duration: nil,
       chunks_duration: Membrane.Time.seconds(0)
@@ -587,7 +609,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
           sequence_number: state.seq_nums[output_pad],
           timescale: timescale,
           base_timestamp:
-            track_data.segment_base_timestamp
+            track_data.segment_presentation_timestamp
             |> Helper.timescalify(timescale)
             |> Ratio.trunc(),
           unscaled_duration: duration,
@@ -603,7 +625,12 @@ defmodule Membrane.MP4.Muxer.CMAF do
       state =
         tracks_data
         |> Enum.reduce(state, fn %{unscaled_duration: duration, pad: pad}, state ->
-          update_in(state, [:pad_to_track_data, pad, :segment_base_timestamp], &(&1 + duration))
+          state
+          |> update_in([:pad_to_track_data, pad, :segment_decoding_timestamp], &(&1 + duration))
+          |> update_in(
+            [:pad_to_track_data, pad, :segment_presentation_timestamp],
+            &(&1 + duration)
+          )
         end)
         |> update_in([:seq_nums, output_pad], &(&1 + 1))
 
@@ -712,14 +739,38 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
-  defp maybe_init_segment_base_timestamp(state, pad, sample) do
+  defp maybe_init_segment_timestamps(state, pad, sample) do
     case state do
-      %{pad_to_track_data: %{^pad => %{segment_base_timestamp: nil}}} ->
-        put_in(state, [:pad_to_track_data, pad, :segment_base_timestamp], sample.dts)
+      %{pad_to_track_data: %{^pad => %{segment_decoding_timestamp: nil}}} ->
+        update_in(state, [:pad_to_track_data, pad], fn data ->
+          Map.merge(data, %{
+            segment_decoding_timestamp: sample.dts,
+            segment_presentation_timestamp: sample.pts
+          })
+        end)
 
       _else ->
         state
     end
+  end
+
+  defp update_input_pads_ready(pad, ctx, state) do
+    all_input_pads_ready? =
+      Enum.all?(ctx.pads, fn
+        {^pad, _data} -> true
+        {Pad.ref(:output, _id), _data} -> true
+        {Pad.ref(:input, _id), data} -> data.stream_format != nil
+      end)
+
+    %{state | all_input_pads_ready?: all_input_pads_ready?}
+  end
+
+  defp replay_init_buffers(ctx, state) do
+    {buffers, state} = Map.pop!(state, :buffers_awaiting_init)
+
+    Enum.flat_map_reduce(buffers, state, fn {pad, buffer}, state ->
+      handle_buffer(pad, buffer, ctx, state)
+    end)
   end
 
   @min_chunk_duration Membrane.Time.milliseconds(50)

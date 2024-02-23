@@ -120,7 +120,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   end
 
   defp push_video_segment(state, queue, pad, sample) do
-    base_timestamp = max_segment_base_timestamp(state)
+    base_timestamp = max_segment_decoding_timestamp(state)
 
     queue =
       if state.finish_current_segment? do
@@ -144,7 +144,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   end
 
   defp push_audio_segment(state, queue, pad, sample) do
-    base_timestamp = max_segment_base_timestamp(state)
+    base_timestamp = max_segment_decoding_timestamp(state)
 
     {video_pad, video_queue} =
       Enum.find(state.sample_queues, {nil, nil}, fn {_pad, queue} ->
@@ -190,7 +190,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
     total_collected_durations =
       Map.fetch!(state.pad_to_track_data, pad).chunks_duration + collected_duration
 
-    base_timestamp = state.pad_to_track_data[pad].segment_base_timestamp
+    base_timestamp = state.pad_to_track_data[pad].segment_decoding_timestamp
 
     queue =
       cond do
@@ -262,7 +262,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
       if video_queue do
         SamplesQueue.force_push(queue, sample)
       else
-        base_timestamp = max_segment_base_timestamp(state)
+        base_timestamp = max_segment_decoding_timestamp(state)
 
         SamplesQueue.plain_push_until_target(queue, sample, base_timestamp)
       end
@@ -288,7 +288,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   defp update_queue_for(pad, queue, state), do: put_in(state, [:sample_queues, pad], queue)
 
   defp collect_samples_for_video_track(pad, queue, state) do
-    end_timestamp = SamplesQueue.last_collected_dts(queue)
+    end_timestamp = SamplesQueue.collectable_end_timestamp(queue)
     state = update_queue_for(pad, queue, state)
 
     if tracks_ready_for_collection?(state, end_timestamp) do
@@ -311,7 +311,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
   end
 
   defp collect_samples_for_audio_track(pad, queue, state) do
-    end_timestamp = SamplesQueue.last_collected_dts(queue)
+    end_timestamp = SamplesQueue.collectable_end_timestamp(queue)
     state = update_queue_for(pad, queue, state)
 
     if tracks_ready_for_collection?(state, end_timestamp) do
@@ -338,7 +338,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
 
   defp tracks_ready_for_collection?(state, end_timestamp) do
     Enum.all?(state.sample_queues, fn {_pad, queue} ->
-      SamplesQueue.last_collected_dts(queue) >= end_timestamp
+      SamplesQueue.collectable_end_timestamp(queue) >= end_timestamp
     end)
   end
 
@@ -393,11 +393,11 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
     maybe_return_segment(segment, reset_chunks_duration(state))
   end
 
-  defp max_segment_base_timestamp(state) do
+  defp max_segment_decoding_timestamp(state) do
     state.pad_to_track_data
-    |> Enum.reject(fn {_key, track_data} -> is_nil(track_data.segment_base_timestamp) end)
+    |> Enum.reject(fn {_key, track_data} -> is_nil(track_data.segment_decoding_timestamp) end)
     |> Enum.map(fn {_key, track_data} ->
-      Ratio.to_float(track_data.segment_base_timestamp)
+      Ratio.to_float(track_data.segment_decoding_timestamp)
     end)
     |> Enum.max()
   end
