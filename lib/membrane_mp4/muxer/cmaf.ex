@@ -524,6 +524,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       tracks
       |> Enum.find_value(fn
         %Track{stream_format: %H264{width: width, height: height}} -> {width, height}
+        %Track{stream_format: %H265{width: width, height: height}} -> {width, height}
         _audio_track -> nil
       end)
 

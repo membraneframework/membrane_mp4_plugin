@@ -1,6 +1,7 @@
 Mix.install([
   :membrane_aac_plugin,
   :membrane_hackney_plugin,
+  :membrane_h26x_plugin,
   {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()}
 ])
 
@@ -10,6 +11,10 @@ defmodule Example do
   @input_file "https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/big-buck-bunny/bun33s.mp4"
   @output_video "example.h264"
   @output_audio "example.aac"
+
+  def start_link() do
+    Membrane.Pipeline.start_link(__MODULE__)
+  end
 
   @impl true
   def handle_init(_ctx, _opts) do
