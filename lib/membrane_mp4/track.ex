@@ -87,7 +87,7 @@ defmodule Membrane.MP4.Track do
 
   @spec get_encoding_info(__MODULE__.t()) ::
           {:mp4a, %{aot_id: binary(), channels: integer(), frequency: integer()}}
-          | {:avc1, %{profile: binary(), compatibiliy: binary(), level: binary()}}
+          | {:avc1, %{profile: binary(), compatibility: binary(), level: binary()}}
           | {:hvc1,
              %{profile: non_neg_integer(), tier: non_neg_integer(), level: non_neg_integer()}}
           | nil

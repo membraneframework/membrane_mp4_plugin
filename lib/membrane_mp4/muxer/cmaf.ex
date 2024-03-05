@@ -12,19 +12,19 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
   Each output pad can specify which input pads needs to be muxed together by specifying `:tracks` option.
 
-  One may also want to have separate output pads that are internally synchronized with each other (then 
+  One may also want to have separate output pads that are internally synchronized with each other (then
   the `:tracks` should contain only a single id). By synchronization we mean that the muxer will try its best
-  to produce equal length segments for output pads. The synchronization relies on the video track (the video 
+  to produce equal length segments for output pads. The synchronization relies on the video track (the video
   track can only be cut at keyframe boundries, audio track can be cut at any point).
 
-  This approach enforces that there is no more than a single video track. A video track is always used as a synchronization point 
+  This approach enforces that there is no more than a single video track. A video track is always used as a synchronization point
   therefore having more than one would make the synchronization decisions ambiguous. The amount of audio tracks on the other
   hand is not limited.
 
   As a rule of thumb, if there is no need to synchronize tracks just use separate muxer instances.
 
   The example matrix of possible input/ouput tracks is as follows:
-  - audio input -> audio output 
+  - audio input -> audio output
   - video input -> video output
   - audio input + video input  -> muxed audio/video output
   - audio-1 input + ... + audio-n input + video input  -> audio-1 output + ... + audio-n output  + video output
@@ -58,7 +58,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     `:segment_min_duration` options passed when initializing `#{inspect(__MODULE__)}`.
 
   It is expected that the segment will not be shorter than the specified minimum duration value
-  and the aim is to end the segment as soon as the next key frames arrives (for audio-only tracks the segment can be ended after each sample) 
+  and the aim is to end the segment as soon as the next key frames arrives (for audio-only tracks the segment can be ended after each sample)
   that will become a part of a new segment.
 
   If a user prefers to have segments of unified durations then he needs to take into consideration
@@ -288,7 +288,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     output_pad = state.input_to_output_pad[pad]
 
-    is_video_pad = is_video(stream_format)
+    is_video_pad = video?(stream_format)
 
     state =
       state
@@ -524,6 +524,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       tracks
       |> Enum.find_value(fn
         %Track{stream_format: %H264{width: width, height: height}} -> {width, height}
+        %Track{stream_format: %H265{width: width, height: height}} -> {width, height}
         _audio_track -> nil
       end)
 
@@ -533,7 +534,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     content_type =
       tracks
-      |> Enum.map(&if is_video(&1.stream_format), do: :video, else: :audio)
+      |> Enum.map(&if video?(&1.stream_format), do: :video, else: :audio)
       |> then(fn
         [item] -> item
         list -> list
@@ -653,8 +654,8 @@ defmodule Membrane.MP4.Muxer.CMAF do
 
     metadata = %{
       duration: duration,
-      independent?: is_segment_independent(acc, state),
-      last_chunk?: is_segment_finished(state)
+      independent?: segment_independent?(acc, state),
+      last_chunk?: segment_finished?(state)
     }
 
     {:buffer, {output_pad, %Buffer{payload: payload, metadata: metadata}}}
@@ -685,7 +686,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end)
   end
 
-  defp is_segment_independent(segment, state) do
+  defp segment_independent?(segment, state) do
     video_pad = state.video_pad
 
     case segment do
@@ -694,7 +695,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end
   end
 
-  defp is_segment_finished(%{pad_to_track_data: data}) do
+  defp segment_finished?(%{pad_to_track_data: data}) do
     # if `chunk_duration` is set to zero then it means
     # that a new segment just started and the current one is finished
     Enum.all?(data, fn {_pad, track_data} ->
@@ -812,11 +813,11 @@ defmodule Membrane.MP4.Muxer.CMAF do
     |> Enum.all?(fn {_pad, data} -> data.stream_format != nil end)
   end
 
-  defp is_video(stream_format),
+  defp video?(stream_format),
     do: is_struct(stream_format, H264) or is_struct(stream_format, H265)
 
   defp ensure_max_one_video_pad!(pad, stream_format, state) do
-    if is_video(stream_format) and state.video_pad != nil and state.video_pad != pad do
+    if video?(stream_format) and state.video_pad != nil and state.video_pad != pad do
       raise "CMAF muxer can only handle at most one video pad"
     end
   end

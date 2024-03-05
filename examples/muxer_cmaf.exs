@@ -1,6 +1,6 @@
 Mix.install([
   :membrane_aac_plugin,
-  :membrane_h264_plugin,
+  :membrane_h26x_plugin,
   :membrane_hackney_plugin,
   :membrane_http_adaptive_stream_plugin,
   {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand(), override: true}
@@ -17,6 +17,10 @@ defmodule Example do
   @audio_url @samples_url <> "bun33s.aac"
   @video_url @samples_url <> "bun33s_720x480.h264"
   @output_dir "hls_output"
+
+  def start_link() do
+    Membrane.Pipeline.start_link(__MODULE__)
+  end
 
   @impl true
   def handle_init(_ctx, _opts) do
