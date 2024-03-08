@@ -18,8 +18,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     accepted_format:
       %RemoteStream{type: :bytestream, content_format: content_format}
       when content_format in [nil, MP4],
-    flow_control: :manual,
-    demand_unit: :buffers
+    flow_control: :auto
 
   def_output_pad :output,
     accepted_format:
@@ -36,7 +35,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         %Membrane.Opus{self_delimiting?: false}
       ),
     availability: :on_request,
-    flow_control: :manual
+    flow_control: :auto
 
   def_options optimize_for_non_fast_start?: [
                 default: false,
@@ -94,7 +93,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     if state.optimize_for_non_fast_start? do
       seek(state, :bof, :infinity, false)
     else
-      {[demand: :input], state}
+      {[], state}
     end
   end
 
@@ -121,28 +120,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {[], state}
   end
 
-  @impl true
-  def handle_demand(
-        Pad.ref(:output, _track_id),
-        _size,
-        :buffers,
-        ctx,
-        %{fsm_state: :samples_info_present_and_all_pads_connected} = state
-      ) do
-    size =
-      Map.values(ctx.pads)
-      |> Enum.filter(&(&1.direction == :output))
-      |> Enum.map(& &1.demand)
-      |> Enum.max()
-
-    {[demand: {:input, size}], state}
-  end
-
-  @impl true
-  def handle_demand(Pad.ref(:output, _track_id), _size, :buffers, _ctx, state) do
-    {[], state}
-  end
-
   def handle_buffer(
         :input,
         _buffer,
@@ -152,14 +129,14 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         } = state
       )
       when fsm_state in [:mdat_skipping, :going_back_to_mdat] do
-    {[demand: :input], state}
+    {[], state}
   end
 
   @impl true
   def handle_buffer(
         :input,
         buffer,
-        ctx,
+        _ctx,
         %{
           fsm_state: :samples_info_present_and_all_pads_connected
         } = state
@@ -167,14 +144,10 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {samples, rest, samples_info} =
       SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
 
+    # |> IO.inspect(label: :buf2)
     buffers = get_buffer_actions(samples)
 
-    redemands =
-      ctx.pads
-      |> Enum.filter(fn {pad, _pad_data} -> match?(Pad.ref(:output, _ref), pad) end)
-      |> Enum.flat_map(fn {pad, _pad_data} -> [redemand: pad] end)
-
-    {buffers ++ redemands, %{state | samples_info: samples_info, partial: rest}}
+    {buffers, %{state | samples_info: samples_info, partial: rest}}
   end
 
   def handle_buffer(
@@ -234,7 +207,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         handle_non_fast_start_optimization(state)
 
       true ->
-        {[demand: :input], state}
+        {[], state}
     end
   end
 
@@ -317,7 +290,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp handle_non_fast_start_optimization(state) do
-    {[demand: :input], state}
+    {[], state}
   end
 
   defp seek(state, start, size_to_read, last?) do
@@ -326,8 +299,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {[
        event:
          {:input,
-          %Membrane.File.SeekSourceEvent{start: start, size_to_read: size_to_read, last?: last?}},
-       demand: :input
+          %Membrane.File.SeekSourceEvent{start: start, size_to_read: size_to_read, last?: last?}}
      ], state}
   end
 
@@ -371,16 +343,17 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         {[], store_samples(state, samples)}
       end
 
-    redemands =
-      ctx.pads
-      |> Enum.filter(fn {pad, _pad_data} -> match?(Pad.ref(:output, _ref), pad) end)
-      |> Enum.flat_map(fn {pad, _pad_data} -> [redemand: pad] end)
-
     notifications = get_track_notifications(state)
     stream_format = if all_pads_connected?, do: get_stream_format(state), else: []
 
-    state = %{state | all_pads_connected?: all_pads_connected?} |> update_fsm_state()
-    {seek_events ++ notifications ++ stream_format ++ buffers ++ redemands, state}
+    state =
+      %{
+        state
+        | all_pads_connected?: all_pads_connected?
+      }
+      |> update_fsm_state()
+
+    {seek_events ++ notifications ++ stream_format ++ buffers, state}
   end
 
   defp store_samples(state, samples) do
