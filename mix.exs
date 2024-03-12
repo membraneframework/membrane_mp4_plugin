@@ -1,7 +1,7 @@
 defmodule Membrane.MP4.Plugin.MixProject do
   use Mix.Project
 
-  @version "0.33.1"
+  @version "0.34.0"
   @github_url "https://github.com/membraneframework/membrane_mp4_plugin"
 
   def project do
