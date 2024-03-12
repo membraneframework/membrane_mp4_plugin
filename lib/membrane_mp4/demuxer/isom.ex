@@ -146,8 +146,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     buffers = get_buffer_actions(samples)
 
-    {buffers ++ [resume_auto_demand: :input],
-     %{state | samples_info: samples_info, partial: rest}}
+    {buffers, %{state | samples_info: samples_info, partial: rest}}
   end
 
   def handle_buffer(
@@ -412,7 +411,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         maybe_stream_format = if state.samples_info != nil, do: get_stream_format(state), else: []
         maybe_eos = if state.end_of_stream?, do: get_end_of_stream_actions(ctx), else: []
 
-        {maybe_stream_format ++ buffer_actions ++ maybe_eos, state}
+        {maybe_stream_format ++ buffer_actions ++ [resume_auto_demand: :input] ++ maybe_eos,
+         state}
       else
         {[], state}
       end
