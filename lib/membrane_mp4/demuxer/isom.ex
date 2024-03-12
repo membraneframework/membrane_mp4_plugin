@@ -144,10 +144,10 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {samples, rest, samples_info} =
       SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
 
-    # |> IO.inspect(label: :buf2)
     buffers = get_buffer_actions(samples)
 
-    {buffers, %{state | samples_info: samples_info, partial: rest}}
+    {buffers ++ [resume_auto_demand: :input],
+     %{state | samples_info: samples_info, partial: rest}}
   end
 
   def handle_buffer(
@@ -162,7 +162,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     state = store_samples(state, samples)
 
-    {[], %{state | samples_info: samples_info, partial: rest}}
+    {[pause_auto_demand: :input], %{state | samples_info: samples_info, partial: rest}}
   end
 
   def handle_buffer(:input, buffer, ctx, state) do
