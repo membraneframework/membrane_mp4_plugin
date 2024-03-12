@@ -1,6 +1,6 @@
 Mix.install([
   :membrane_aac_plugin,
-  :membrane_h264_plugin,
+  :membrane_h26x_plugin,
   :membrane_hackney_plugin,
   {:membrane_mp4_plugin, path: __DIR__ |> Path.join("..") |> Path.expand()}
 ])
@@ -12,6 +12,10 @@ defmodule Example do
   @video_url @samples_url <> "ffmpeg-testsrc.h264"
   @audio_url @samples_url <> "test-audio.aac"
   @output_file "example.mp4"
+
+  def start_link() do
+    Membrane.Pipeline.start_link(__MODULE__)
+  end
 
   @impl true
   def handle_init(_ctx, _opts) do

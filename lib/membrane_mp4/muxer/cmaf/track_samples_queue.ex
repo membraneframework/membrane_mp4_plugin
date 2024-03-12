@@ -1,6 +1,8 @@
 defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   @moduledoc false
 
+  import Membrane.MP4.Helper, only: [key_frame?: 1]
+
   alias Membrane.MP4.Muxer.CMAF.DurationRange
 
   defstruct collectable?: false,
@@ -136,7 +138,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
       collected_samples_duration: collected_samples_duration
     } = queue
 
-    if queue.track_with_keyframes? and sample.metadata.h264.key_frame? do
+    if queue.track_with_keyframes? and key_frame?(sample.metadata) do
       %__MODULE__{
         queue
         | collectable?: true,
@@ -160,7 +162,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
       collected_samples_duration: collected_samples_duration
     } = queue
 
-    if (queue.track_with_keyframes? and sample.metadata.h264.key_frame?) or
+    if (queue.track_with_keyframes? and key_frame?(sample.metadata)) or
          not queue.track_with_keyframes? do
       %__MODULE__{
         queue
@@ -183,7 +185,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     if queue.collectable? do
       %__MODULE__{queue | excess_samples: [sample | queue.excess_samples]}
     else
-      if queue.track_with_keyframes? and sample.metadata.h264.key_frame? do
+      if queue.track_with_keyframes? and key_frame?(sample.metadata) do
         target_samples = queue.excess_samples ++ queue.target_samples
 
         %__MODULE__{
@@ -278,24 +280,31 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   end
 
   @doc """
-  Returns dts of the latest sample that is eligible for collection.
+  Returns the end timestamp for latest sample that is eligible for collection.
 
   In case of collectable state it is the last sample that has been put to queue, otherwise
   it is the last sample that will be in return from 'collect/1'.
   """
-  @spec last_collected_dts(t()) :: integer()
-  def last_collected_dts(%__MODULE__{
+  @spec collectable_end_timestamp(t()) :: integer()
+  def collectable_end_timestamp(%__MODULE__{
         collectable?: false,
         target_samples: target_samples,
         excess_samples: excess_samples
-      }),
-      do: latest_collected_dts(excess_samples) || latest_collected_dts(target_samples) || -1
+      }) do
+    sample = List.first(excess_samples) || List.first(target_samples)
 
-  def last_collected_dts(%__MODULE__{collectable?: true, target_samples: target_samples}),
-    do: latest_collected_dts(List.last(target_samples, []) |> List.wrap()) || -1
+    if sample do
+      sample.dts + sample.metadata.duration
+    else
+      -1
+    end
+  end
 
-  defp latest_collected_dts([]), do: nil
-  defp latest_collected_dts([sample | _rest]), do: Ratio.to_float(sample.dts)
+  def collectable_end_timestamp(%__MODULE__{collectable?: true, target_samples: target_samples}) do
+    sample = List.last(target_samples)
+
+    sample.dts + sample.metadata.duration
+  end
 
   @doc """
   Returns the most recenlty pushed sample.
