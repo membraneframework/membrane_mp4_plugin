@@ -14,11 +14,14 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   alias Membrane.MP4.Container
   alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
 
+  @default_chunk_size 2048
+
   def_input_pad :input,
     accepted_format:
       %RemoteStream{type: :bytestream, content_format: content_format}
       when content_format in [nil, MP4],
-    flow_control: :auto
+    flow_control: :manual,
+    demand_unit: :bytes
 
   def_output_pad :output,
     accepted_format:
@@ -35,7 +38,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         %Membrane.Opus{self_delimiting?: false}
       ),
     availability: :on_request,
-    flow_control: :auto
+    flow_control: :manual
 
   def_options optimize_for_non_fast_start?: [
                 default: false,
@@ -93,7 +96,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     if state.optimize_for_non_fast_start? do
       seek(state, :bof, :infinity, false)
     else
-      {[], state}
+      {[demand: {:input, @default_chunk_size}], state}
     end
   end
 
@@ -120,6 +123,28 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {[], state}
   end
 
+  @impl true
+  def handle_demand(
+        Pad.ref(:output, _track_id),
+        _size,
+        :buffers,
+        ctx,
+        %{fsm_state: :samples_info_present_and_all_pads_connected} = state
+      ) do
+    size =
+      Map.values(ctx.pads)
+      |> Enum.filter(&(&1.direction == :output))
+      |> Enum.map(& &1.demand)
+      |> Enum.max()
+
+    {[demand: {:input, size}], state}
+  end
+
+  @impl true
+  def handle_demand(Pad.ref(:output, _track_id), _size, :buffers, _ctx, state) do
+    {[], state}
+  end
+
   def handle_buffer(
         :input,
         _buffer,
@@ -129,14 +154,14 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         } = state
       )
       when fsm_state in [:mdat_skipping, :going_back_to_mdat] do
-    {[], state}
+    {[demand: {:input, @default_chunk_size}], state}
   end
 
   @impl true
   def handle_buffer(
         :input,
         buffer,
-        _ctx,
+        ctx,
         %{
           fsm_state: :samples_info_present_and_all_pads_connected
         } = state
@@ -146,7 +171,12 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     buffers = get_buffer_actions(samples)
 
-    {buffers, %{state | samples_info: samples_info, partial: rest}}
+    redemands =
+      ctx.pads
+      |> Enum.filter(fn {pad, _pad_data} -> match?(Pad.ref(:output, _ref), pad) end)
+      |> Enum.flat_map(fn {pad, _pad_data} -> [redemand: pad] end)
+
+    {buffers ++ redemands, %{state | samples_info: samples_info, partial: rest}}
   end
 
   def handle_buffer(
@@ -161,7 +191,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     state = store_samples(state, samples)
 
-    {[pause_auto_demand: :input], %{state | samples_info: samples_info, partial: rest}}
+    {[], %{state | samples_info: samples_info, partial: rest}}
   end
 
   def handle_buffer(:input, buffer, ctx, state) do
@@ -203,10 +233,13 @@ defmodule Membrane.MP4.Demuxer.ISOM do
             do: %{state | mdat_beginning: state.boxes_size},
             else: state
 
-        handle_non_fast_start_optimization(state)
+        handle_non_fast_start_optimization(state, maybe_header)
+
+      maybe_header != nil ->
+        {[demand: {:input, maybe_header.content_size}], state}
 
       true ->
-        {[], state}
+        {[demand: {:input, @default_chunk_size}], state}
     end
   end
 
@@ -279,26 +312,31 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     fsm_state
   end
 
-  defp handle_non_fast_start_optimization(%{fsm_state: :skip_mdat} = state) do
+  defp handle_non_fast_start_optimization(%{fsm_state: :skip_mdat} = state, _maybe_header) do
     box_after_mdat_beginning = state.mdat_beginning + state.mdat_header_size + state.mdat_size
     seek(state, box_after_mdat_beginning, :infinity, false)
   end
 
-  defp handle_non_fast_start_optimization(%{fsm_state: :go_back_to_mdat} = state) do
+  defp handle_non_fast_start_optimization(%{fsm_state: :go_back_to_mdat} = state, _maybe_header) do
     seek(state, state.mdat_beginning, state.mdat_size + state.mdat_header_size, false)
   end
 
-  defp handle_non_fast_start_optimization(state) do
-    {[], state}
+  defp handle_non_fast_start_optimization(state, maybe_header) do
+    size_to_demand =
+      if maybe_header == nil, do: @default_chunk_size, else: maybe_header.content_size
+
+    {[demand: {:input, size_to_demand}], state}
   end
 
   defp seek(state, start, size_to_read, last?) do
     state = update_fsm_state(state, :seek)
+    size_to_demand = if size_to_read == :infinity, do: @default_chunk_size, else: size_to_read
 
     {[
        event:
          {:input,
-          %Membrane.File.SeekSourceEvent{start: start, size_to_read: size_to_read, last?: last?}}
+          %Membrane.File.SeekSourceEvent{start: start, size_to_read: size_to_read, last?: last?}},
+       demand: {:input, size_to_demand}
      ], state}
   end
 
@@ -342,17 +380,16 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         {[], store_samples(state, samples)}
       end
 
+    redemands =
+      ctx.pads
+      |> Enum.filter(fn {pad, _pad_data} -> match?(Pad.ref(:output, _ref), pad) end)
+      |> Enum.flat_map(fn {pad, _pad_data} -> [redemand: pad] end)
+
     notifications = get_track_notifications(state)
     stream_format = if all_pads_connected?, do: get_stream_format(state), else: []
 
-    state =
-      %{
-        state
-        | all_pads_connected?: all_pads_connected?
-      }
-      |> update_fsm_state()
-
-    {seek_events ++ notifications ++ stream_format ++ buffers, state}
+    state = %{state | all_pads_connected?: all_pads_connected?} |> update_fsm_state()
+    {seek_events ++ notifications ++ stream_format ++ buffers ++ redemands, state}
   end
 
   defp store_samples(state, samples) do
@@ -411,8 +448,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         maybe_stream_format = if state.samples_info != nil, do: get_stream_format(state), else: []
         maybe_eos = if state.end_of_stream?, do: get_end_of_stream_actions(ctx), else: []
 
-        {maybe_stream_format ++ buffer_actions ++ [resume_auto_demand: :input] ++ maybe_eos,
-         state}
+        {maybe_stream_format ++ buffer_actions ++ maybe_eos, state}
       else
         {[], state}
       end
