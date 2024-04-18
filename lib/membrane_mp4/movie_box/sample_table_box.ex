@@ -240,7 +240,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
       sample_description: unpack_sample_description(boxes[:stsd]),
       sample_count: boxes[:stsz].fields.sample_count,
       sample_sizes: unpack_sample_sizes(boxes[:stsz]),
-      chunk_offsets: unpack_chunk_offsets(boxes[:stco]),
+      chunk_offsets: unpack_chunk_offsets(boxes[:stco] || boxes[:co64]),
       decoding_deltas: boxes[:stts].fields.entry_list,
       composition_offsets: get_composition_offsets(boxes),
       samples_per_chunk: boxes[:stsc].fields.entry_list,
