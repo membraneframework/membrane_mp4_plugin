@@ -10,7 +10,7 @@ defmodule Membrane.MP4.Container.Schema do
   """
 
   @full_box [
-    version: :uint8,
+    version: {:uint8, store: :version},
     flags: {:uint24, store: :fo_flags}
   ]
 
@@ -70,10 +70,13 @@ defmodule Membrane.MP4.Container.Schema do
                   fields:
                     @full_box ++
                       [
-                        creation_time: :uint32,
-                        modification_time: :uint32,
+                        creation_time: {:uint32, when: {0, :version}},
+                        creation_time: {:uint64, when: {1, :version}},
+                        modification_time: {:uint32, when: {0, :version}},
+                        modification_time: {:uint64, when: {1, :version}},
                         timescale: :uint32,
-                        duration: :uint32,
+                        duration: {:uint32, when: {0, :version}},
+                        duration: {:uint64, when: {1, :version}},
                         rate: :fp16d16,
                         volume: :fp8d8,
                         reserved: <<0::size(80)>>,
