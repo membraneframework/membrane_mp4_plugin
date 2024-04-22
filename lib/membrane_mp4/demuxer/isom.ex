@@ -507,7 +507,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     maybe_mdat_header.header_size
   end
 
-  defp get_mdat_data_beginning([{:mdat, box} | _rest], _maybe_mdat_header = nil) do
+  defp get_mdat_data_beginning([{:mdat, box} | _rest], nil = _maybe_mdat_header) do
     box.header_size
   end
 
