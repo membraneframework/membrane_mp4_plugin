@@ -196,7 +196,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {update_fsm_state_ctx, mdat_iterator} =
       if :mdat in Keyword.keys(state.boxes) or
            (maybe_header != nil and maybe_header.name == :mdat) do
-        {:started_parsing_mdat, state.mdat_iterator || state.boxes_size + 8}
+        {:started_parsing_mdat, state.mdat_iterator || get_mdat_data_beginning(state.boxes)}
       else
         {nil, state.mdat_iterator}
       end
@@ -211,7 +211,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       state.optimize_for_non_fast_start? ->
         state =
           if state.fsm_state == :skip_mdat,
-            do: %{state | mdat_beginning: state.boxes_size},
+            do: %{state | mdat_beginning: get_mdat_data_beginning(state.boxes) - 8},
             else: state
 
         handle_non_fast_start_optimization(state)
@@ -484,5 +484,19 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     |> Enum.map(fn {pad_ref, _data} ->
       {:end_of_stream, pad_ref}
     end)
+  end
+
+  defp get_mdat_data_beginning(boxes, acc \\ 0)
+
+  defp get_mdat_data_beginning([], acc) do
+    acc + 8
+  end
+
+  defp get_mdat_data_beginning([{:mdat, _box} | _rest], acc) do
+    acc + 8
+  end
+
+  defp get_mdat_data_beginning([{_other_name, box} | rest], acc) do
+    acc + 8 + box.size + get_mdat_data_beginning(rest)
   end
 end
