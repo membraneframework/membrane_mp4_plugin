@@ -37,6 +37,8 @@ defmodule Membrane.MP4.Plugin.MixProject do
 
   defp deps do
     [
+      {:membrane_timestamp_queue, path: "../membrane_timestamp_queue"},
+      #  github: "membraneframework/membrane_timestamp_queue", branch: "synchronization-strategies"},
       {:membrane_core, "~> 1.0"},
       {:membrane_mp4_format, "~> 0.8.0"},
       {:membrane_cmaf_format, "~> 0.7.0"},
