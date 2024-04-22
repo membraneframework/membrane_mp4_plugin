@@ -200,7 +200,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       end
 
     state =
-      set_mdat_iterator(state, update_fsm_state_ctx)
+      set_mdat_iterator(state, update_fsm_state_ctx, maybe_header)
       |> update_fsm_state(update_fsm_state_ctx)
       |> set_partial(rest)
 
@@ -211,7 +211,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       state.optimize_for_non_fast_start? ->
         state =
           if state.fsm_state == :skip_mdat,
-            do: %{state | mdat_beginning: get_mdat_data_beginning(state.boxes) - 8},
+            do: %{
+              state
+              | mdat_beginning:
+                  get_mdat_data_beginning(state.boxes, maybe_header) - maybe_header.header_size
+            },
             else: state
 
         handle_non_fast_start_optimization(state)
@@ -221,11 +225,13 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp set_mdat_iterator(state, context) do
+  defp set_mdat_iterator(state, context, maybe_header) do
     mdat_iterator =
-      if context == :started_parsing_mdat,
-        do: state.mdat_iterator || get_mdat_data_beginning(state.boxes),
-        else: state.mdat_iterator
+      if context == :started_parsing_mdat do
+        state.mdat_iterator || get_mdat_data_beginning(state.boxes, maybe_header)
+      else
+        state.mdat_iterator
+      end
 
     %{state | mdat_iterator: mdat_iterator}
   end
@@ -495,17 +501,17 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end)
   end
 
-  defp get_mdat_data_beginning(boxes, acc \\ 0)
+  defp get_mdat_data_beginning(boxes, maybe_mdat_header)
 
-  defp get_mdat_data_beginning([], acc) do
-    acc + 8
+  defp get_mdat_data_beginning([], maybe_mdat_header) do
+    maybe_mdat_header.header_size
   end
 
-  defp get_mdat_data_beginning([{:mdat, _box} | _rest], acc) do
-    acc + 8
+  defp get_mdat_data_beginning([{:mdat, box} | _rest], _maybe_mdat_header = nil) do
+    box.header_size
   end
 
-  defp get_mdat_data_beginning([{_other_name, box} | rest], acc) do
-    acc + 8 + box.size + get_mdat_data_beginning(rest)
+  defp get_mdat_data_beginning([{_other_name, box} | rest], maybe_mdat_header) do
+    box.header_size + box.size + get_mdat_data_beginning(rest, maybe_mdat_header)
   end
 end
