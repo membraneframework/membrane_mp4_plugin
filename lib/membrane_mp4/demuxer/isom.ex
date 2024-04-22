@@ -193,16 +193,16 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         },
         else: state
 
-    {update_fsm_state_ctx, mdat_iterator} =
+    update_fsm_state_ctx =
       if :mdat in Keyword.keys(state.boxes) or
            (maybe_header != nil and maybe_header.name == :mdat) do
-        {:started_parsing_mdat, state.mdat_iterator || get_mdat_data_beginning(state.boxes)}
-      else
-        {nil, state.mdat_iterator}
+        :started_parsing_mdat
       end
 
-    state = %{state | mdat_iterator: mdat_iterator}
-    state = update_fsm_state(state, update_fsm_state_ctx) |> set_partial(rest)
+    state =
+      set_mdat_iterator(state, update_fsm_state_ctx)
+      |> update_fsm_state(update_fsm_state_ctx)
+      |> set_partial(rest)
 
     cond do
       state.fsm_state == :mdat_reading ->
@@ -219,6 +219,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       true ->
         {[], state}
     end
+  end
+
+  defp set_mdat_iterator(state, context) do
+    mdat_iterator =
+      if context == :started_parsing_mdat,
+        do: state.mdat_iterator || get_mdat_data_beginning(state.boxes),
+        else: state.mdat_iterator
+
+    %{state | mdat_iterator: mdat_iterator}
   end
 
   defp set_partial(state, rest) do
