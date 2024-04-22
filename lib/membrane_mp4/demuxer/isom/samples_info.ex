@@ -50,23 +50,34 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
   Returns the processed buffers and the remaining data, which doesn't add up to
   a whole sample, and has yet to be parsed.
   """
-  @spec get_samples(t, data :: binary()) ::
-          {[{Buffer.t(), track_id :: pos_integer()}], rest :: binary, t}
-  def get_samples(samples_info, data) do
-    {samples_info, rest, buffers} = do_get_samples(samples_info, data, [])
+  @spec get_samples(t, {data :: binary(), iterator :: non_neg_integer()}) ::
+          {[{Buffer.t(), track_id :: pos_integer()}],
+           {rest :: binary(), iterator :: non_neg_integer()}, t()}
+  def get_samples(samples_info, {data, iterator}) do
+    {samples_info, rest_with_iterator, buffers} =
+      do_get_samples(samples_info, {data, iterator}, [])
 
-    {buffers, rest, samples_info}
+    {buffers, rest_with_iterator, samples_info}
   end
 
-  defp do_get_samples(%{samples: []} = samples_info, data, buffers) do
-    {samples_info, data, Enum.reverse(buffers)}
+  defp do_get_samples(%{samples: []} = samples_info, {data, iterator}, buffers) do
+    {samples_info, {data, iterator}, Enum.reverse(buffers)}
   end
 
-  defp do_get_samples(samples_info, data, buffers) do
-    [%{size: size, track_id: track_id} = sample | samples] = samples_info.samples
+  defp do_get_samples(samples_info, {data, iterator}, buffers) do
+    # data =
+    #   case data do
+    #     <<0, 0, 0, 0, 0, 0, 0, 0, rest::binary>> -> rest
+    #     _other -> data
+    #   end
 
-    if size <= byte_size(data) do
-      <<payload::binary-size(size), rest::binary>> = data
+    [%{size: size, track_id: track_id, chunk_offset: chunk_offset} = sample | samples] =
+      samples_info.samples
+
+    to_skip = chunk_offset - iterator
+
+    if to_skip + size <= byte_size(data) do
+      <<_to_skip::binary-size(to_skip), payload::binary-size(size), rest::binary>> = data
 
       {dts, pts, samples_info} = get_dts_and_pts(samples_info, sample)
 
@@ -78,9 +89,10 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
          }, track_id}
 
       samples_info = %{samples_info | samples: samples}
-      do_get_samples(samples_info, rest, [buffer | buffers])
+
+      do_get_samples(samples_info, {rest, iterator + to_skip + size}, [buffer | buffers])
     else
-      {samples_info, data, Enum.reverse(buffers)}
+      {samples_info, {data, iterator}, Enum.reverse(buffers)}
     end
   end
 
@@ -159,7 +171,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
            :decoding_deltas,
            :sample_sizes,
            :samples_per_chunk,
-           :composition_offsets
+           :composition_offsets,
+           :chunk_offset
          ])}
       end)
 
@@ -170,6 +183,20 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
         {new_samples, track_data} = get_chunk_samples(chunk, tracks_data[track_id])
         {new_samples, %{tracks_data | track_id => track_data}}
       end)
+
+    grouped_samples = Enum.chunk_by(samples, fn sample -> sample.chunk_offset end)
+
+    grouped_samples =
+      Enum.map(
+        grouped_samples,
+        &(Enum.map_reduce(&1, 0, fn sample, cumulative_size ->
+            {%{sample | chunk_offset: sample.chunk_offset + cumulative_size},
+             cumulative_size + sample.size}
+          end)
+          |> elem(0))
+      )
+
+    samples = Enum.flat_map(grouped_samples, & &1)
 
     timescales =
       Map.new(sample_tables, fn {track_id, sample_table} ->
@@ -188,13 +215,16 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
   end
 
   defp get_chunk_samples(chunk, track_data) do
-    %{chunk_no: chunk_no, track_id: track_id} = chunk
+    %{chunk_no: chunk_no, track_id: track_id, chunk_offset: chunk_offset} = chunk
 
     {track_data, samples_no} = get_samples_no(chunk_no, track_data)
 
     Enum.map_reduce(1..samples_no, track_data, fn _no, track_data ->
       {sample, track_data} = get_sample_description(track_data)
-      sample = Map.put(sample, :track_id, track_id)
+
+      sample =
+        Map.put(sample, :track_id, track_id) |> Map.put(:chunk_offset, chunk_offset)
+
       {sample, track_data}
     end)
   end
@@ -257,7 +287,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
           {offset, [%{sample_count: count - 1, sample_offset: offset} | composition_offsets]}
       end
 
-    {%{size: size, sample_delta: delta, sample_composition_offset: sample_composition_offset},
+    {%{
+       size: size,
+       sample_delta: delta,
+       sample_composition_offset: sample_composition_offset
+     },
      %{
        track_data
        | decoding_deltas: deltas,

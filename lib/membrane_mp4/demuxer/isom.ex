@@ -82,7 +82,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       boxes_size: 0,
       mdat_beginning: nil,
       mdat_size: nil,
-      mdat_header_size: nil
+      mdat_header_size: nil,
+      mdat_iterator: nil
     }
 
     {[], state}
@@ -141,12 +142,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
           fsm_state: :samples_info_present_and_all_pads_connected
         } = state
       ) do
-    {samples, rest, samples_info} =
-      SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
+    {samples, {rest, rest_iterator}, samples_info} =
+      SamplesInfo.get_samples(
+        state.samples_info,
+        {state.partial <> buffer.payload, state.mdat_iterator}
+      )
 
     buffers = get_buffer_actions(samples)
 
-    {buffers, %{state | samples_info: samples_info, partial: rest}}
+    {buffers, %{state | samples_info: samples_info, partial: rest, mdat_iterator: rest_iterator}}
   end
 
   def handle_buffer(
@@ -156,12 +160,16 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         %{fsm_state: :samples_info_present} = state
       ) do
     # Until all pads are connected we are storing all the samples
-    {samples, rest, samples_info} =
-      SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
+    {samples, {rest, rest_iterator}, samples_info} =
+      SamplesInfo.get_samples(
+        state.samples_info,
+        {state.partial <> buffer.payload, state.mdat_iterator}
+      )
 
     state = store_samples(state, samples)
 
-    {[pause_auto_demand: :input], %{state | samples_info: samples_info, partial: rest}}
+    {[pause_auto_demand: :input],
+     %{state | samples_info: samples_info, partial: rest, mdat_iterator: rest_iterator}}
   end
 
   def handle_buffer(:input, buffer, ctx, state) do
@@ -185,12 +193,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         },
         else: state
 
-    update_fsm_state_ctx =
+    {update_fsm_state_ctx, mdat_iterator} =
       if :mdat in Keyword.keys(state.boxes) or
            (maybe_header != nil and maybe_header.name == :mdat) do
-        :started_parsing_mdat
+        {:started_parsing_mdat, state.mdat_iterator || state.boxes_size + 8}
+      else
+        {nil, state.mdat_iterator}
       end
 
+    state = %{state | mdat_iterator: mdat_iterator}
     state = update_fsm_state(state, update_fsm_state_ctx) |> set_partial(rest)
 
     cond do
@@ -330,8 +341,10 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         content
       end
 
-    {samples, rest, samples_info} = SamplesInfo.get_samples(state.samples_info, data)
-    state = %{state | samples_info: samples_info, partial: rest}
+    {samples, {rest, rest_iterator}, samples_info} =
+      SamplesInfo.get_samples(state.samples_info, {data, state.mdat_iterator})
+
+    state = %{state | samples_info: samples_info, partial: rest, mdat_iterator: rest_iterator}
 
     all_pads_connected? = all_pads_connected?(ctx, state)
 
