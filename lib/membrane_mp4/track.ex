@@ -141,7 +141,7 @@ defmodule Membrane.MP4.Track do
 
   def get_encoding_info(_unknown), do: nil
 
-  def get_timescale(stream_format) do
+  defp get_timescale(stream_format) do
     case stream_format do
       %Membrane.Opus{} ->
         48_000
