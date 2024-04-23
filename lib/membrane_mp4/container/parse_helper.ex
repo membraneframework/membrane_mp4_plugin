@@ -63,11 +63,24 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
-  defp parse_field(data, {name, {type, store: context_name, when: condition}}, context) do
-    {flag_value, key, mask} = condition
+  defp parse_field(data, {name, {type, store: context_name, when: {key, [mask: mask]}}}, context) do
     context_object = Map.get(context, key, 0)
 
-    if (mask &&& context_object) == flag_value do
+    if (mask &&& context_object) == mask do
+      parse_field(data, {name, {type, store: context_name}}, context)
+    else
+      {:ok, {[], data}, context}
+    end
+  end
+
+  defp parse_field(
+         data,
+         {name, {type, store: context_name, when: {key, [value: value]}}},
+         context
+       ) do
+    context_object = Map.get(context, key, 0)
+
+    if context_object == value do
       parse_field(data, {name, {type, store: context_name}}, context)
     else
       {:ok, {[], data}, context}
@@ -81,12 +94,20 @@ defmodule Membrane.MP4.Container.ParseHelper do
     {:ok, result, context}
   end
 
-  defp parse_field(data, {name, {type, when: condition}}, context) do
-    {flag_value, key, mask} = condition
-
+  defp parse_field(data, {name, {type, when: {key, [mask: mask]}}}, context) do
     context_object = Map.get(context, key, 0)
 
-    if (mask &&& context_object) == flag_value do
+    if (mask &&& context_object) == mask do
+      parse_field(data, {name, type}, context)
+    else
+      {:ok, {[], data}, context}
+    end
+  end
+
+  defp parse_field(data, {name, {type, when: {key, [value: value]}}}, context) do
+    context_object = Map.get(context, key, 0)
+
+    if context_object == value do
       parse_field(data, {name, type}, context)
     else
       {:ok, {[], data}, context}
