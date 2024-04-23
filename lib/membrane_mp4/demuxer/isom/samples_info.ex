@@ -71,29 +71,27 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
 
     to_skip = sample_offset - samples_info.mdat_iterator
 
-    if to_skip + size <= byte_size(data) do
-      <<_to_skip::binary-size(to_skip), payload::binary-size(size), rest::binary>> = data
+    case data do
+      <<_to_skip::binary-size(to_skip), payload::binary-size(size), rest::binary>> ->
+        {dts, pts, samples_info} = get_dts_and_pts(samples_info, sample)
 
-      {dts, pts, samples_info} = get_dts_and_pts(samples_info, sample)
+        buffer =
+          {%Buffer{
+             payload: payload,
+             dts: dts,
+             pts: pts
+           }, track_id}
 
-      buffer =
-        {%Buffer{
-           payload: payload,
-           dts: dts,
-           pts: pts
-         }, track_id}
+        samples_info = %{samples_info | samples: samples}
 
-      samples_info = %{samples_info | samples: samples}
+        do_get_samples(
+          %{samples_info | mdat_iterator: samples_info.mdat_iterator + to_skip + size},
+          rest,
+          [buffer | buffers]
+        )
 
-      do_get_samples(
-        %{samples_info | mdat_iterator: samples_info.mdat_iterator + to_skip + size},
-        rest,
-        [
-          buffer | buffers
-        ]
-      )
-    else
-      {samples_info, data, Enum.reverse(buffers)}
+      _other ->
+        {samples_info, data, Enum.reverse(buffers)}
     end
   end
 
@@ -214,9 +212,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
       {sample, track_data} = get_sample_description(track_data)
 
       sample =
-        Map.put(sample, :track_id, track_id)
-        |> Map.put(:chunk_offset, chunk_offset)
-        |> Map.put(:sample_offset, sample_offset)
+        Map.merge(sample, %{
+          track_id: track_id,
+          chunk_offset: chunk_offset,
+          sample_offset: sample_offset
+        })
 
       {sample, {track_data, sample_offset + sample.size}}
     end)

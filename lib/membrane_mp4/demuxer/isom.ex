@@ -206,21 +206,17 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp set_mdat_metadata(state, context, maybe_header) do
-    {mdat_beginning, mdat_header_size, mdat_size} =
-      if context == :started_parsing_mdat do
-        {state.mdat_beginning || get_mdat_header_beginning(state.boxes),
-         state.mdat_header_size || maybe_header[:header_size] || state.boxes[:mdat].header_size,
-         state.mdat_size || maybe_header[:content_size] || state.boxes[:mdat].size}
-      else
-        {state.mdat_beginning, state.mdat_header_size, state.mdat_size}
-      end
-
-    %{
+    if context == :started_parsing_mdat do
+      %{
+        state
+        | mdat_beginning: state.mdat_beginning || get_mdat_header_beginning(state.boxes),
+          mdat_header_size:
+            state.mdat_header_size || maybe_header[:header_size] || state.boxes[:mdat].header_size,
+          mdat_size: state.mdat_size || maybe_header[:content_size] || state.boxes[:mdat].size
+      }
+    else
       state
-      | mdat_beginning: mdat_beginning,
-        mdat_header_size: mdat_header_size,
-        mdat_size: mdat_size
-    }
+    end
   end
 
   defp set_partial(state, rest) do
