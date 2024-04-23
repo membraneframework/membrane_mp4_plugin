@@ -182,15 +182,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     maybe_header = parse_header(rest)
 
-    # state =
-    #   if maybe_header,
-    #     do: %{
-    #       state
-    #       | mdat_size: maybe_header.content_size,
-    #         mdat_header_size: maybe_header.header_size
-    #     },
-    #     else: state
-
     update_fsm_state_ctx =
       if :mdat in Keyword.keys(state.boxes) or
            (maybe_header != nil and maybe_header.name == :mdat) do
