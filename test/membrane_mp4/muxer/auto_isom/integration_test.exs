@@ -40,9 +40,6 @@ defmodule Membrane.MP4.Muxer.AutoISOM.IntegrationTest do
 
     assert :ok == Pipeline.terminate(pid)
 
-    IO.inspect(out_path)
-    IO.inspect(ref_path)
-
     assert_mp4_equal(out_path, ref_path)
   end
 

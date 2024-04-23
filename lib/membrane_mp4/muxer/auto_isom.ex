@@ -149,8 +149,6 @@ defmodule Membrane.MP4.Muxer.AutoISOM do
   end
 
   defp handle_queue_output({suggested_actions, batch, queue}, state) do
-    # if batch != [], do: IO.inspect(batch, label: "BATCH")
-
     {actions, state} = Enum.flat_map_reduce(batch, state, &handle_queue_item/2)
     {suggested_actions ++ actions, %{state | queue: queue}}
   end
@@ -172,10 +170,8 @@ defmodule Membrane.MP4.Muxer.AutoISOM do
     state = Map.update!(state, :pad_order, &List.delete(&1, pad_ref))
 
     if state.pad_order != [] do
-      # IO.inspect(pad_ref, label: "END OF STREAM REDEMAND")
       {buffer, state}
     else
-      # IO.inspect(pad_ref, label: "END OF STREAM OUTPUT")
       actions = finalize_mp4(state)
       {buffer ++ actions ++ [end_of_stream: :output], state}
     end
