@@ -15,7 +15,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
     :tracks_number,
     :timescales,
     :last_dts,
-    :sample_tables
+    :sample_tables,
+    :mdat_iterator
   ]
 
   defstruct @enforce_keys
@@ -42,7 +43,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
             (track_id :: pos_integer()) => last_dts :: Ratio.t() | nil
           },
           tracks_number: pos_integer(),
-          sample_tables: %{(track_id :: pos_integer()) => SampleTable.t()}
+          sample_tables: %{(track_id :: pos_integer()) => SampleTable.t()},
+          mdat_iterator: non_neg_integer()
         }
 
   @doc """
@@ -50,25 +52,24 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
   Returns the processed buffers and the remaining data, which doesn't add up to
   a whole sample, and has yet to be parsed.
   """
-  @spec get_samples(t, {data :: binary(), iterator :: non_neg_integer()}) ::
-          {[{Buffer.t(), track_id :: pos_integer()}],
-           {rest :: binary(), iterator :: non_neg_integer()}, t()}
-  def get_samples(samples_info, {data, iterator}) do
-    {samples_info, rest_with_iterator, buffers} =
-      do_get_samples(samples_info, {data, iterator}, [])
+  @spec get_samples(t, data :: binary()) ::
+          {[{Buffer.t(), track_id :: pos_integer()}], rest :: binary(), t()}
+  def get_samples(samples_info, data) do
+    {samples_info, rest, buffers} =
+      do_get_samples(samples_info, data, [])
 
-    {buffers, rest_with_iterator, samples_info}
+    {buffers, rest, samples_info}
   end
 
-  defp do_get_samples(%{samples: []} = samples_info, {data, iterator}, buffers) do
-    {samples_info, {data, iterator}, Enum.reverse(buffers)}
+  defp do_get_samples(%{samples: []} = samples_info, data, buffers) do
+    {samples_info, data, Enum.reverse(buffers)}
   end
 
-  defp do_get_samples(samples_info, {data, iterator}, buffers) do
+  defp do_get_samples(samples_info, data, buffers) do
     [%{size: size, track_id: track_id, sample_offset: sample_offset} = sample | samples] =
       samples_info.samples
 
-    to_skip = sample_offset - iterator
+    to_skip = sample_offset - samples_info.mdat_iterator
 
     if to_skip + size <= byte_size(data) do
       <<_to_skip::binary-size(to_skip), payload::binary-size(size), rest::binary>> = data
@@ -84,9 +85,15 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
 
       samples_info = %{samples_info | samples: samples}
 
-      do_get_samples(samples_info, {rest, iterator + to_skip + size}, [buffer | buffers])
+      do_get_samples(
+        %{samples_info | mdat_iterator: samples_info.mdat_iterator + to_skip + size},
+        rest,
+        [
+          buffer | buffers
+        ]
+      )
     else
-      {samples_info, {data, iterator}, Enum.reverse(buffers)}
+      {samples_info, data, Enum.reverse(buffers)}
     end
   end
 
@@ -124,8 +131,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
   present in the `mdat` box.
   The list of samples in the returned struct is used to extract data from the `mdat` box and get output buffers.
   """
-  @spec get_samples_info(%{children: boxes :: Container.t()}) :: t
-  def get_samples_info(%{children: boxes}) do
+  @spec get_samples_info(%{children: boxes :: Container.t()}, non_neg_integer()) :: t
+  def get_samples_info(%{children: boxes}, mdat_beginning) do
     tracks =
       boxes
       |> Enum.filter(fn {type, _content} -> type == :trak end)
@@ -180,20 +187,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
         {new_samples, %{tracks_data | track_id => track_data}}
       end)
 
-    # grouped_samples = Enum.chunk_by(samples, fn sample -> sample.chunk_offset end)
-
-    # grouped_samples =
-    #   Enum.map(
-    #     grouped_samples,
-    #     &(Enum.map_reduce(&1, 0, fn sample, cumulative_size ->
-    #         {%{sample | chunk_offset: sample.chunk_offset + cumulative_size},
-    #          cumulative_size + sample.size}
-    #       end)
-    #       |> elem(0))
-    #   )
-
-    # samples = Enum.flat_map(grouped_samples, & &1)
-
     timescales =
       Map.new(sample_tables, fn {track_id, sample_table} ->
         {track_id, sample_table.timescale}
@@ -206,7 +199,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
       tracks_number: map_size(tracks),
       timescales: timescales,
       last_dts: last_dts,
-      sample_tables: sample_tables
+      sample_tables: sample_tables,
+      mdat_iterator: mdat_beginning
     }
   end
 
