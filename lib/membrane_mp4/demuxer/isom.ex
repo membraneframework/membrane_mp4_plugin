@@ -142,7 +142,10 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         } = state
       ) do
     {samples, rest, samples_info} =
-      SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
+      SamplesInfo.get_samples(
+        state.samples_info,
+        state.partial <> buffer.payload
+      )
 
     buffers = get_buffer_actions(samples)
 
@@ -157,7 +160,10 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       ) do
     # Until all pads are connected we are storing all the samples
     {samples, rest, samples_info} =
-      SamplesInfo.get_samples(state.samples_info, state.partial <> buffer.payload)
+      SamplesInfo.get_samples(
+        state.samples_info,
+        state.partial <> buffer.payload
+      )
 
     state = store_samples(state, samples)
 
@@ -176,37 +182,40 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     maybe_header = parse_header(rest)
 
-    state =
-      if maybe_header,
-        do: %{
-          state
-          | mdat_size: maybe_header.content_size,
-            mdat_header_size: maybe_header.header_size
-        },
-        else: state
-
     update_fsm_state_ctx =
       if :mdat in Keyword.keys(state.boxes) or
            (maybe_header != nil and maybe_header.name == :mdat) do
         :started_parsing_mdat
       end
 
-    state = update_fsm_state(state, update_fsm_state_ctx) |> set_partial(rest)
+    state =
+      set_mdat_metadata(state, update_fsm_state_ctx, maybe_header)
+      |> update_fsm_state(update_fsm_state_ctx)
+      |> set_partial(rest)
 
     cond do
       state.fsm_state == :mdat_reading ->
         handle_can_read_mdat_box(ctx, state)
 
       state.optimize_for_non_fast_start? ->
-        state =
-          if state.fsm_state == :skip_mdat,
-            do: %{state | mdat_beginning: state.boxes_size},
-            else: state
-
         handle_non_fast_start_optimization(state)
 
       true ->
         {[], state}
+    end
+  end
+
+  defp set_mdat_metadata(state, context, maybe_header) do
+    if context == :started_parsing_mdat do
+      %{
+        state
+        | mdat_beginning: state.mdat_beginning || get_mdat_header_beginning(state.boxes),
+          mdat_header_size:
+            state.mdat_header_size || maybe_header[:header_size] || state.boxes[:mdat].header_size,
+          mdat_size: state.mdat_size || maybe_header[:content_size] || state.boxes[:mdat].size
+      }
+    else
+      state
     end
   end
 
@@ -285,7 +294,12 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp handle_non_fast_start_optimization(%{fsm_state: :go_back_to_mdat} = state) do
-    seek(state, state.mdat_beginning, state.mdat_size + state.mdat_header_size, false)
+    seek(
+      state,
+      state.mdat_beginning,
+      state.mdat_size + state.mdat_header_size,
+      false
+    )
   end
 
   defp handle_non_fast_start_optimization(state) do
@@ -315,7 +329,14 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       end
 
     state =
-      %{state | samples_info: SamplesInfo.get_samples_info(state.boxes[:moov])}
+      %{
+        state
+        | samples_info:
+            SamplesInfo.get_samples_info(
+              state.boxes[:moov],
+              state.mdat_beginning + state.mdat_header_size
+            )
+      }
       |> update_fsm_state()
 
     # Parse the data we received so far (partial or the whole mdat box in a single buffer) and
@@ -330,7 +351,9 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         content
       end
 
-    {samples, rest, samples_info} = SamplesInfo.get_samples(state.samples_info, data)
+    {samples, rest, samples_info} =
+      SamplesInfo.get_samples(state.samples_info, data)
+
     state = %{state | samples_info: samples_info, partial: rest}
 
     all_pads_connected? = all_pads_connected?(ctx, state)
@@ -471,5 +494,17 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     |> Enum.map(fn {pad_ref, _data} ->
       {:end_of_stream, pad_ref}
     end)
+  end
+
+  defp get_mdat_header_beginning([]) do
+    0
+  end
+
+  defp get_mdat_header_beginning([{:mdat, _box} | _rest]) do
+    0
+  end
+
+  defp get_mdat_header_beginning([{_other_name, box} | rest]) do
+    box.header_size + box.size + get_mdat_header_beginning(rest)
   end
 end

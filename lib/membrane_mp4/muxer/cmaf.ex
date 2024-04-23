@@ -568,7 +568,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
           sample.metadata.duration
           |> Helper.timescalify(timescale)
           |> Ratio.trunc(),
-        sample_offset: Helper.timescalify(sample.pts - sample.dts, timescale)
+        sample_composition_offset: Helper.timescalify(sample.pts - sample.dts, timescale)
       }
     end)
   end
