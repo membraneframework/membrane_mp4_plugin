@@ -65,16 +65,10 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
   end
 
   defp do_get_samples(samples_info, {data, iterator}, buffers) do
-    # data =
-    #   case data do
-    #     <<0, 0, 0, 0, 0, 0, 0, 0, rest::binary>> -> rest
-    #     _other -> data
-    #   end
-
-    [%{size: size, track_id: track_id, chunk_offset: chunk_offset} = sample | samples] =
+    [%{size: size, track_id: track_id, sample_offset: sample_offset} = sample | samples] =
       samples_info.samples
 
-    to_skip = chunk_offset - iterator
+    to_skip = sample_offset - iterator
 
     if to_skip + size <= byte_size(data) do
       <<_to_skip::binary-size(to_skip), payload::binary-size(size), rest::binary>> = data
@@ -180,23 +174,25 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
     {samples, _acc} =
       chunk_offsets
       |> Enum.flat_map_reduce(tracks_data, fn %{track_id: track_id} = chunk, tracks_data ->
-        {new_samples, track_data} = get_chunk_samples(chunk, tracks_data[track_id])
+        {new_samples, {track_data, _sample_offset}} =
+          get_chunk_samples(chunk, tracks_data[track_id])
+
         {new_samples, %{tracks_data | track_id => track_data}}
       end)
 
-    grouped_samples = Enum.chunk_by(samples, fn sample -> sample.chunk_offset end)
+    # grouped_samples = Enum.chunk_by(samples, fn sample -> sample.chunk_offset end)
 
-    grouped_samples =
-      Enum.map(
-        grouped_samples,
-        &(Enum.map_reduce(&1, 0, fn sample, cumulative_size ->
-            {%{sample | chunk_offset: sample.chunk_offset + cumulative_size},
-             cumulative_size + sample.size}
-          end)
-          |> elem(0))
-      )
+    # grouped_samples =
+    #   Enum.map(
+    #     grouped_samples,
+    #     &(Enum.map_reduce(&1, 0, fn sample, cumulative_size ->
+    #         {%{sample | chunk_offset: sample.chunk_offset + cumulative_size},
+    #          cumulative_size + sample.size}
+    #       end)
+    #       |> elem(0))
+    #   )
 
-    samples = Enum.flat_map(grouped_samples, & &1)
+    # samples = Enum.flat_map(grouped_samples, & &1)
 
     timescales =
       Map.new(sample_tables, fn {track_id, sample_table} ->
@@ -219,13 +215,16 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
 
     {track_data, samples_no} = get_samples_no(chunk_no, track_data)
 
-    Enum.map_reduce(1..samples_no, track_data, fn _no, track_data ->
+    Enum.map_reduce(1..samples_no, {track_data, chunk_offset}, fn _no,
+                                                                  {track_data, sample_offset} ->
       {sample, track_data} = get_sample_description(track_data)
 
       sample =
-        Map.put(sample, :track_id, track_id) |> Map.put(:chunk_offset, chunk_offset)
+        Map.put(sample, :track_id, track_id)
+        |> Map.put(:chunk_offset, chunk_offset)
+        |> Map.put(:sample_offset, sample_offset)
 
-      {sample, track_data}
+      {sample, {track_data, sample_offset + sample.size}}
     end)
   end
 
@@ -280,11 +279,12 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
 
     {sample_composition_offset, composition_offsets} =
       case composition_offsets do
-        [%{sample_count: 1, sample_offset: offset} | composition_offsets] ->
+        [%{sample_count: 1, sample_composition_offset: offset} | composition_offsets] ->
           {offset, composition_offsets}
 
-        [%{sample_count: count, sample_offset: offset} | composition_offsets] ->
-          {offset, [%{sample_count: count - 1, sample_offset: offset} | composition_offsets]}
+        [%{sample_count: count, sample_composition_offset: offset} | composition_offsets] ->
+          {offset,
+           [%{sample_count: count - 1, sample_composition_offset: offset} | composition_offsets]}
       end
 
     {%{

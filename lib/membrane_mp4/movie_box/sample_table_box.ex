@@ -255,7 +255,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
       # if no :ctts box is available, assume that the offset between
       # composition time and the decoding time is equal to 0
       Enum.map(boxes[:stts].fields.entry_list, fn entry ->
-        %{sample_count: entry.sample_count, sample_offset: 0}
+        %{sample_count: entry.sample_count, sample_composition_offset: 0}
       end)
     end
   end

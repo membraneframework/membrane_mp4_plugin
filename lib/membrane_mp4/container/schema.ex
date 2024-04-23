@@ -289,7 +289,7 @@ defmodule Membrane.MP4.Container.Schema do
                                   {:list,
                                    [
                                      sample_count: :uint32,
-                                     sample_offset: :uint32
+                                     sample_composition_offset: :uint32
                                    ]}
                               ]
                         ],
@@ -448,7 +448,8 @@ defmodule Membrane.MP4.Container.Schema do
                                sample_duration: :uint32,
                                sample_size: :uint32,
                                sample_flags: :bin32,
-                               sample_offset: {:uint32, when: {0x800, :fo_flags, 0x800}}
+                               sample_composition_offset:
+                                 {:uint32, when: {0x800, :fo_flags, 0x800}}
                              ]}
                         ]
                   ]
