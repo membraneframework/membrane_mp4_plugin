@@ -182,14 +182,14 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     maybe_header = parse_header(rest)
 
-    state =
-      if maybe_header,
-        do: %{
-          state
-          | mdat_size: maybe_header.content_size,
-            mdat_header_size: maybe_header.header_size
-        },
-        else: state
+    # state =
+    #   if maybe_header,
+    #     do: %{
+    #       state
+    #       | mdat_size: maybe_header.content_size,
+    #         mdat_header_size: maybe_header.header_size
+    #     },
+    #     else: state
 
     update_fsm_state_ctx =
       if :mdat in Keyword.keys(state.boxes) or
@@ -198,7 +198,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       end
 
     state =
-      set_mdat_beginning(state, update_fsm_state_ctx, maybe_header)
+      set_mdat_metadata(state, update_fsm_state_ctx, maybe_header)
       |> update_fsm_state(update_fsm_state_ctx)
       |> set_partial(rest)
 
@@ -214,15 +214,22 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end
   end
 
-  defp set_mdat_beginning(state, context, maybe_header) do
-    mdat_beginning =
+  defp set_mdat_metadata(state, context, maybe_header) do
+    {mdat_beginning, mdat_header_size, mdat_size} =
       if context == :started_parsing_mdat do
-        state.mdat_beginning || get_mdat_data_beginning(state.boxes, maybe_header)
+        {state.mdat_beginning || get_mdat_data_beginning(state.boxes),
+         state.mdat_header_size || maybe_header[:header_size] || state.boxes[:mdat].header_size,
+         state.mdat_size || maybe_header[:content_size] || state.boxes[:mdat].size}
       else
-        state.mdat_beginning
+        {state.mdat_beginning, state.mdat_header_size, state.mdat_size}
       end
 
-    %{state | mdat_beginning: mdat_beginning}
+    %{
+      state
+      | mdat_beginning: mdat_beginning,
+        mdat_header_size: mdat_header_size,
+        mdat_size: mdat_size
+    }
   end
 
   defp set_partial(state, rest) do
@@ -295,14 +302,14 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp handle_non_fast_start_optimization(%{fsm_state: :skip_mdat} = state) do
-    box_after_mdat_beginning = state.mdat_beginning + state.mdat_size
+    box_after_mdat_beginning = state.mdat_beginning + state.mdat_header_size + state.mdat_size
     seek(state, box_after_mdat_beginning, :infinity, false)
   end
 
   defp handle_non_fast_start_optimization(%{fsm_state: :go_back_to_mdat} = state) do
     seek(
       state,
-      state.mdat_beginning - state.mdat_header_size,
+      state.mdat_beginning,
       state.mdat_size + state.mdat_header_size,
       false
     )
@@ -337,7 +344,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     state =
       %{
         state
-        | samples_info: SamplesInfo.get_samples_info(state.boxes[:moov], state.mdat_beginning)
+        | samples_info:
+            SamplesInfo.get_samples_info(
+              state.boxes[:moov],
+              state.mdat_beginning + state.mdat_header_size
+            )
       }
       |> update_fsm_state()
 
@@ -498,17 +509,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end)
   end
 
-  defp get_mdat_data_beginning(boxes, maybe_mdat_header)
-
-  defp get_mdat_data_beginning([], maybe_mdat_header) do
-    maybe_mdat_header.header_size
+  defp get_mdat_data_beginning([]) do
+    0
   end
 
-  defp get_mdat_data_beginning([{:mdat, box} | _rest], nil = _maybe_mdat_header) do
-    box.header_size
+  defp get_mdat_data_beginning([{:mdat, _box} | _rest]) do
+    0
   end
 
-  defp get_mdat_data_beginning([{_other_name, box} | rest], maybe_mdat_header) do
-    box.header_size + box.size + get_mdat_data_beginning(rest, maybe_mdat_header)
+  defp get_mdat_data_beginning([{_other_name, box} | rest]) do
+    box.header_size + box.size + get_mdat_data_beginning(rest)
   end
 end
