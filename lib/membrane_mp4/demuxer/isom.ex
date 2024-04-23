@@ -208,7 +208,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp set_mdat_metadata(state, context, maybe_header) do
     {mdat_beginning, mdat_header_size, mdat_size} =
       if context == :started_parsing_mdat do
-        {state.mdat_beginning || get_mdat_data_beginning(state.boxes),
+        {state.mdat_beginning || get_mdat_header_beginning(state.boxes),
          state.mdat_header_size || maybe_header[:header_size] || state.boxes[:mdat].header_size,
          state.mdat_size || maybe_header[:content_size] || state.boxes[:mdat].size}
       else
@@ -500,15 +500,15 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     end)
   end
 
-  defp get_mdat_data_beginning([]) do
+  defp get_mdat_header_beginning([]) do
     0
   end
 
-  defp get_mdat_data_beginning([{:mdat, _box} | _rest]) do
+  defp get_mdat_header_beginning([{:mdat, _box} | _rest]) do
     0
   end
 
-  defp get_mdat_data_beginning([{_other_name, box} | rest]) do
-    box.header_size + box.size + get_mdat_data_beginning(rest)
+  defp get_mdat_header_beginning([{_other_name, box} | rest]) do
+    box.header_size + box.size + get_mdat_header_beginning(rest)
   end
 end
