@@ -6,6 +6,7 @@ defmodule Membrane.MP4.Muxer.AutoISOM do
 
   alias Membrane.{Buffer, File, MP4, RemoteStream, Time, TimestampQueue}
   alias Membrane.MP4.{Container, FileTypeBox, MediaDataBox, MovieBox, Track}
+  alias Membrane.MP4.Track.SampleTable
 
   @ftyp FileTypeBox.assemble("isom", ["isom", "iso2", "avc1", "mp41"])
   @ftyp_size @ftyp |> Container.serialize!() |> byte_size()
@@ -72,9 +73,9 @@ defmodule Membrane.MP4.Muxer.AutoISOM do
       |> Map.from_struct()
       |> Map.merge(%{
         mdat_size: 0,
-        next_track_id: 1,
-        pad_order: [],
-        pad_to_track: %{},
+        # next_track_id: 1,
+        # pad_order: [],
+        pad_to_track_id: %{},
         queue: queue
       })
 
@@ -82,43 +83,62 @@ defmodule Membrane.MP4.Muxer.AutoISOM do
   end
 
   @impl true
-  def handle_pad_added(Pad.ref(:input, pad_ref) = pad, _ctx, state) do
-    {track_id, state} = Map.get_and_update!(state, :next_track_id, &{&1, &1 + 1})
-
+  def handle_pad_added(pad_ref, _ctx, state) do
     state =
       state
-      |> Map.update!(:pad_order, &[pad_ref | &1])
-      |> put_in([:pad_to_track, pad_ref], track_id)
-      |> Map.update!(:queue, &TimestampQueue.register_pad(&1, pad))
+      |> Map.update!(:queue, &TimestampQueue.register_pad(&1, pad_ref))
+      |> Map.update!(:pad_to_track_id, &Map.put(&1, pad_ref, map_size(&1) + 1))
 
     {[], state}
   end
 
   @impl true
-  def handle_stream_format(
-        Pad.ref(:input, pad_ref) = pad,
-        stream_format,
-        ctx,
-        state
-      ) do
-    cond do
-      # Handle receiving the first stream format on the given pad
-      is_nil(ctx.pads[pad].stream_format) ->
-        update_in(state, [:pad_to_track, pad_ref], fn track_id ->
-          Track.new(track_id, stream_format, state.chunk_duration)
-        end)
-
-      # Handle receiving all but the first stream format on the given pad,
-      # when stream format is duplicated - ignore
-      ctx.pads[pad].stream_format == stream_format ->
-        state
-
-      # otherwise we can assume that output will be corrupted
-      true ->
-        raise "AutoISOM Muxer doesn't support variable parameters"
+  def handle_stream_format(pad, stream_format, ctx, state) do
+    if ctx.pads[pad].stream_format not in [stream_format, nil] do
+      raise "AutoISOM Muxer doesn't support variable parameters"
     end
-    |> then(&{[], &1})
+
+    {[], state}
   end
+
+  # @impl true
+  # def handle_pad_added(Pad.ref(:input, pad_ref) = pad, _ctx, state) do
+  #   {track_id, state} = Map.get_and_update!(state, :next_track_id, &{&1, &1 + 1})
+
+  #   state =
+  #     state
+  #     |> Map.update!(:pad_order, &[pad_ref | &1])
+  #     |> put_in([:pad_to_track, pad_ref], track_id)
+  #     |> Map.update!(:queue, &TimestampQueue.register_pad(&1, pad))
+
+  #   {[], state}
+  # end
+
+  # @impl true
+  # def handle_stream_format(
+  #       Pad.ref(:input, pad_ref) = pad,
+  #       stream_format,
+  #       ctx,
+  #       state
+  #     ) do
+  #   cond do
+  #     # Handle receiving the first stream format on the given pad
+  #     is_nil(ctx.pads[pad].stream_format) ->
+  #       update_in(state, [:pad_to_track, pad_ref], fn track_id ->
+  #         Track.new(track_id, stream_format, state.chunk_duration)
+  #       end)
+
+  #     # Handle receiving all but the first stream format on the given pad,
+  #     # when stream format is duplicated - ignore
+  #     ctx.pads[pad].stream_format == stream_format ->
+  #       state
+
+  #     # otherwise we can assume that output will be corrupted
+  #     true ->
+  #       raise "AutoISOM Muxer doesn't support variable parameters"
+  #   end
+  #   |> then(&{[], &1})
+  # end
 
   @impl true
   def handle_playing(_ctx, state) do
@@ -134,76 +154,121 @@ defmodule Membrane.MP4.Muxer.AutoISOM do
   end
 
   @impl true
-  def handle_buffer(Pad.ref(:input, _pad_ref) = pad, buffer, _ctx, state) do
+  def handle_buffer(pad_ref, buffer, ctx, state) do
     state.queue
-    |> TimestampQueue.push_buffer_and_pop_available_items(pad, buffer)
-    |> handle_queue_output(state)
+    |> TimestampQueue.push_buffer_and_pop_available_items(pad_ref, buffer)
+    |> handle_queue_chunked_output(ctx, state)
   end
 
   @impl true
-  def handle_end_of_stream(Pad.ref(:input, _pad_ref) = pad, _ctx, state) do
+  def handle_end_of_stream(pad_ref, ctx, state) do
     state.queue
-    |> TimestampQueue.push_end_of_stream(pad)
+    |> TimestampQueue.push_end_of_stream(pad_ref)
     |> TimestampQueue.pop_available_items()
-    |> handle_queue_output(state)
+    |> handle_queue_chunked_output(ctx, state)
   end
 
-  defp handle_queue_output({suggested_actions, batch, queue}, state) do
-    # if batch != [], do: IO.inspect(batch, label: "BATCH")
+  defp handle_queue_chunked_output({suggested_actions, chunks, queue}, ctx, state) do
+    state = %{state | queue: queue}
 
-    {actions, state} = Enum.flat_map_reduce(batch, state, &handle_queue_item/2)
-    {suggested_actions ++ actions, %{state | queue: queue}}
+    {buffer_actions, state} =
+      Enum.flat_map_reduce(chunks, state, fn chunk, state ->
+        handle_queue_chunk(chunk, ctx, state)
+      end)
+
+    maybe_finalize =
+      ctx.pads
+      |> Map.values()
+      |> Enum.all?(&(&1.end_of_stream? == (&1.direction == :input)))
+      |> if(do: finalize_mp4(state) ++ [end_of_stream: :output], else: [])
+
+    {suggested_actions ++ buffer_actions ++ maybe_finalize, state}
   end
 
-  defp handle_queue_item({Pad.ref(:input, pad_ref), {:buffer, buffer}}, state) do
-    # In case DTS is not set, use PTS. This is the case for audio tracks or H264 originated
-    # from an RTP stream. ISO base media file format specification uses DTS for calculating
-    # decoding deltas, and so is the implementation of sample table in this plugin.
-    buffer = %Buffer{buffer | dts: Buffer.get_dts_or_pts(buffer)}
+  # defp handle_queue_output({suggested_actions, batch, queue}, state) do
+  #   {actions, state} = Enum.flat_map_reduce(batch, state, &handle_queue_item/2)
+  #   {suggested_actions ++ actions, %{state | queue: queue}}
+  # end
 
+  # defp handle_queue_item({Pad.ref(:input, pad_ref), {:buffer, buffer}}, state) do
+  #   # In case DTS is not set, use PTS. This is the case for audio tracks or H264 originated
+  #   # from an RTP stream. ISO base media file format specification uses DTS for calculating
+  #   # decoding deltas, and so is the implementation of sample table in this plugin.
+  #   buffer = %Buffer{buffer | dts: Buffer.get_dts_or_pts(buffer)}
 
-    state
-    |> update_in([:pad_to_track, pad_ref], &Track.store_sample(&1, buffer))
-    |> maybe_flush_chunk(pad_ref)
+  #   state
+  #   |> update_in([:pad_to_track, pad_ref], &Track.store_sample(&1, buffer))
+  #   |> maybe_flush_chunk(pad_ref)
+  # end
+
+  # defp handle_queue_item({Pad.ref(:input, pad_ref), :end_of_stream}, state) do
+  #   {buffer, state} = do_flush_chunk(state, pad_ref)
+  #   state = Map.update!(state, :pad_order, &List.delete(&1, pad_ref))
+
+  #   if state.pad_order != [] do
+  #     # IO.inspect(pad_ref, label: "END OF STREAM REDEMAND")
+  #     {buffer, state}
+  #   else
+  #     # IO.inspect(pad_ref, label: "END OF STREAM OUTPUT")
+  #     actions = finalize_mp4(state)
+  #     {buffer ++ actions ++ [end_of_stream: :output], state}
+  #   end
+  # end
+
+  # defp maybe_flush_chunk(state, pad_ref) do
+  #   track = get_in(state, [:pad_to_track, pad_ref])
+
+  #   if Track.completed?(track) do
+  #     do_flush_chunk(state, pad_ref)
+  #   else
+  #     {[], state}
+  #   end
+  # end
+
+  # defp do_flush_chunk(state, pad_ref) do
+  #   {chunk, track} =
+  #     state
+  #     |> get_in([:pad_to_track, pad_ref])
+  #     |> Track.flush_chunk(chunk_offset(state))
+
+  #   state =
+  #     state
+  #     |> Map.put(:mdat_size, state.mdat_size + byte_size(chunk))
+  #     |> put_in([:pad_to_track, pad_ref], track)
+  #     |> Map.update!(:pad_order, &shift_left/1)
+
+  #   {[buffer: {:output, %Buffer{payload: chunk}}], state}
+  # end
+
+  defp handle_queue_chunk(queue_chunk, ctx, state) do
+    queue_chunk
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.map_reduce(state, fn {pad_ref, items}, state ->
+      {_maybe_eos, buffers} = Enum.split_with(items, &(&1 == :end_of_stream))
+      format = ctx.pads[pad_ref].stream_format
+
+      sample_table_chunk = buffers_to_sample_table_chunk(buffers, format, state)
+      action = {:buffer, {:output, %Buffer{payload: sample_table_chunk}}}
+
+      state = Map.update!(state, :mdat_size, &(&1 + byte_size(sample_table_chunk)))
+      {action, state}
+    end)
   end
 
-  defp handle_queue_item({Pad.ref(:input, pad_ref), :end_of_stream}, state) do
-    {buffer, state} = do_flush_chunk(state, pad_ref)
-    state = Map.update!(state, :pad_order, &List.delete(&1, pad_ref))
+  defp buffers_to_sample_table_chunk(buffers, stream_format, state) do
+    sample_table =
+      %SampleTable{
+        sample_description: stream_format,
+        timescale: Track.get_timescale(stream_format)
+      }
 
-    if state.pad_order != [] do
-      # IO.inspect(pad_ref, label: "END OF STREAM REDEMAND")
-      {buffer, state}
-    else
-      # IO.inspect(pad_ref, label: "END OF STREAM OUTPUT")
-      actions = finalize_mp4(state)
-      {buffer ++ actions ++ [end_of_stream: :output], state}
-    end
-  end
+    {chunk, _sample_table} =
+      Enum.reduce(buffers, sample_table, fn {:buffer, buffer}, sample_table ->
+        SampleTable.store_sample(sample_table, buffer)
+      end)
+      |> SampleTable.flush_chunk(chunk_offset(state))
 
-  defp maybe_flush_chunk(state, pad_ref) do
-    track = get_in(state, [:pad_to_track, pad_ref])
-
-    if Track.completed?(track) do
-      do_flush_chunk(state, pad_ref)
-    else
-      {[], state}
-    end
-  end
-
-  defp do_flush_chunk(state, pad_ref) do
-    {chunk, track} =
-      state
-      |> get_in([:pad_to_track, pad_ref])
-      |> Track.flush_chunk(chunk_offset(state))
-
-    state =
-      state
-      |> Map.put(:mdat_size, state.mdat_size + byte_size(chunk))
-      |> put_in([:pad_to_track, pad_ref], track)
-      |> Map.update!(:pad_order, &shift_left/1)
-
-    {[buffer: {:output, %Buffer{payload: chunk}}], state}
+    chunk
   end
 
   defp finalize_mp4(state) do
