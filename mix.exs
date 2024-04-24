@@ -37,7 +37,6 @@ defmodule Membrane.MP4.Plugin.MixProject do
 
   defp deps do
     [
-      {:membrane_timestamp_queue, github: "membraneframework/membrane_timestamp_queue"},
       {:membrane_core, "~> 1.0"},
       {:membrane_mp4_format, "~> 0.8.0"},
       {:membrane_cmaf_format, "~> 0.7.0"},
@@ -46,6 +45,7 @@ defmodule Membrane.MP4.Plugin.MixProject do
       {:membrane_h265_format, "~> 0.2.0"},
       {:membrane_opus_format, "~> 0.3.0"},
       {:membrane_file_plugin, "~> 0.17.0"},
+      {:membrane_timestamp_queue, "~> 0.1.0"},
       {:bunch, "~> 1.5"},
       {:membrane_h26x_plugin, "~> 0.10.0", only: :test},
       {:membrane_aac_plugin, "~> 0.18.0", only: :test},
