@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Muxer.AutoISOM do
+defmodule Membrane.MP4.Muxer.ISOM do
   @moduledoc """
   Puts payloaded streams into an MPEG-4 container.
   """
@@ -115,7 +115,7 @@ defmodule Membrane.MP4.Muxer.AutoISOM do
 
       # otherwise we can assume that output will be corrupted
       true ->
-        raise "AutoISOM Muxer doesn't support variable parameters"
+        raise "ISOM Muxer doesn't support variable parameters"
     end
     |> then(&{[], &1})
   end
@@ -158,7 +158,6 @@ defmodule Membrane.MP4.Muxer.AutoISOM do
     # from an RTP stream. ISO base media file format specification uses DTS for calculating
     # decoding deltas, and so is the implementation of sample table in this plugin.
     buffer = %Buffer{buffer | dts: Buffer.get_dts_or_pts(buffer)}
-
 
     state
     |> update_in([:pad_to_track, pad_ref], &Track.store_sample(&1, buffer))
