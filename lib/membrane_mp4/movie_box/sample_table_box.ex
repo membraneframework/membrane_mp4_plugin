@@ -240,7 +240,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
       sample_description: unpack_sample_description(boxes[:stsd]),
       sample_count: boxes[:stsz].fields.sample_count,
       sample_sizes: unpack_sample_sizes(boxes[:stsz]),
-      chunk_offsets: unpack_chunk_offsets(boxes[:stco]),
+      chunk_offsets: unpack_chunk_offsets(boxes[:stco] || boxes[:co64]),
       decoding_deltas: boxes[:stts].fields.entry_list,
       composition_offsets: get_composition_offsets(boxes),
       samples_per_chunk: boxes[:stsc].fields.entry_list,
@@ -255,7 +255,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
       # if no :ctts box is available, assume that the offset between
       # composition time and the decoding time is equal to 0
       Enum.map(boxes[:stts].fields.entry_list, fn entry ->
-        %{sample_count: entry.sample_count, sample_offset: 0}
+        %{sample_count: entry.sample_count, sample_composition_offset: 0}
       end)
     end
   end

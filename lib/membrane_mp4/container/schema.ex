@@ -10,7 +10,7 @@ defmodule Membrane.MP4.Container.Schema do
   """
 
   @full_box [
-    version: :uint8,
+    version: {:uint8, store: :version},
     flags: {:uint24, store: :fo_flags}
   ]
 
@@ -70,10 +70,13 @@ defmodule Membrane.MP4.Container.Schema do
                   fields:
                     @full_box ++
                       [
-                        creation_time: :uint32,
-                        modification_time: :uint32,
+                        creation_time: {:uint32, when: {:version, value: 0}},
+                        creation_time: {:uint64, when: {:version, value: 1}},
+                        modification_time: {:uint32, when: {:version, value: 0}},
+                        modification_time: {:uint64, when: {:version, value: 1}},
                         timescale: :uint32,
-                        duration: :uint32,
+                        duration: {:uint32, when: {:version, value: 0}},
+                        duration: {:uint64, when: {:version, value: 1}},
                         rate: :fp16d16,
                         volume: :fp8d8,
                         reserved: <<0::size(80)>>,
@@ -101,11 +104,14 @@ defmodule Membrane.MP4.Container.Schema do
                     fields:
                       @full_box ++
                         [
-                          creation_time: :uint32,
-                          modification_time: :uint32,
+                          creation_time: {:uint32, when: {:version, value: 0}},
+                          creation_time: {:uint64, when: {:version, value: 1}},
+                          modification_time: {:uint32, when: {:version, value: 0}},
+                          modification_time: {:uint64, when: {:version, value: 1}},
                           track_id: :uint32,
                           reserved: <<0::32>>,
-                          duration: :uint32,
+                          duration: {:uint32, when: {:version, value: 0}},
+                          duration: {:uint64, when: {:version, value: 1}},
                           reserved: <<0::64>>,
                           layer: :int16,
                           alternate_group: :int16,
@@ -130,10 +136,13 @@ defmodule Membrane.MP4.Container.Schema do
                       fields:
                         @full_box ++
                           [
-                            creation_time: :uint32,
-                            modification_time: :uint32,
+                            creation_time: {:uint32, when: {:version, value: 0}},
+                            creation_time: {:uint64, when: {:version, value: 1}},
+                            modification_time: {:uint32, when: {:version, value: 0}},
+                            modification_time: {:uint64, when: {:version, value: 1}},
                             timescale: :uint32,
-                            duration: :uint32,
+                            duration: {:uint32, when: {:version, value: 0}},
+                            duration: {:uint64, when: {:version, value: 1}},
                             reserved: <<0::1>>,
                             language: :uint15,
                             reserved: <<0::16>>
@@ -280,7 +289,7 @@ defmodule Membrane.MP4.Container.Schema do
                                   {:list,
                                    [
                                      sample_count: :uint32,
-                                     sample_offset: :uint32
+                                     sample_composition_offset: :uint32
                                    ]}
                               ]
                         ],
@@ -323,6 +332,19 @@ defmodule Membrane.MP4.Container.Schema do
                                   {:list,
                                    [
                                      chunk_offset: :uint32
+                                   ]}
+                              ]
+                        ],
+                        co64: [
+                          version: 0,
+                          fields:
+                            @full_box ++
+                              [
+                                entry_count: :uint32,
+                                entry_list:
+                                  {:list,
+                                   [
+                                     chunk_offset: :uint64
                                    ]}
                               ]
                         ]
@@ -426,7 +448,8 @@ defmodule Membrane.MP4.Container.Schema do
                                sample_duration: :uint32,
                                sample_size: :uint32,
                                sample_flags: :bin32,
-                               sample_offset: {:uint32, when: {0x800, :fo_flags}}
+                               sample_composition_offset:
+                                 {:uint32, when: {:fo_flags, mask: 0x800}}
                              ]}
                         ]
                   ]

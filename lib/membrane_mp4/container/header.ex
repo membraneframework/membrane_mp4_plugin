@@ -4,6 +4,7 @@ defmodule Membrane.MP4.Container.Header do
 
   The `content_size` field is equal to the box size minus the size of the header (8 bytes).
   """
+  use Bunch.Access
 
   @enforce_keys [:name, :content_size, :header_size]
 

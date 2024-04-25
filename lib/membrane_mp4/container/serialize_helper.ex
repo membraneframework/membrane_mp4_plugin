@@ -64,11 +64,20 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     end
   end
 
-  defp serialize_field(term, {type, store: context_name, when: condition}, context) do
-    {flag, key} = condition
+  defp serialize_field(term, {type, store: context_name, when: {key, [mask: mask]}}, context) do
     context_object = Map.get(context, key)
 
-    if context_object != nil and (flag &&& context_object) == flag do
+    if context_object != nil and (mask &&& context_object) == mask do
+      serialize_field(term, {type, store: context_name}, context)
+    else
+      {{:ok, <<>>}, context}
+    end
+  end
+
+  defp serialize_field(term, {type, store: context_name, when: {key, [value: value]}}, context) do
+    context_object = Map.get(context, key)
+
+    if context_object != nil and context_object == value do
       serialize_field(term, {type, store: context_name}, context)
     else
       {{:ok, <<>>}, context}
@@ -80,11 +89,20 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     serialize_field(term, type, context)
   end
 
-  defp serialize_field(term, {type, when: condition}, context) do
-    {flag, key} = condition
+  defp serialize_field(term, {type, when: {key, [mask: mask]}}, context) do
     context_object = Map.get(context, key, 0)
 
-    if (flag &&& context_object) == flag do
+    if (mask &&& context_object) == mask do
+      serialize_field(term, type, context)
+    else
+      {{:ok, <<>>}, context}
+    end
+  end
+
+  defp serialize_field(term, {type, when: {key, [value: value]}}, context) do
+    context_object = Map.get(context, key, 0)
+
+    if context_object == value do
       serialize_field(term, type, context)
     else
       {{:ok, <<>>}, context}

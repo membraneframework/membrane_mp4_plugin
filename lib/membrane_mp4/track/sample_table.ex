@@ -28,7 +28,7 @@ defmodule Membrane.MP4.Track.SampleTable do
           ],
           composition_offsets: [
             %{
-              sample_offset: Ratio.t(),
+              sample_composition_offset: Ratio.t(),
               sample_count: pos_integer
             }
           ],
