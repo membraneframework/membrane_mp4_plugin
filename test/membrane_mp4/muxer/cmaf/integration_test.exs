@@ -345,6 +345,8 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       assert_in_delta buffer.metadata.duration, Membrane.Time.seconds(2), @video_sample_duration
 
       assert_end_of_stream(pipeline, :sink)
+
+      Testing.Pipeline.terminate(pipeline)
     end
 
     @tag segment_min_duration: Membrane.Time.seconds(6)
@@ -362,6 +364,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       assert_in_delta buffer.metadata.duration, ctx.segment_min_duration, @video_sample_duration
 
       assert_end_of_stream(pipeline, :sink)
+      Testing.Pipeline.terminate(pipeline)
     end
 
     @tag segment_min_duration: Membrane.Time.seconds(6)
@@ -405,6 +408,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       assert buffer.metadata.last_chunk?
 
       assert_end_of_stream(pipeline, :sink)
+      Testing.Pipeline.terminate(pipeline)
     end
   end
 

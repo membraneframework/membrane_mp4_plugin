@@ -28,7 +28,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
   defp prepare_test(filename) do
     out_path = out_path_for(filename)
     File.rm(out_path)
-    # on_exit(fn -> File.rm(out_path) end)
+    on_exit(fn -> File.rm(out_path) end)
   end
 
   defp perform_test(pid, filename) do

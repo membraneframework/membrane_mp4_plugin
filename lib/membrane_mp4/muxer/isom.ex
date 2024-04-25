@@ -134,6 +134,19 @@ defmodule Membrane.MP4.Muxer.ISOM do
   end
 
   @impl true
+  def handle_event(Pad.ref(:input, _pad_ref) = pad, event, _ctx, state) do
+    state.queue
+    |> TimestampQueue.push_event(pad, event)
+    |> TimestampQueue.pop_available_items()
+    |> handle_queue_output(state)
+  end
+
+  @impl true
+  def handle_event(:output, event, _ctx, state) do
+    {[forward: event], state}
+  end
+
+  @impl true
   def handle_buffer(Pad.ref(:input, _pad_ref) = pad, buffer, _ctx, state) do
     state.queue
     |> TimestampQueue.push_buffer_and_pop_available_items(pad, buffer)
@@ -151,6 +164,10 @@ defmodule Membrane.MP4.Muxer.ISOM do
   defp handle_queue_output({suggested_actions, batch, queue}, state) do
     {actions, state} = Enum.flat_map_reduce(batch, state, &handle_queue_item/2)
     {suggested_actions ++ actions, %{state | queue: queue}}
+  end
+
+  defp handle_queue_item({_pad_ref, {:event, event}}, state) do
+    {[event: {:output, event}], state}
   end
 
   defp handle_queue_item({Pad.ref(:input, pad_ref), {:buffer, buffer}}, state) do
