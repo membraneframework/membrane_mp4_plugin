@@ -196,7 +196,10 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
           out_encapsulation: :none,
           output_config: :esds
         }),
-        child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1), fast_start: true})
+        child(:muxer, %Membrane.MP4.Muxer.ISOM{
+          chunk_duration: Time.seconds(1),
+          fast_start: true
+        })
         |> child(:sink, %Membrane.File.Sink{location: out_path_for("two_tracks_fast_start")}),
         get_child(:video_parser) |> get_child(:muxer),
         get_child(:audio_parser) |> get_child(:muxer)
@@ -228,8 +231,9 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
 
       assert_receive {:DOWN, ^monitor_ref, :process, ^pid,
                       {:membrane_child_crash, :muxer,
-                       {%RuntimeError{message: "ISOM Muxer doesn't support variable parameters"},
-                        _stacktrace}}},
+                       {%RuntimeError{
+                          message: "ISOM Muxer doesn't support variable parameters"
+                        }, _stacktrace}}},
                      1_000
     end
   end
