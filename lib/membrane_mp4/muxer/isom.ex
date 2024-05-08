@@ -63,8 +63,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
     queue =
       TimestampQueue.new(
         chunk_duration: options.chunk_duration,
-        pause_demand_boundary: 3 * options.chunk_duration,
-        pause_demand_boundary_unit: :time
+        pause_demand_boundary: {:time, 3 * options.chunk_duration}
       )
 
     state =
