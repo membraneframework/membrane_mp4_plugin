@@ -18,7 +18,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
       any_of(
         %Membrane.AAC{config: {:esds, _esds}},
         %Membrane.H264{
-          stream_structure: {:avc1, _dcr},
+          stream_structure: {_avc, _dcr},
           alignment: :au
         },
         %Membrane.H265{
@@ -107,7 +107,8 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
       # otherwise we can assume that output will be corrupted
       true ->
-        raise "ISOM Muxer doesn't support variable parameters"
+        # raise "ISOM Muxer doesn't support variable parameters"
+        state
     end
     |> then(&{[], &1})
   end
