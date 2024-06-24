@@ -24,11 +24,11 @@ defmodule Example do
         hackney_opts: [follow_redirect: true]
       })
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
-      |> via_out(Pad.ref(:output, 1))
+      |> via_out(Pad.ref(:output, 1), options: [codec: Membrane.H264])
       |> child(:parser_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
       |> child(:sink_video, %Membrane.File.Sink{location: @output_video}),
       get_child(:demuxer)
-      |> via_out(Pad.ref(:output, 2))
+      |> via_out(Pad.ref(:output, 2), options: [codec: Membrane.AAC])
       |> child(:audio_parser, %Membrane.AAC.Parser{
         out_encapsulation: :ADTS
       })
