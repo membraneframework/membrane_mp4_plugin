@@ -580,12 +580,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         _pad -> []
       end)
 
-    # Enum.each(pads, fn pad ->
-    #   if pad not in tracks do
-    #     raise "An output pad connected with #{pad} id, however no matching track exists"
-    #   end
-    # end)
-
     Range.size(tracks) == length(pads)
   end
 
