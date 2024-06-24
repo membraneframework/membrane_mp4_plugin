@@ -41,10 +41,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         default: nil,
         description: """
         Specifies, what kind of codec can be handled by a pad.
-
-        Pad with `:codec` option set to `:all` can handle all codecs.
-
-        Defaults to `:all`
         """
       ]
     ]
