@@ -287,39 +287,24 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     spec =
       child(:file, %Membrane.File.Source{location: opts[:input_file]})
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
-
-    pipeline = Pipeline.start_link_supervised!(spec: spec)
-    assert_pipeline_notified(pipeline, :demuxer, {:new_tracks, _notification})
-
-    spec =
-      get_child(:demuxer)
       |> via_out(Pad.ref(:output, 1))
       |> child(:sink, %Membrane.File.Sink{location: opts[:output_file]})
 
-    Pipeline.execute_actions(pipeline, spec: spec)
-    pipeline
+    Pipeline.start_link_supervised!(spec: spec)
   end
 
   defp start_testing_pipeline_with_two_tracks!(opts) do
-    spec =
+    spec = [
       child(:file, %Membrane.File.Source{location: opts[:input_file]})
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
-
-    pipeline = Pipeline.start_link_supervised!(spec: spec)
-
-    assert_pipeline_notified(pipeline, :demuxer, {:new_tracks, _notification})
-
-    spec = [
-      get_child(:demuxer)
-      |> via_out(Pad.ref(:output, 1))
+      |> via_out(Pad.ref(:output, 1), options: [kind: :video])
       |> child(:video_sink, %Membrane.File.Sink{location: opts[:video_output_file]}),
       get_child(:demuxer)
-      |> via_out(Pad.ref(:output, 2))
+      |> via_out(Pad.ref(:output, 2), options: [kind: :audio])
       |> child(:audio_sink, %Membrane.File.Sink{location: opts[:audio_output_file]})
     ]
 
-    Pipeline.execute_actions(pipeline, spec: spec)
-    pipeline
+    Pipeline.start_link_supervised!(spec: spec)
   end
 
   defp start_remote_pipeline!(opts) do
