@@ -9,8 +9,6 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   """
   use Membrane.Filter
 
-  require Membrane.Pad
-  alias Membrane.Pad
   alias Membrane.File.NewSeekEvent
   alias Membrane.{MP4, RemoteStream}
   alias Membrane.MP4.Container
