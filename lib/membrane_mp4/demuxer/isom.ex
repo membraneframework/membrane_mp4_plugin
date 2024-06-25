@@ -9,6 +9,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   """
   use Membrane.Filter
 
+  require Membrane.Pad
+  alias Membrane.Pad
   alias Membrane.File.NewSeekEvent
   alias Membrane.{MP4, RemoteStream}
   alias Membrane.MP4.Container
@@ -36,11 +38,11 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       ),
     availability: :on_request,
     options: [
-      codec: [
-        spec: Membrane.H264 | Membrane.H265 | Membrane.Opus | Membrane.AAC | nil,
+      kind: [
+        spec: :video | :audio | nil,
         default: nil,
         description: """
-        Specifies, what kind of codec can be handled by a pad.
+        Specifies, what kind of data can be handled by a pad.
         """
       ]
     ]
@@ -414,25 +416,33 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp match_tracks_with_pads(ctx, state) do
-    codec_to_pads_data =
+    kind_to_pads_data =
       ctx.pads
       |> Map.values()
       |> Enum.reject(fn %{ref: pad_ref} -> pad_ref == :input end)
-      |> Enum.group_by(& &1.options.codec)
+      |> Enum.group_by(& &1.options.kind)
 
-    {track_to_pad_id, empty_codec_to_pads_data} =
+    {track_to_pad_id, empty_kind_to_pads_data} =
       state.samples_info.sample_tables
-      |> Enum.map_reduce(codec_to_pads_data, fn {track_id, table}, codec_to_pads_data ->
-        %track_codec{} = table.sample_description
+      |> Enum.map_reduce(kind_to_pads_data, fn {track_id, table}, kind_to_pads_data ->
+        track_kind = sample_description_to_kind(table.sample_description)
 
-        case codec_to_pads_data[track_codec] do
-          [pad_data | tail] ->
-            codec_to_pads_data = Map.put(codec_to_pads_data, track_codec, tail)
+        case kind_to_pads_data do
+          %{^track_kind => [pad_data | tail]} ->
+            # match track with a pad with specified kind
+            kind_to_pads_data = Map.put(kind_to_pads_data, track_kind, tail)
             Pad.ref(:output, pad_id) = pad_data.ref
-            {{track_id, pad_id}, codec_to_pads_data}
+            {{track_id, pad_id}, kind_to_pads_data}
 
-          _no_pad ->
-            {{track_id, nil}, codec_to_pads_data}
+          %{nil => [pad_data]} ->
+            # match track with the only one pad with unspecified kind
+            kind_to_pads_data = Map.delete(kind_to_pads_data, nil)
+            Pad.ref(:output, pad_id) = pad_data.ref
+            {{track_id, pad_id}, kind_to_pads_data}
+
+          %{} ->
+            # corresponding pad hasn't been linked yet
+            {{track_id, nil}, kind_to_pads_data}
         end
       end)
 
@@ -449,16 +459,35 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       end)
 
     raise? =
-      empty_codec_to_pads_data
+      empty_kind_to_pads_data
       |> Map.values()
       |> Enum.any?(&(&1 != []))
 
     if raise? do
-      "dupaaaa"
+      pads_kinds =
+        ctx.pads
+        |> Enum.flat_map(fn
+          {:input, _pad_data} -> []
+          {_pad_ref, %{options: %{kind: kind}}} -> [kind]
+        end)
+
+      tracks_codecs =
+        state.samples_info.sample_tables
+        |> Enum.map(fn {_track, table} -> table.sample_description.__struct__ end)
+
+      raise """
+      Pads kinds don't match with tracks codecs. Pads kinds are #{inspect(pads_kinds)}. \
+      Tracks codecs are #{inspect(tracks_codecs)}
+      """
     end
 
     %{state | track_to_pad_id: Map.new(track_to_pad_id)}
   end
+
+  defp sample_description_to_kind(%Membrane.H264{}), do: :video
+  defp sample_description_to_kind(%Membrane.H265{}), do: :video
+  defp sample_description_to_kind(%Membrane.AAC{}), do: :audio
+  defp sample_description_to_kind(%Membrane.Opus{}), do: :audio
 
   defp get_track_notifications(state) do
     new_tracks =
@@ -489,7 +518,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   def handle_pad_added(Pad.ref(:output, _track_id) = pad_ref, ctx, state) do
-    :ok = validate_pad_codec!(pad_ref, ctx.pad_options.codec, ctx, state)
+    :ok = validate_pad_kind!(pad_ref, ctx.pad_options.kind, ctx, state)
     all_pads_connected? = all_pads_connected?(ctx, state)
 
     {actions, state} =
@@ -508,21 +537,21 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     {actions, state}
   end
 
-  defp validate_pad_codec!(pad_ref, pad_codec, ctx, state) do
-    allowed_codecs = [nil, Membrane.H264, Membrane.H265, Membrane.Opus, Membrane.AAC]
+  defp validate_pad_kind!(pad_ref, pad_kind, ctx, state) do
+    allowed_kinds = [nil, :audio, :video]
 
-    if pad_codec not in allowed_codecs do
+    if pad_kind not in allowed_kinds do
       raise """
-      Pad #{inspect(pad_ref)} has :codec option set to #{inspect(pad_codec)}, while it has te be one of \
-      #{List.delete(allowed_codecs, nil) |> inspect()} or be unspecified.
+      Pad #{inspect(pad_ref)} has :kind option set to #{inspect(pad_kind)}, while it has te be one of \
+      #{[:audio, :video] |> inspect()} or be unspecified.
       """
     end
 
     if not state.track_notifications_sent? and
-         Enum.count(ctx.pads, &match?({Pad.ref(:output, _id), %{options: %{codec: nil}}}, &1)) > 1 do
+         Enum.count(ctx.pads, &match?({Pad.ref(:output, _id), %{options: %{kind: nil}}}, &1)) > 1 do
       raise """
       If pads are linked before :new_tracks notifications and there are more then one of them, pad option \
-      :codec has to be specyfied.
+      :kind has to be specyfied.
       """
     end
 
@@ -542,12 +571,14 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         """
       end
 
-      track_codec = state.samples_info.sample_tables[related_track].sample_description
+      track_kind =
+        state.samples_info.sample_tables[related_track].sample_description
+        |> sample_description_to_kind()
 
-      if pad_codec != nil and track_codec != pad_codec do
+      if pad_kind != nil and pad_kind != track_kind do
         raise """
-        Pad option :codec must point on the related track codec or be equal nil, but pad #{inspect(pad_ref)} \
-        codec is #{inspect(pad_codec)}, while the related track codec is #{inspect(track_codec)}
+        Pad option :kind must match with the kind of the related track or be equal nil, but pad #{inspect(pad_ref)} \
+        kind is #{inspect(pad_kind)}, while the related track kind is #{inspect(track_kind)}
         """
       end
     end
