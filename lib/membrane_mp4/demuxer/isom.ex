@@ -438,7 +438,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       |> Enum.reject(fn %{ref: pad_ref} -> pad_ref == :input end)
 
     if length(output_pads_data) not in [0, map_size(sample_tables)] do
-      raise_pads_not_matching_codecs_error(ctx, state)
+      raise_pads_not_matching_codecs_error!(ctx, state)
     end
 
     track_to_pad_id =
@@ -454,7 +454,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
                nil,
                sample_description_to_kind(table.sample_description)
              ] do
-            raise_pads_not_matching_codecs_error(ctx, state)
+            raise_pads_not_matching_codecs_error!(ctx, state)
           end
 
           %{track_id => pad_data_to_pad_id(pad_data)}
@@ -474,7 +474,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
               length(pads) != length(kind_to_tracks[kind])
             end)
 
-          if raise?, do: raise_pads_not_matching_codecs_error(ctx, state)
+          if raise?, do: raise_pads_not_matching_codecs_error!(ctx, state)
 
           kind_to_tracks
           |> Enum.flat_map(fn {kind, tracks} ->
@@ -489,7 +489,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   defp pad_data_to_pad_id(%{ref: Pad.ref(_name, id)}), do: id
 
-  defp raise_pads_not_matching_codecs_error(ctx, state) do
+  @spec raise_pads_not_matching_codecs_error!(map(), map()) :: no_return()
+  defp raise_pads_not_matching_codecs_error!(ctx, state) do
     pads_kinds =
       ctx.pads
       |> Enum.flat_map(fn
