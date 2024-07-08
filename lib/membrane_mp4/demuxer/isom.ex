@@ -5,7 +5,22 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   The MP4 must have `fast start` enabled, i.e. the `moov` box must precede the `mdat` box.
   Once the Demuxer identifies the tracks in the MP4, `t:new_tracks_t/0` notification is sent for each of the tracks.
 
-  All the tracks in the MP4 must have a corresponding output pad linked (`Pad.ref(:output, track_id)`).
+  All pads has to be linked either before `handle_playing/2` callback or after the Element sends `{:new_tracks, ...}`
+  notification.
+
+  Number of pads has to be equal to the number of demuxed tracks.
+
+  If the demuxed data contains only one track, linked pad doesn't have to specify `:kind` option.
+
+  If there are more than one track and pads are linked before `handle_playing/2`, every pad has to specify `:kind`
+  option.
+
+  If any of pads isn't linked before `handle_playing/2`, #{inspect(__MODULE__)} will send `{:new_tracks, ...}`
+  notification to the parent. Otherwise, if any of them is linked before `handle_playing/3`, this notification won't
+  be sent.
+
+  If pads are linked after the `{:new_tracks, ...}` notfitaction, their references must match MP4 tracks ids
+  (`Pad.ref(:output, track_id)`).
   """
   use Membrane.Filter
 
@@ -92,7 +107,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       mdat_size: nil,
       mdat_header_size: nil,
       track_to_pad_id: %{},
-      track_notifications_sent?: false
+      track_notifications_sent?: false,
+      pads_linked_before_notification?: false
     }
 
     {[], state}
@@ -377,7 +393,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
         {[], store_samples(state, samples)}
       end
 
-    notifications = get_track_notifications(state)
+    notifications = maybe_get_track_notifications(state)
 
     stream_format = if all_pads_connected?, do: get_stream_format(state), else: []
 
@@ -414,72 +430,81 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp match_tracks_with_pads(ctx, state) do
-    kind_to_pads_data =
+    sample_tables = state.samples_info.sample_tables
+
+    output_pads_data =
       ctx.pads
       |> Map.values()
       |> Enum.reject(fn %{ref: pad_ref} -> pad_ref == :input end)
-      |> Enum.group_by(& &1.options.kind)
 
-    {track_to_pad_id, empty_kind_to_pads_data} =
-      state.samples_info.sample_tables
-      |> Enum.map_reduce(kind_to_pads_data, fn {track_id, table}, kind_to_pads_data ->
-        track_kind = sample_description_to_kind(table.sample_description)
-
-        case kind_to_pads_data do
-          %{^track_kind => [pad_data | tail]} ->
-            # match track with a pad with specified kind
-            kind_to_pads_data = Map.put(kind_to_pads_data, track_kind, tail)
-            Pad.ref(:output, pad_id) = pad_data.ref
-            {{track_id, pad_id}, kind_to_pads_data}
-
-          %{nil => [pad_data]} ->
-            # match track with the only one pad with unspecified kind
-            kind_to_pads_data = Map.delete(kind_to_pads_data, nil)
-            Pad.ref(:output, pad_id) = pad_data.ref
-            {{track_id, pad_id}, kind_to_pads_data}
-
-          %{} ->
-            # corresponding pad hasn't been linked yet
-            {{track_id, nil}, kind_to_pads_data}
-        end
-      end)
-
-    max_pad_id =
-      track_to_pad_id
-      |> Enum.flat_map(fn {_track, pad_id} -> if pad_id != nil, do: [pad_id], else: [] end)
-      |> Enum.max(&>=/2, fn -> 0 end)
-
-    {track_to_pad_id, _max_pad_id} =
-      track_to_pad_id
-      |> Enum.map_reduce(max_pad_id, fn
-        {track_id, nil}, max_pad_id -> {{track_id, max_pad_id + 1}, max_pad_id + 1}
-        track_pad_pair, max_pad_id -> {track_pad_pair, max_pad_id}
-      end)
-
-    raise? =
-      empty_kind_to_pads_data
-      |> Map.values()
-      |> Enum.any?(&(&1 != []))
-
-    if raise? do
-      pads_kinds =
-        ctx.pads
-        |> Enum.flat_map(fn
-          {:input, _pad_data} -> []
-          {_pad_ref, %{options: %{kind: kind}}} -> [kind]
-        end)
-
-      tracks_codecs =
-        state.samples_info.sample_tables
-        |> Enum.map(fn {_track, table} -> table.sample_description.__struct__ end)
-
-      raise """
-      Pads kinds don't match with tracks codecs. Pads kinds are #{inspect(pads_kinds)}. \
-      Tracks codecs are #{inspect(tracks_codecs)}
-      """
+    if length(output_pads_data) not in [0, map_size(sample_tables)] do
+      raise_pads_not_matching_codecs_error(ctx, state)
     end
 
+    track_to_pad_id =
+      case output_pads_data do
+        [] ->
+          sample_tables
+          |> Map.new(fn {track_id, _table} -> {track_id, track_id} end)
+
+        [pad_data] ->
+          {track_id, table} = Enum.at(sample_tables, 0)
+
+          if pad_data.options.kind not in [
+               nil,
+               sample_description_to_kind(table.sample_description)
+             ] do
+            raise_pads_not_matching_codecs_error(ctx, state)
+          end
+
+          %{track_id => pad_data_to_pad_id(pad_data)}
+
+        _many ->
+          kind_to_pads_data = output_pads_data |> Enum.group_by(& &1.options.kind)
+
+          kind_to_tracks =
+            sample_tables
+            |> Enum.group_by(
+              fn {_track_id, table} -> sample_description_to_kind(table.sample_description) end,
+              fn {track_id, _table} -> track_id end
+            )
+
+          raise? =
+            Enum.any?(kind_to_pads_data, fn {kind, pads} ->
+              length(pads) != length(kind_to_tracks[kind])
+            end)
+
+          if raise?, do: raise_pads_not_matching_codecs_error(ctx, state)
+
+          kind_to_tracks
+          |> Enum.flat_map(fn {kind, tracks} ->
+            pad_refs = kind_to_pads_data[kind] |> Enum.map(&pad_data_to_pad_id/1)
+            Enum.zip(tracks, pad_refs)
+          end)
+          |> Map.new()
+      end
+
     %{state | track_to_pad_id: Map.new(track_to_pad_id)}
+  end
+
+  defp pad_data_to_pad_id(%{ref: Pad.ref(_name, id)}), do: id
+
+  defp raise_pads_not_matching_codecs_error(ctx, state) do
+    pads_kinds =
+      ctx.pads
+      |> Enum.flat_map(fn
+        {:input, _pad_data} -> []
+        {_pad_ref, %{options: %{kind: kind}}} -> [kind]
+      end)
+
+    tracks_codecs =
+      state.samples_info.sample_tables
+      |> Enum.map(fn {_track, table} -> table.sample_description.__struct__ end)
+
+    raise """
+    Pads kinds don't match with tracks codecs. Pads kinds are #{inspect(pads_kinds)}. \
+    Tracks codecs are #{inspect(tracks_codecs)}
+    """
   end
 
   defp sample_description_to_kind(%Membrane.H264{}), do: :video
@@ -487,7 +512,9 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp sample_description_to_kind(%Membrane.AAC{}), do: :audio
   defp sample_description_to_kind(%Membrane.Opus{}), do: :audio
 
-  defp get_track_notifications(state) do
+  defp maybe_get_track_notifications(%{pads_linked_before_notification?: true}), do: []
+
+  defp maybe_get_track_notifications(%{pads_linked_before_notification?: false} = state) do
     new_tracks =
       state.samples_info.sample_tables
       |> Enum.map(fn {track_id, table} ->
@@ -516,6 +543,21 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   def handle_pad_added(Pad.ref(:output, _track_id) = pad_ref, ctx, state) do
+    state =
+      case ctx.playback do
+        :stopped ->
+          %{state | pads_linked_before_notification?: true}
+
+        :playing when state.track_notifications_sent? ->
+          state
+
+        :playing ->
+          raise """
+          Pads can be linked either before #{inspect(__MODULE__)} enters :playing playback or after it \
+          sends {:new_tracks, ...} notification
+          """
+      end
+
     :ok = validate_pad_kind!(pad_ref, ctx.pad_options.kind, ctx, state)
     all_pads_connected? = all_pads_connected?(ctx, state)
 

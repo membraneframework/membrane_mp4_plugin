@@ -168,7 +168,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
     demuxing_spec = [
       child(:file, %Membrane.File.Source{location: mp4_path})
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
-      |> via_out(Pad.ref(:output, 1), options: [kind: :video])
+      |> via_out(:output, options: [kind: :video])
       |> child(:parser_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
       |> child(:sink_video, %Membrane.File.Sink{location: out_video_path}),
       get_child(:demuxer)
