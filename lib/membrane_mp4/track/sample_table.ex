@@ -63,6 +63,7 @@ defmodule Membrane.MP4.Track.SampleTable do
     |> maybe_store_first_dts(buffer)
     |> do_store_sample(buffer)
     |> update_decoding_deltas(buffer)
+    |> update_composition_offsets(buffer)
     |> maybe_store_sync_sample(buffer)
     |> store_last_dts(buffer)
   end
@@ -100,6 +101,7 @@ defmodule Membrane.MP4.Track.SampleTable do
       :sync_samples,
       :chunk_offsets,
       :decoding_deltas,
+      :composition_offsets,
       :samples_per_chunk
     ]
 
@@ -144,6 +146,23 @@ defmodule Membrane.MP4.Track.SampleTable do
 
         _different_delta_or_empty ->
           [%{sample_count: 1, sample_delta: new_delta} | previous_deltas]
+      end
+    end)
+  end
+
+  defp update_composition_offsets(sample_table, %Buffer{dts: dts, pts: pts}) do
+    Map.update!(sample_table, :composition_offsets, fn previous_offsets ->
+      new_offset = pts - dts
+
+      case previous_offsets do
+        [] ->
+          [%{sample_count: 1, sample_composition_offset: new_offset}]
+
+        [%{sample_count: count, sample_composition_offset: ^new_offset} | rest] ->
+          [%{sample_count: count + 1, sample_composition_offset: new_offset} | rest]
+
+        _different_delta_or_empty ->
+          [%{sample_count: 1, sample_composition_offset: new_offset} | previous_offsets]
       end
     end)
   end

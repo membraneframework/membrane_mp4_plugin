@@ -35,6 +35,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
               }
             }
           ] ++
+            maybe_sample_composition_offsets(table) ++
             maybe_sample_sync ++
             [
               stsc: %{
@@ -196,6 +197,33 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
       Enum.map(decoding_deltas, fn %{sample_count: count, sample_delta: delta} ->
         %{sample_count: count, sample_delta: Helper.timescalify(delta, timescale)}
       end)
+
+  defp maybe_sample_composition_offsets(%{composition_offsets: []}), do: []
+
+  defp maybe_sample_composition_offsets(%{composition_offsets: [%{sample_composition_offset: 0}]}),
+    do: []
+
+  defp maybe_sample_composition_offsets(%{
+         timescale: timescale,
+         composition_offsets: composition_offsets
+       }) do
+    composition_offsets
+    |> Enum.map(fn %{sample_count: count, sample_composition_offset: offset} ->
+      %{sample_count: count, sample_composition_offset: Helper.timescalify(offset, timescale)}
+    end)
+    |> then(
+      &[
+        ctts: %{
+          fields: %{
+            version: 0,
+            flags: 0,
+            entry_count: length(&1),
+            entry_list: &1
+          }
+        }
+      ]
+    )
+  end
 
   defp maybe_sample_sync(%{sync_samples: []}), do: []
 

@@ -106,7 +106,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
     {dts, pts} =
       case samples_info.last_dts[track_id] do
         nil ->
-          {0, 0}
+          {0, scalify(sample_composition_offset, timescale)}
 
         last_dts ->
           {last_dts + scalify(delta, timescale),

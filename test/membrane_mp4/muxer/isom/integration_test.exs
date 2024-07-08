@@ -50,7 +50,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       structure = [
         child(:file, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
         |> child(:parser, %Membrane.H264.Parser{
-          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          generate_best_effort_timestamps: %{framerate: {30, 1}, add_dts_offset: false},
           output_stream_structure: :avc1
         })
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
@@ -119,7 +119,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
           chunk_size: 2_000_048
         })
         |> child(:video_parser, %Membrane.H264.Parser{
-          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          generate_best_effort_timestamps: %{framerate: {30, 1}, add_dts_offset: false},
           output_stream_structure: :avc1
         }),
         child(:audio_file, %Membrane.File.Source{
@@ -149,7 +149,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       structure = [
         child(:file, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
         |> child(:parser, %Membrane.H264.Parser{
-          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          generate_best_effort_timestamps: %{framerate: {30, 1}, add_dts_offset: false},
           output_stream_structure: :avc1
         })
         |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
@@ -188,7 +188,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       structure = [
         child(:video_file, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
         |> child(:video_parser, %Membrane.H264.Parser{
-          generate_best_effort_timestamps: %{framerate: {30, 1}},
+          generate_best_effort_timestamps: %{framerate: {30, 1}, add_dts_offset: false},
           output_stream_structure: :avc1
         }),
         child(:audio_file, %Membrane.File.Source{location: "test/fixtures/in_audio.aac"})
