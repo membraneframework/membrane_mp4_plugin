@@ -435,7 +435,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     output_pads_data =
       ctx.pads
       |> Map.values()
-      |> Enum.reject(fn %{ref: pad_ref} -> pad_ref == :input end)
+      |> Enum.filter(& &1.direction == :output)
 
     if length(output_pads_data) not in [0, map_size(sample_tables)] do
       raise_pads_not_matching_codecs_error!(ctx, state)
