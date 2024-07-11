@@ -239,7 +239,7 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
   end
 
   describe "ctts table" do
-    test "should not be store when dts and pts values are equal" do
+    test "should not be stored when dts and pts values are equal" do
       prepare_test("video")
 
       structure = [
