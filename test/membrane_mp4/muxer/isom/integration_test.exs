@@ -264,5 +264,4 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       refute Container.get_box(parsed_out, [:moov, :trak, :mdia, :minf, :stbl, :ctts])
     end
   end
-
 end
