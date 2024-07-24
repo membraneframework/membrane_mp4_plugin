@@ -433,6 +433,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
     sample_tables =
       state.samples_info.sample_tables
       |> Enum.reject(fn {_track_id, table} -> table.sample_description == nil end)
+      |> Enum.into(%{})
 
     output_pads_data =
       ctx.pads
