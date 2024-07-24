@@ -464,6 +464,9 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
           kind_to_tracks =
             sample_tables
+            |> Enum.reject(fn {_track_id, table} ->
+              table.sample_description == nil
+            end)
             |> Enum.group_by(
               fn {_track_id, table} -> sample_description_to_kind(table.sample_description) end,
               fn {track_id, _table} -> track_id end
@@ -500,6 +503,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     tracks_codecs =
       state.samples_info.sample_tables
+      |> Enum.reject(fn {_track, table} -> table.sample_description == nil end)
       |> Enum.map(fn {_track, table} -> table.sample_description.__struct__ end)
 
     raise """
@@ -512,12 +516,14 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp sample_description_to_kind(%Membrane.H265{}), do: :video
   defp sample_description_to_kind(%Membrane.AAC{}), do: :audio
   defp sample_description_to_kind(%Membrane.Opus{}), do: :audio
+  defp sample_description_to_kind(_other), do: :unknown
 
   defp maybe_get_track_notifications(%{pads_linked_before_notification?: true}), do: []
 
   defp maybe_get_track_notifications(%{pads_linked_before_notification?: false} = state) do
     new_tracks =
       state.samples_info.sample_tables
+      |> Enum.reject(fn {_track_id, table} -> table.sample_description == nil end)
       |> Enum.map(fn {track_id, table} ->
         pad_id = state.track_to_pad_id[track_id]
         {pad_id, table.sample_description}
@@ -528,6 +534,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   defp get_stream_format(state) do
     state.samples_info.sample_tables
+    |> Enum.reject(fn {_track_id, table} -> table.sample_description == nil end)
     |> Enum.map(fn {track_id, table} ->
       pad_id = state.track_to_pad_id[track_id]
       {:stream_format, {Pad.ref(:output, pad_id), table.sample_description}}
