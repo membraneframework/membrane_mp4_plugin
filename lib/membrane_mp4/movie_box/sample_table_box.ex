@@ -265,6 +265,10 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     offsets |> Enum.map(fn %{chunk_offset: offset} -> offset end)
   end
 
+  defp unpack_sample_sizes(%{fields: %{entry_list: [], sample_count: 1, sample_size: sample_size}}) do
+    [sample_size]
+  end
+
   defp unpack_sample_sizes(%{fields: %{entry_list: sizes}}) do
     sizes |> Enum.map(fn %{entry_size: size} -> size end)
   end

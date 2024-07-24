@@ -649,7 +649,14 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp all_pads_connected?(_ctx, %{samples_info: nil}), do: false
 
   defp all_pads_connected?(ctx, state) do
-    tracks = 1..state.samples_info.tracks_number
+    how_many_unsupported_tracks =
+      state.samples_info.sample_tables
+      |> Enum.filter(fn {_track_id, table} ->
+        table.sample_description == nil
+      end)
+      |> length()
+
+    tracks = 1..(state.samples_info.tracks_number - how_many_unsupported_tracks)
 
     pads =
       ctx.pads
@@ -663,14 +670,19 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   defp flush_samples(state) do
     actions =
-      Enum.map(state.buffered_samples, fn {track_id, track_samples} ->
+      Enum.flat_map(state.buffered_samples, fn {track_id, track_samples} ->
         buffers =
           track_samples
           |> Enum.reverse()
           |> Enum.map(fn {buffer, ^track_id} -> buffer end)
 
         pad_id = state.track_to_pad_id[track_id]
-        {:buffer, {Pad.ref(:output, pad_id), buffers}}
+
+        if pad_id != nil do
+          [buffer: {Pad.ref(:output, pad_id), buffers}]
+        else
+          []
+        end
       end)
 
     state = %{state | buffered_samples: %{}}
