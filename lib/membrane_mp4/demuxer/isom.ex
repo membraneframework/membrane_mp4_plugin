@@ -430,7 +430,9 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp match_tracks_with_pads(ctx, state) do
-    sample_tables = state.samples_info.sample_tables
+    sample_tables =
+      state.samples_info.sample_tables
+      |> Enum.reject(fn {_track_id, table} -> table.sample_description == nil end)
 
     output_pads_data =
       ctx.pads
