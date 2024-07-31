@@ -2,6 +2,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
   @moduledoc false
 
   require Membrane.H264
+  require Membrane.Logger
   alias Membrane.MP4.{Container, Helper, Track.SampleTable}
   alias Membrane.{AAC, H264, H265, Opus}
 
@@ -292,6 +293,10 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     offsets |> Enum.map(fn %{chunk_offset: offset} -> offset end)
   end
 
+  defp unpack_sample_sizes(%{fields: %{entry_list: [], sample_count: 1, sample_size: sample_size}}) do
+    [sample_size]
+  end
+
   defp unpack_sample_sizes(%{fields: %{entry_list: sizes}}) do
     sizes |> Enum.map(fn %{entry_size: size} -> size end)
   end
@@ -326,5 +331,10 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
   defp unpack_sample_description(%{children: [{:Opus, %{children: boxes}}]}) do
     %Opus{channels: boxes[:dOps].fields.output_channel_count, self_delimiting?: false}
+  end
+
+  defp unpack_sample_description(%{children: [{sample_type, _sample_metadata}]}) do
+    Membrane.Logger.warning("Unknown sample type: #{inspect(sample_type)}")
+    nil
   end
 end

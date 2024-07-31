@@ -315,11 +315,13 @@ defmodule Membrane.MP4.Container.Schema do
                               [
                                 sample_size: :uint32,
                                 sample_count: :uint32,
-                                entry_list:
+                                entry_list: {
                                   {:list,
                                    [
                                      entry_size: :uint32
-                                   ]}
+                                   ]},
+                                  when: {:sample_size, value: 0}
+                                }
                               ]
                         ],
                         stco: [

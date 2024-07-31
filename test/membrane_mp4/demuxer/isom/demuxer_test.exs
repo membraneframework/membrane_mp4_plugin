@@ -242,7 +242,40 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     @tag :tmp_dir
     test "output pad connected after moov box has been read", %{tmp_dir: dir} do
       out_path = Path.join(dir, "out")
-      filename = "test/fixtures/isom/ref_video_fast_start.mp4"
+      filename = "test/fixtures/isom/ref_video.mp4"
+
+      pipeline =
+        start_remote_pipeline!(
+          filename: filename,
+          file_source_chunk_size: File.stat!(filename).size - 1
+        )
+
+      assert_receive %RCMessage.Notification{
+                       element: :demuxer,
+                       data: {:new_tracks, [{1, _payload}]},
+                       from: _
+                     },
+                     2000
+
+      structure = [
+        get_child(:demuxer)
+        |> via_out(Pad.ref(:output, 1))
+        |> child(:sink, %Membrane.File.Sink{location: out_path})
+      ]
+
+      RCPipeline.exec_actions(pipeline, spec: {structure, []})
+      assert_receive %RCMessage.EndOfStream{element: :demuxer, pad: :input}, 2000
+      assert_receive %RCMessage.EndOfStream{element: :sink, pad: :input}, 2000
+
+      RCPipeline.terminate(pipeline)
+
+      assert_files_equal(out_path, ref_path_for("video"))
+    end
+
+    @tag :tmp_dir
+    test "file is properly demuxed when unsupported sample type is present", %{tmp_dir: dir} do
+      out_path = Path.join(dir, "out")
+      filename = "test/fixtures/isom/ref_video_with_tmcd.mp4"
 
       pipeline =
         start_remote_pipeline!(
