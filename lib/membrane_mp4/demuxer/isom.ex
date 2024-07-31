@@ -432,8 +432,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp match_tracks_with_pads(ctx, state) do
     sample_tables =
       state.samples_info.sample_tables
-      |> Enum.reject(fn {_track_id, table} -> table.sample_description == nil end)
-      |> Enum.into(%{})
+      |> reject_unsupported_sample_types()
 
     output_pads_data =
       ctx.pads
@@ -467,9 +466,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
           kind_to_tracks =
             sample_tables
-            |> Enum.reject(fn {_track_id, table} ->
-              table.sample_description == nil
-            end)
+            |> reject_unsupported_sample_types()
             |> Enum.group_by(
               fn {_track_id, table} -> sample_description_to_kind(table.sample_description) end,
               fn {track_id, _table} -> track_id end
@@ -506,7 +503,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
     tracks_codecs =
       state.samples_info.sample_tables
-      |> Enum.reject(fn {_track, table} -> table.sample_description == nil end)
+      |> reject_unsupported_sample_types()
       |> Enum.map(fn {_track, table} -> table.sample_description.__struct__ end)
 
     raise """
@@ -519,14 +516,13 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp sample_description_to_kind(%Membrane.H265{}), do: :video
   defp sample_description_to_kind(%Membrane.AAC{}), do: :audio
   defp sample_description_to_kind(%Membrane.Opus{}), do: :audio
-  defp sample_description_to_kind(_other), do: :unknown
 
   defp maybe_get_track_notifications(%{pads_linked_before_notification?: true}), do: []
 
   defp maybe_get_track_notifications(%{pads_linked_before_notification?: false} = state) do
     new_tracks =
       state.samples_info.sample_tables
-      |> Enum.reject(fn {_track_id, table} -> table.sample_description == nil end)
+      |> reject_unsupported_sample_types()
       |> Enum.map(fn {track_id, table} ->
         pad_id = state.track_to_pad_id[track_id]
         {pad_id, table.sample_description}
@@ -537,7 +533,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   defp get_stream_format(state) do
     state.samples_info.sample_tables
-    |> Enum.reject(fn {_track_id, table} -> table.sample_description == nil end)
+    |> reject_unsupported_sample_types()
     |> Enum.map(fn {track_id, table} ->
       pad_id = state.track_to_pad_id[track_id]
       {:stream_format, {Pad.ref(:output, pad_id), table.sample_description}}
@@ -651,10 +647,9 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp all_pads_connected?(ctx, state) do
     how_many_unsupported_tracks =
       state.samples_info.sample_tables
-      |> Enum.filter(fn {_track_id, table} ->
+      |> Enum.count(fn {_track_id, table} ->
         table.sample_description == nil
       end)
-      |> length()
 
     tracks = 1..(state.samples_info.tracks_number - how_many_unsupported_tracks)
 
@@ -706,5 +701,9 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   defp get_mdat_header_beginning([{_other_name, box} | rest]) do
     box.header_size + box.size + get_mdat_header_beginning(rest)
+  end
+
+  defp reject_unsupported_sample_types(sample_tables) do
+    Map.reject(sample_tables, fn {_track_id, table} -> table.sample_description == nil end)
   end
 end
