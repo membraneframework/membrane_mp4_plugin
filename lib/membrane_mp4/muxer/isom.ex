@@ -17,7 +17,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
       any_of(
         %Membrane.AAC{config: {:esds, _esds}},
         %Membrane.H264{
-          stream_structure: {:avc1, _dcr},
+          stream_structure: {_avc, _dcr},
           alignment: :au
         },
         %Membrane.H265{
@@ -96,25 +96,28 @@ defmodule Membrane.MP4.Muxer.ISOM do
   @impl true
   def handle_stream_format(
         Pad.ref(:input, pad_ref) = pad,
-        stream_format,
+        %type{} = stream_format,
         ctx,
         state
       ) do
-    cond do
+    case ctx.pads[pad].stream_format do
       # Handle receiving the first stream format on the given pad
-      is_nil(ctx.pads[pad].stream_format) ->
+      nil ->
         update_in(state, [:pad_to_track, pad_ref], fn track_id ->
           Track.new(track_id, stream_format, state.chunk_duration)
         end)
 
-      # Handle receiving all but the first stream format on the given pad,
-      # when stream format is duplicated - ignore
-      ctx.pads[pad].stream_format == stream_format ->
+      # Handle receiving a stream format of the same type
+      %^type{} ->
         state
 
       # otherwise we can assume that output will be corrupted
-      true ->
-        raise "ISOM Muxer doesn't support variable parameters"
+      previos_format ->
+        raise """
+        Unsupported stream_format change on pad #{inspect(pad_ref)}, \
+        previous format: #{inspect(previos_format)}
+        new format: #{inspect(stream_format)}
+        """
     end
     |> then(&{[], &1})
   end
