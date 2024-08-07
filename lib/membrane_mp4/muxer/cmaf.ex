@@ -393,7 +393,6 @@ defmodule Membrane.MP4.Muxer.CMAF do
   @impl true
   def handle_end_of_stream(Pad.ref(:input, _track_id) = pad, ctx, state) do
     cache = Map.fetch!(state.sample_queues, pad)
-    output_pad = state.input_to_output_pad[pad]
 
     input_pads = Map.keys(state.input_to_output_pad) -- [pad]
 
@@ -403,14 +402,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
       |> Map.values()
       |> Enum.all?(& &1.end_of_stream?)
 
-    if SamplesQueue.empty?(cache) do
-      if processing_finished? do
-        end_of_streams = generate_output_end_of_streams(ctx)
+    if SamplesQueue.empty?(cache) and processing_finished? do
+      end_of_streams = generate_output_end_of_streams(ctx)
 
-        {end_of_streams, state}
-      else
-        {[redemand: output_pad], state}
-      end
+      {end_of_streams, state}
     else
       generate_end_of_stream_segment(processing_finished?, pad, ctx, state)
     end
