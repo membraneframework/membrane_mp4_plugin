@@ -107,7 +107,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
           Track.new(track_id, new_format, state.chunk_duration)
         end)
 
-      # If the stream format is identical or remains H264 AVC3 or H265,
+      # If the stream format is identical or remains H264 AVC3 or H265 HEV1,
       # we can be reasonably sure that the stream can still be appended
       # to the same MP4
       {stream_format, stream_format} ->
@@ -117,7 +117,8 @@ defmodule Membrane.MP4.Muxer.ISOM do
        %Membrane.H264{stream_structure: {:avc3, _dcr2}}} ->
         state
 
-      {%Membrane.H265{}, %Membrane.H265{}} ->
+      {%Membrane.H265{stream_structure: {:hev1, _dcr1}},
+       %Membrane.H265{stream_structure: {:hev1, _dcr2}}} ->
         state
 
       # Otherwise we can assume that output will be corrupted
