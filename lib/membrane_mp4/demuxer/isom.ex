@@ -645,13 +645,12 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   defp all_pads_connected?(_ctx, %{samples_info: nil}), do: false
 
   defp all_pads_connected?(ctx, state) do
-    how_many_unsupported_tracks =
+    count_of_supported_tracks =
       state.samples_info.sample_tables
-      |> Enum.count(fn {_track_id, table} ->
-        table.sample_description == nil
-      end)
+      |> reject_unsupported_sample_types()
+      |> Enum.count()
 
-    tracks = 1..(state.samples_info.tracks_number - how_many_unsupported_tracks)
+    tracks = 1..count_of_supported_tracks
 
     pads =
       ctx.pads
