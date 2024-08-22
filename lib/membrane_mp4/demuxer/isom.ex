@@ -40,7 +40,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       any_of(
         %Membrane.AAC{config: {:esds, _esds}},
         %Membrane.H264{
-          stream_structure: {:avc1, _dcr},
+          stream_structure: {_avc, _dcr},
           alignment: :au
         },
         %Membrane.H265{
