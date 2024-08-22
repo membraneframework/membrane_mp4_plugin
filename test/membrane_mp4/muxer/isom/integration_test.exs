@@ -228,4 +228,31 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       perform_test(pid, "two_tracks_fast_start")
     end
   end
+
+  describe "ctts table" do
+    test "should not be stored when dts and pts values are equal" do
+      prepare_test("video")
+
+      structure = [
+        child(:file, %Membrane.File.Source{location: "test/fixtures/in_video.h264"})
+        |> child(:parser, %Membrane.H264.Parser{
+          generate_best_effort_timestamps: %{framerate: {30, 1}, add_dts_offset: false},
+          output_stream_structure: :avc1
+        })
+        |> child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
+        |> child(:sink, %Membrane.File.Sink{location: out_path_for("video")})
+      ]
+
+      pid = Pipeline.start_link_supervised!(spec: structure)
+
+      assert_end_of_stream(pid, :sink, :input)
+      refute_sink_buffer(pid, :sink, _buffer, 0)
+
+      assert :ok == Pipeline.terminate(pid)
+
+      assert {parsed_out, <<>>} = out_path_for("video") |> File.read!() |> Container.parse!()
+      assert Container.get_box(parsed_out, [:moov, :trak, :mdia, :minf, :stbl, :stts])
+      refute Container.get_box(parsed_out, [:moov, :trak, :mdia, :minf, :stbl, :ctts])
+    end
+  end
 end

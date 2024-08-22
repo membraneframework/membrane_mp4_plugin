@@ -96,27 +96,36 @@ defmodule Membrane.MP4.Muxer.ISOM do
   @impl true
   def handle_stream_format(
         Pad.ref(:input, pad_ref) = pad,
-        %type{} = stream_format,
+        stream_format,
         ctx,
         state
       ) do
-    case ctx.pads[pad].stream_format do
+    case {ctx.pads[pad].stream_format, stream_format} do
       # Handle receiving the first stream format on the given pad
-      nil ->
+      {nil, new_format} ->
         update_in(state, [:pad_to_track, pad_ref], fn track_id ->
-          Track.new(track_id, stream_format, state.chunk_duration)
+          Track.new(track_id, new_format, state.chunk_duration)
         end)
 
-      # Handle receiving a stream format of the same type
-      %^type{} ->
+      # If the stream format is identical or remains H264 AVC3 or H265,
+      # we can be reasonably sure that the stream can still be appended
+      # to the same MP4
+      {stream_format, stream_format} ->
         state
 
-      # otherwise we can assume that output will be corrupted
-      previos_format ->
+      {%Membrane.H264{stream_structure: {:avc3, _dcr1}},
+       %Membrane.H264{stream_structure: {:avc3, _dcr2}}} ->
+        state
+
+      {%Membrane.H265{}, %Membrane.H265{}} ->
+        state
+
+      # Otherwise we can assume that output will be corrupted
+      {prev_format, new_format} ->
         raise """
         Unsupported stream_format change on pad #{inspect(pad_ref)}, \
-        previous format: #{inspect(previos_format)}
-        new format: #{inspect(stream_format)}
+        previous format: #{inspect(prev_format)}
+        new format: #{inspect(new_format)}
         """
     end
     |> then(&{[], &1})
