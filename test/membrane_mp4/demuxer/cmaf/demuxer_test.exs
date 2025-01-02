@@ -21,9 +21,9 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
 
   defp ref_path_for(filename), do: "test/fixtures/payloaded/isom/payloaded_#{filename}"
 
-  describe "Demuxer should allow for transmuxing of" do
+  describe "CMAF demuxer demuxes" do
     @tag :tmp_dir
-    test "an .mp4 file with 64-bit versions of boxes", %{tmp_dir: dir} do
+    test "fragemnted MP4 box with interleaved audio and video samples", %{tmp_dir: dir} do
       in_path = "test/fixtures/cmaf/muxed_audio_video/concatenated.fmp4"
       video_output_path = Path.join(dir, "out.h264")
       audio_output_path = Path.join(dir, "out.aac")
