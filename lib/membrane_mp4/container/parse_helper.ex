@@ -27,7 +27,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
             {:ok, {fields, rest}, context} <- parse_fields(content, box_schema.fields, context),
           try:
             {:ok, children, <<>>, context} <- parse_boxes(rest, box_schema.children, context, []) do
-      box = %{fields: fields, children: children, size: content_size, header_size: header_size} |> IO.inspect(label: :box_parsed)
+      box = %{fields: fields, children: children, size: content_size, header_size: header_size} 
       parse_boxes(data, schema, context, [{name, box} | acc])
     else
       header_content: _error ->

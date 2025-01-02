@@ -3,10 +3,10 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   """
   use Membrane.Filter
 
-  alias Membrane.File.NewSeekEvent
   alias Membrane.{MP4, RemoteStream}
   alias Membrane.MP4.Container
-  alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
+  alias Membrane.MP4.Demuxer.ISOM.SamplesInfo, as: ISOMSamplesInfo
+  alias Membrane.MP4.Demuxer.CMAF.SamplesInfo, as: CMAFSamplesInfo
 
   def_input_pad :input,
     accepted_format:
@@ -52,17 +52,19 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   @header_boxes [:ftyp, :moov]
 
   @impl true
-  def handle_init(_ctx, options) do
+  def handle_init(_ctx, _options) do
     state = %{
       unprocessed_boxes: [],
       unprocessed_binary: <<>>,
       samples_info: nil,
+      tracks_to_pad_map: nil,
       all_pads_connected?: false,
       buffered_samples: %{},
       end_of_stream?: false,
       fsm_state: :moov_reading,
       pads_linked_before_notification?: false,
-      track_notifications_sent?: false
+      track_notifications_sent?: false,
+      last_timescale: nil
     }
 
     {[], state}
@@ -74,22 +76,56 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   end
 
   @impl true
-  def handle_buffer(:input, buffer, _ctx, state) do
+  def handle_buffer(:input, buffer, ctx, state) do
     {new_boxes, rest} = Container.parse!(state.unprocessed_binary <> buffer.payload)
     state = %{state | unprocessed_boxes: state.unprocessed_boxes++new_boxes, unprocessed_binary: rest}
-    state = handle_new_box(state)
+    state = handle_new_box(ctx, state)
     {[], state}
   end
 
-  defp handle_new_box(%{unprocessed_boxes: []} = state) do
+  defp handle_new_box(_ctx, %{unprocessed_boxes: []} = state) do
     state
   end
 
-  defp handle_new_box(state) do
+  defp handle_new_box(ctx, state) do
     [{first_box_name, first_box} | rest_of_boxes] = state.unprocessed_boxes
-    
+     state = do_handle_box(ctx, first_box_name, first_box, state) 
     %{state | unprocessed_boxes: rest_of_boxes}
   end
+
+  defp do_handle_box(ctx, first_box_name, first_box, %{fsm_state: :moov_reading} = state) do
+    case first_box_name do
+      :ftyp -> state
+      :moov -> 
+        samples_info = ISOMSamplesInfo.get_samples_info(
+              first_box,
+              0) 
+      tracks_to_pad_map = match_tracks_with_pads(ctx, samples_info)
+      %{state | tracks_to_pad_map: tracks_to_pad_map, fsm_state: :moof_reading}
+
+      _other -> raise "Wrong FSM state"
+    end
+  end
+
+  defp do_handle_box(_ctx, first_box_name, first_box, %{fsm_state: :moof_reading} = state) do
+    case first_box_name do
+      :sidx -> %{state | last_timescale: first_box.fields.timescale}
+      :styp -> state
+      :moof -> 
+        samples_info = CMAFSamplesInfo.get_samples_info(first_box, state.last_timescale)
+        %{state | samples_info: samples_info, fsm_state: :mdat_reading}
+      _other -> raise "Wrong FSM state, #{inspect(state)}"
+    end
+  end
+  
+  defp do_handle_box(_ctx, first_box_name, first_box, %{fsm_state: :mdat_reading} = state) do
+    case first_box_name do
+      :mdat -> 
+        %{state | fsm_state: :moof_reading}
+      _other -> raise "Wrong FSM state, #{inspect(state)}"
+    end
+  end
+  
 
   @impl true
   def handle_buffer(
@@ -299,9 +335,9 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     end
   end
 
-  defp match_tracks_with_pads(ctx, state) do
+  defp match_tracks_with_pads(ctx, samples_info) do
     sample_tables =
-      state.samples_info.sample_tables
+      samples_info.sample_tables
       |> reject_unsupported_sample_types()
 
     output_pads_data =
@@ -310,7 +346,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       |> Enum.filter(&(&1.direction == :output))
 
     if length(output_pads_data) not in [0, map_size(sample_tables)] do
-      raise_pads_not_matching_codecs_error!(ctx, state)
+      raise_pads_not_matching_codecs_error!(ctx, samples_info)
     end
 
     track_to_pad_id =
@@ -326,7 +362,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
                nil,
                sample_description_to_kind(table.sample_description)
              ] do
-            raise_pads_not_matching_codecs_error!(ctx, state)
+            raise_pads_not_matching_codecs_error!(ctx, samples_info)
           end
 
           %{track_id => pad_data_to_pad_id(pad_data)}
@@ -347,7 +383,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
               length(pads) != length(kind_to_tracks[kind])
             end)
 
-          if raise?, do: raise_pads_not_matching_codecs_error!(ctx, state)
+          if raise?, do: raise_pads_not_matching_codecs_error!(ctx, samples_info)
 
           kind_to_tracks
           |> Enum.flat_map(fn {kind, tracks} ->
@@ -357,13 +393,13 @@ defmodule Membrane.MP4.Demuxer.CMAF do
           |> Map.new()
       end
 
-    %{state | track_to_pad_id: Map.new(track_to_pad_id)}
+    track_to_pad_id
   end
 
   defp pad_data_to_pad_id(%{ref: Pad.ref(_name, id)}), do: id
 
   @spec raise_pads_not_matching_codecs_error!(map(), map()) :: no_return()
-  defp raise_pads_not_matching_codecs_error!(ctx, state) do
+  defp raise_pads_not_matching_codecs_error!(ctx, samples_info) do
     pads_kinds =
       ctx.pads
       |> Enum.flat_map(fn
@@ -372,7 +408,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       end)
 
     tracks_codecs =
-      state.samples_info.sample_tables
+      samples_info.sample_tables
       |> reject_unsupported_sample_types()
       |> Enum.map(fn {_track, table} -> table.sample_description.__struct__ end)
 
