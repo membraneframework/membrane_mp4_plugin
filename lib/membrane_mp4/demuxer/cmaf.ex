@@ -77,6 +77,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
 
   @impl true
   def handle_buffer(:input, buffer, ctx, state) do
+    IO.inspect(state.unprocessed_binary)
     {new_boxes, rest} = Container.parse!(state.unprocessed_binary <> buffer.payload)
 
     state = %{
@@ -128,7 +129,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
         state
 
       :moof ->
-        samples_info = CMAFSamplesInfo.get_samples_info(first_box, state.last_timescale)
+        samples_info = CMAFSamplesInfo.get_samples_info(first_box, state.last_timescale) |> dbg()
         %{state | samples_info: samples_info, fsm_state: :mdat_reading}
 
       _other ->
@@ -139,11 +140,16 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   defp do_handle_box(_ctx, first_box_name, first_box, %{fsm_state: :mdat_reading} = state) do
     case first_box_name do
       :mdat ->
+        read_mdat(first_box, state)
         %{state | fsm_state: :moof_reading}
 
       _other ->
         raise "Wrong FSM state, #{inspect(state)}"
     end
+  end
+
+  defp read_mdat(mdat_box, state) do
+    dbg(mdat_box)
   end
 
   defp store_samples(state, samples) do
@@ -318,7 +324,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
         {[], state}
       end
 
-    state = %{state | all_pads_connected?: all_pads_connected?} 
+    state = %{state | all_pads_connected?: all_pads_connected?}
     {actions, state}
   end
 

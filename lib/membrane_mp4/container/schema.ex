@@ -451,27 +451,9 @@ defmodule Membrane.MP4.Container.Schema do
                                sample_duration: {:uint32, when: {:fo_flags, mask: 0x000100}},
                                sample_size: {:uint32, when: {:fo_flags, mask: 0x000200}},
                                sample_flags: {:bin32, when: {:fo_flags, mask: 0x000400}},
+                               # TODO - in box with version 1 this field needs to be interpreted as signed int32
                                sample_composition_offset:
                                  {:uint32, when: {:fo_flags, mask: 0x000800}}
-                             ]}
-                        ]
-                  ],
-                  trun: [
-                    version: 1,
-                    fields:
-                      @full_box ++
-                        [
-                          sample_count: :uint32,
-                          data_offset: {:int32, when: {:fo_flags, mask: 0x000001}},
-                          first_sample_flags: {:bin32, when: {:fo_flags, mask: 0x000004}},
-                          samples:
-                            {:list,
-                             [
-                               sample_duration: {:uint32, when: {:fo_flags, mask: 0x000100}},
-                               sample_size: {:uint32, when: {:fo_flags, mask: 0x000200}},
-                               sample_flags: {:bin32, when: {:fo_flags, mask: 0x000404}},
-                               sample_composition_offset:
-                                 {:int32, when: {:fo_flags, mask: 0x000800}}
                              ]}
                         ]
                   ]
