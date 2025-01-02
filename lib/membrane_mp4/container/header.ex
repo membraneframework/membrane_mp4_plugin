@@ -30,6 +30,7 @@ defmodule Membrane.MP4.Container.Header do
         <<compact_size::integer-size(@compact_size_size)-unit(8), name::binary-size(@name_size),
           rest::binary>>
       ) do
+
     {header_size, content_size, rest} =
       case compact_size do
         0 ->
@@ -48,7 +49,7 @@ defmodule Membrane.MP4.Container.Header do
 
     {:ok,
      %__MODULE__{
-       name: parse_box_name(name),
+        name: parse_box_name(name),
        content_size: content_size,
        header_size: header_size
      }, rest}

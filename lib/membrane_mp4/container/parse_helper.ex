@@ -27,7 +27,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
             {:ok, {fields, rest}, context} <- parse_fields(content, box_schema.fields, context),
           try:
             {:ok, children, <<>>, context} <- parse_boxes(rest, box_schema.children, context, []) do
-      box = %{fields: fields, children: children, size: content_size, header_size: header_size}
+      box = %{fields: fields, children: children, size: content_size, header_size: header_size} |> IO.inspect(label: :box_parsed)
       parse_boxes(data, schema, context, [{name, box} | acc])
     else
       header_content: _error ->
@@ -123,14 +123,16 @@ defmodule Membrane.MP4.Container.ParseHelper do
 
   defp parse_field(data, {name, {:int, size}}, context) do
     case data do
-      <<int::signed-integer-size(size), rest::bitstring>> -> {:ok, {int, rest}, context}
+      <<int::signed-integer-size(size), rest::bitstring>> -> 
+        {:ok, {int, rest}, context}
       _unknown_format -> parse_field_error(data, name)
     end
   end
 
   defp parse_field(data, {name, {:uint, size}}, context) do
     case data do
-      <<uint::integer-size(size), rest::bitstring>> -> {:ok, {uint, rest}, context}
+      <<uint::integer-size(size), rest::bitstring>> -> 
+        {:ok, {uint, rest}, context}
       _unknown_format -> parse_field_error(data, name)
     end
   end
