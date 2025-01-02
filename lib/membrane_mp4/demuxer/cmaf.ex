@@ -318,7 +318,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
         {[], state}
       end
 
-    state = %{state | all_pads_connected?: all_pads_connected?} |> update_fsm_state()
+    state = %{state | all_pads_connected?: all_pads_connected?} 
     {actions, state}
   end
 
