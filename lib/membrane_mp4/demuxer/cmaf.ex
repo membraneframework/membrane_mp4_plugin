@@ -78,7 +78,13 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   @impl true
   def handle_buffer(:input, buffer, ctx, state) do
     {new_boxes, rest} = Container.parse!(state.unprocessed_binary <> buffer.payload)
-    state = %{state | unprocessed_boxes: state.unprocessed_boxes++new_boxes, unprocessed_binary: rest}
+
+    state = %{
+      state
+      | unprocessed_boxes: state.unprocessed_boxes ++ new_boxes,
+        unprocessed_binary: rest
+    }
+
     state = handle_new_box(ctx, state)
     {[], state}
   end
@@ -89,43 +95,56 @@ defmodule Membrane.MP4.Demuxer.CMAF do
 
   defp handle_new_box(ctx, state) do
     [{first_box_name, first_box} | rest_of_boxes] = state.unprocessed_boxes
-     state = do_handle_box(ctx, first_box_name, first_box, state) 
+    state = do_handle_box(ctx, first_box_name, first_box, state)
     %{state | unprocessed_boxes: rest_of_boxes}
   end
 
   defp do_handle_box(ctx, first_box_name, first_box, %{fsm_state: :moov_reading} = state) do
     case first_box_name do
-      :ftyp -> state
-      :moov -> 
-        samples_info = ISOMSamplesInfo.get_samples_info(
-              first_box,
-              0) 
-      tracks_to_pad_map = match_tracks_with_pads(ctx, samples_info)
-      %{state | tracks_to_pad_map: tracks_to_pad_map, fsm_state: :moof_reading}
+      :ftyp ->
+        state
 
-      _other -> raise "Wrong FSM state"
+      :moov ->
+        samples_info =
+          ISOMSamplesInfo.get_samples_info(
+            first_box,
+            0
+          )
+
+        tracks_to_pad_map = match_tracks_with_pads(ctx, samples_info)
+        %{state | tracks_to_pad_map: tracks_to_pad_map, fsm_state: :moof_reading}
+
+      _other ->
+        raise "Wrong FSM state"
     end
   end
 
   defp do_handle_box(_ctx, first_box_name, first_box, %{fsm_state: :moof_reading} = state) do
     case first_box_name do
-      :sidx -> %{state | last_timescale: first_box.fields.timescale}
-      :styp -> state
-      :moof -> 
+      :sidx ->
+        %{state | last_timescale: first_box.fields.timescale}
+
+      :styp ->
+        state
+
+      :moof ->
         samples_info = CMAFSamplesInfo.get_samples_info(first_box, state.last_timescale)
         %{state | samples_info: samples_info, fsm_state: :mdat_reading}
-      _other -> raise "Wrong FSM state, #{inspect(state)}"
+
+      _other ->
+        raise "Wrong FSM state, #{inspect(state)}"
     end
   end
-  
+
   defp do_handle_box(_ctx, first_box_name, first_box, %{fsm_state: :mdat_reading} = state) do
     case first_box_name do
-      :mdat -> 
+      :mdat ->
         %{state | fsm_state: :moof_reading}
-      _other -> raise "Wrong FSM state, #{inspect(state)}"
+
+      _other ->
+        raise "Wrong FSM state, #{inspect(state)}"
     end
   end
-  
 
   defp store_samples(state, samples) do
     Enum.reduce(samples, state, fn {_buffer, track_id} = sample, state ->
