@@ -6,8 +6,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
 
   alias Membrane.{MP4, RemoteStream}
   alias Membrane.MP4.Container
-  alias Membrane.MP4.Demuxer.CMAF.SamplesInfo, as: CMAFSamplesInfo
-  alias Membrane.MP4.MovieBox.SampleTableBox
+  alias Membrane.MP4.Demuxer.CMAF.SamplesInfo, as: SamplesInfo
 
   def_input_pad :input,
     accepted_format:
@@ -56,15 +55,15 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       unprocessed_boxes: [],
       unprocessed_binary: <<>>,
       samples_info: nil,
-      tracks_to_pad_map: nil,
+      track_to_pad_map: nil,
       all_pads_connected?: false,
       buffered_actions: [],
-      end_of_stream?: false,
       fsm_state: :moov_reading,
       track_notifications_sent?: false,
       last_timescales: %{},
       how_many_segment_bytes_read: 0,
-      tracks_info: nil
+      tracks_info: nil,
+      tracks_notification_sent?: false
     }
 
     {[], state}
@@ -85,28 +84,32 @@ defmodule Membrane.MP4.Demuxer.CMAF do
         unprocessed_binary: rest
     }
 
-    case state.unprocessed_boxes do
-      [] ->
-        {[], state}
-
-      [{first_box_name, first_box} | rest_of_boxes] ->
-        {actions, state} = handle_box(ctx, first_box_name, first_box, state)
-        {actions, %{state | unprocessed_boxes: rest_of_boxes}}
-    end
+    handle_box(ctx, state)
   end
 
-  defp handle_box(ctx, box_name, box, %{fsm_state: :moov_reading} = state) do
+  def handle_box(ctx, %{unprocessed_boxes: []} = state) do
+    {[], state}
+  end
+
+  def handle_box(ctx, state) do
+      [{first_box_name, first_box} | rest_of_boxes] = state.unprocessed_boxes
+      {this_box_actions, state} = do_handle_box(ctx, first_box_name, first_box, state) 
+      {actions, state} = handle_box(ctx, %{state | unprocessed_boxes: rest_of_boxes})
+      {this_box_actions++actions, state }
+  end
+
+ defp do_handle_box(ctx, box_name, box, %{fsm_state: :moov_reading} = state) do
     case box_name do
       :ftyp ->
         {[], state}
 
       :moov ->
-        tracks_info = CMAFSamplesInfo.read_moov(box) |> reject_unsupported_tracks_info()
-        tracks_to_pad_map = match_tracks_with_pads(ctx, tracks_info)
+        tracks_info = SamplesInfo.read_moov(box) |> reject_unsupported_tracks_info()
+        track_to_pad_map = match_tracks_with_pads(ctx, tracks_info)
 
         state = %{
           state
-          | tracks_to_pad_map: tracks_to_pad_map,
+          | track_to_pad_map: track_to_pad_map,
             fsm_state: :moof_reading,
             tracks_info: tracks_info
         }
@@ -119,7 +122,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
           {stream_format_actions, state}
         else
           {[pause_auto_demand: :input] ++ get_track_notifications(state),
-           %{state | buffered_actions: state.buffered_actions ++ stream_format_actions}}
+           %{state | buffered_actions: state.buffered_actions ++ stream_format_actions, track_notifications_sent?: true}}
         end
 
       _other ->
@@ -127,7 +130,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     end
   end
 
-  defp handle_box(_ctx, box_name, box, %{fsm_state: :moof_reading} = state) do
+  defp do_handle_box(_ctx, box_name, box, %{fsm_state: :moof_reading} = state) do
     case box_name do
       :sidx ->
         last_timescales =
@@ -139,7 +142,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
         {[], state}
 
       :moof ->
-        samples_info = CMAFSamplesInfo.get_samples_info(box)
+        samples_info = SamplesInfo.get_samples_info(box)
 
         {[],
          %{
@@ -154,7 +157,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     end
   end
 
-  defp handle_box(_ctx, box_name, box, %{fsm_state: :mdat_reading} = state) do
+  defp do_handle_box(_ctx, box_name, box, %{fsm_state: :mdat_reading} = state) do
     case box_name do
       :mdat ->
         state = Map.update!(state, :how_many_segment_bytes_read, &(&1 + box.header_size))
@@ -188,7 +191,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
           |> Membrane.Time.seconds()
 
         {:buffer,
-         {Pad.ref(:output, state.tracks_to_pad_map[sample.track_id]),
+         {Pad.ref(:output, state.track_to_pad_map[sample.track_id]),
           %Membrane.Buffer{payload: payload, pts: pts, dts: dts}}}
       end)
 
@@ -218,7 +221,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       raise_pads_not_matching_codecs_error!(ctx, tracks_info)
     end
 
-    track_to_pad_id =
+    track_to_pad_map =
       case output_pads_data do
         [] ->
           tracks_info
@@ -261,7 +264,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
           |> Map.new()
       end
 
-    track_to_pad_id
+    track_to_pad_map
   end
 
   defp pad_data_to_pad_id(%{ref: Pad.ref(_name, id)}), do: id
@@ -294,7 +297,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     new_tracks =
       state.tracks_info
       |> Enum.map(fn {track_id, track_format} ->
-        pad_id = state.tracks_to_pad_map[track_id]
+        pad_id = state.track_to_pad_map[track_id]
         {pad_id, track_format}
       end)
 
@@ -304,7 +307,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   defp get_stream_format(state) do
     state.tracks_info
     |> Enum.map(fn {track_id, track_format} ->
-      pad_id = state.tracks_to_pad_map[track_id]
+      pad_id = state.track_to_pad_map[track_id]
       {:stream_format, {Pad.ref(:output, pad_id), track_format}}
     end)
   end
@@ -339,17 +342,13 @@ defmodule Membrane.MP4.Demuxer.CMAF do
 
     {actions, state} =
       if all_pads_connected? do
-        {buffer_actions, state} = flush_samples(state)
-        maybe_stream_format = if state.samples_info != nil, do: get_stream_format(state), else: []
-        maybe_eos = if state.end_of_stream?, do: get_end_of_stream_actions(ctx), else: []
-
-        {maybe_stream_format ++ buffer_actions ++ [resume_auto_demand: :input] ++ maybe_eos,
-         state}
+        {actions, state} = flush_samples(state)
+        {actions++ [resume_auto_demand: :input], state}
       else
         {[], state}
       end
 
-    state = %{state | all_pads_connected?: all_pads_connected?}
+    state = %{state | all_pads_connected?: all_pads_connected?} 
     {actions, state}
   end
 
@@ -375,20 +374,20 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       Pad.ref(:output, pad_id) = pad_ref
 
       related_track =
-        state.track_to_pad_id
+        state.track_to_pad_map
         |> Map.keys()
-        |> Enum.find(&(state.track_to_pad_id[&1] == pad_id))
+        |> Enum.find(&(state.track_to_pad_map[&1] == pad_id))
 
       if related_track == nil do
         raise """
         Pad #{inspect(pad_ref)} doesn't have a related track. If you link pads after #{inspect(__MODULE__)} \
         sent the track notification, you have to restrict yourself to the pad occuring in this notification. \
-        Tracks, that occured in this notification are: #{Map.keys(state.track_to_pad_id) |> inspect()}
+        Tracks, that occured in this notification are: #{Map.keys(state.track_to_pad_map) |> inspect()}
         """
       end
 
       track_kind =
-        state.samples_info.sample_tables[related_track].sample_description
+        state.tracks_info[related_track]
         |> track_format_to_kind()
 
       if pad_kind != nil and pad_kind != track_kind do
@@ -404,11 +403,11 @@ defmodule Membrane.MP4.Demuxer.CMAF do
 
   @impl true
   def handle_end_of_stream(:input, _ctx, %{all_pads_connected?: false} = state) do
-    {[], %{state | end_of_stream?: true}}
+    {[], %{state | buffered_actions: state.buffered_actions++get_end_of_stream_actions(state)}}
   end
 
-  def handle_end_of_stream(:input, ctx, %{all_pads_connected?: true} = state) do
-    {get_end_of_stream_actions(ctx), state}
+  def handle_end_of_stream(:input, _ctx, %{all_pads_connected?: true} = state) do
+    {get_end_of_stream_actions(state), state}
   end
 
   defp all_pads_connected?(_ctx, %{tracks_info: nil}), do: false
@@ -434,10 +433,9 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     {state.buffered_actions, %{state | buffered_actions: []}}
   end
 
-  defp get_end_of_stream_actions(ctx) do
-    Enum.filter(ctx.pads, &match?({Pad.ref(:output, _id), _data}, &1))
-    |> Enum.map(fn {pad_ref, _data} ->
-      {:end_of_stream, pad_ref}
+  defp get_end_of_stream_actions(state) do
+    Enum.map(state.tracks_info, fn {track_id, _track_format} ->
+      {:end_of_stream, Pad.ref(:output, state.track_to_pad_map[track_id])}
     end)
   end
 
