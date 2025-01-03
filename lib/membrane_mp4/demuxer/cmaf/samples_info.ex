@@ -3,7 +3,16 @@ defmodule Membrane.MP4.Demuxer.CMAF.SamplesInfo do
 
   alias Membrane.MP4.MovieBox.SampleTableBox
 
-  @spec read_moov(moov_box :: map()) :: map()
+  @type sample_description :: %{
+          duration: non_neg_integer(),
+          ts: non_neg_integer(),
+          size: non_neg_integer(),
+          composition_offset: non_neg_integer(),
+          offset: non_neg_integer(),
+          track_id: non_neg_integer()
+        }
+
+  @spec read_moov(moov_box :: map()) :: %{non_neg_integer() => struct()}
   def read_moov(%{children: boxes}) do
     tracks =
       boxes
@@ -23,7 +32,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.SamplesInfo do
     end)
   end
 
-  @spec get_samples_info(moof_box :: map()) :: [map()]
+  @spec get_samples_info(moof_box :: map()) :: [sample_description()]
   def get_samples_info(%{children: boxes}) do
     boxes
     |> Enum.filter(fn {type, _content} -> type == :traf end)
