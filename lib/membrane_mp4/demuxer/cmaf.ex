@@ -61,7 +61,6 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       buffered_actions: [],
       end_of_stream?: false,
       fsm_state: :moov_reading,
-      pads_linked_before_notification?: false,
       track_notifications_sent?: false,
       last_timescales: %{},
       how_many_segment_bytes_read: 0,
@@ -114,12 +113,13 @@ defmodule Membrane.MP4.Demuxer.CMAF do
 
         state = %{state | all_pads_connected?: all_pads_connected?(ctx, state)}
 
-        stream_format_actions = get_stream_format(state) 
-      
+        stream_format_actions = get_stream_format(state)
+
         if state.all_pads_connected? do
           {stream_format_actions, state}
         else
-          {[pause_auto_demand: :input]++get_track_notifications(state), %{state | buffered_actions: state.buffered_actions++stream_format_actions}}
+          {[pause_auto_demand: :input] ++ get_track_notifications(state),
+           %{state | buffered_actions: state.buffered_actions ++ stream_format_actions}}
         end
 
       _other ->
@@ -193,10 +193,11 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       end)
 
     state = %{state | samples_info: rest_of_samples_info}
+
     if state.all_pads_connected? do
       {actions, state}
     else
-      {[], %{state | buffered_actions: state.buffered_actions++actions}}
+      {[], %{state | buffered_actions: state.buffered_actions ++ actions}}
     end
   end
 
@@ -321,7 +322,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     state =
       case ctx.playback do
         :stopped ->
-          %{state | pads_linked_before_notification?: true}
+          state
 
         :playing when state.track_notifications_sent? ->
           state
