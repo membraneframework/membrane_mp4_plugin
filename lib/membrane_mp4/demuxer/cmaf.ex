@@ -58,7 +58,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       track_to_pad_map: nil,
       all_pads_connected?: false,
       buffered_actions: [],
-      fsm_state: :moov_reading,
+      fsm_state: :reading_cmaf_header,
       track_notifications_sent?: false,
       last_timescales: %{},
       how_many_segment_bytes_read: 0,
@@ -98,7 +98,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     {this_box_actions ++ actions, state}
   end
 
-  defp do_handle_box(ctx, box_name, box, %{fsm_state: :moov_reading} = state) do
+  defp do_handle_box(ctx, box_name, box, %{fsm_state: :reading_cmaf_header} = state) do
     case box_name do
       :ftyp ->
         {[], state}
@@ -110,7 +110,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
         state = %{
           state
           | track_to_pad_map: track_to_pad_map,
-            fsm_state: :moof_reading,
+            fsm_state: :reading_fragment_header,
             tracks_info: tracks_info
         }
 
@@ -138,7 +138,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     end
   end
 
-  defp do_handle_box(_ctx, box_name, box, %{fsm_state: :moof_reading} = state) do
+  defp do_handle_box(_ctx, box_name, box, %{fsm_state: :reading_fragment_header} = state) do
     case box_name do
       :sidx ->
         last_timescales =
@@ -156,7 +156,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
          %{
            state
            | samples_info: samples_info,
-             fsm_state: :mdat_reading,
+             fsm_state: :reading_fragment_data,
              how_many_segment_bytes_read: box.size + box.header_size
          }}
 
@@ -169,12 +169,12 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     end
   end
 
-  defp do_handle_box(_ctx, box_name, box, %{fsm_state: :mdat_reading} = state) do
+  defp do_handle_box(_ctx, box_name, box, %{fsm_state: :reading_fragment_data} = state) do
     case box_name do
       :mdat ->
         state = Map.update!(state, :how_many_segment_bytes_read, &(&1 + box.header_size))
         {actions, state} = read_mdat(box, state)
-        new_fsm_state = if state.samples_info == [], do: :moof_reading, else: :mdat_reading
+        new_fsm_state = if state.samples_info == [], do: :reading_fragment_header, else: :reading_fragment_data
         {actions, %{state | fsm_state: new_fsm_state}}
 
       _other ->
