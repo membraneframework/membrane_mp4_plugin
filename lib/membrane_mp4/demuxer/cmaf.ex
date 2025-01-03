@@ -92,13 +92,13 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   end
 
   def handle_box(ctx, state) do
-      [{first_box_name, first_box} | rest_of_boxes] = state.unprocessed_boxes
-      {this_box_actions, state} = do_handle_box(ctx, first_box_name, first_box, state) 
-      {actions, state} = handle_box(ctx, %{state | unprocessed_boxes: rest_of_boxes})
-      {this_box_actions++actions, state }
+    [{first_box_name, first_box} | rest_of_boxes] = state.unprocessed_boxes
+    {this_box_actions, state} = do_handle_box(ctx, first_box_name, first_box, state)
+    {actions, state} = handle_box(ctx, %{state | unprocessed_boxes: rest_of_boxes})
+    {this_box_actions ++ actions, state}
   end
 
- defp do_handle_box(ctx, box_name, box, %{fsm_state: :moov_reading} = state) do
+  defp do_handle_box(ctx, box_name, box, %{fsm_state: :moov_reading} = state) do
     case box_name do
       :ftyp ->
         {[], state}
@@ -122,7 +122,11 @@ defmodule Membrane.MP4.Demuxer.CMAF do
           {stream_format_actions, state}
         else
           {[pause_auto_demand: :input] ++ get_track_notifications(state),
-           %{state | buffered_actions: state.buffered_actions ++ stream_format_actions, track_notifications_sent?: true}}
+           %{
+             state
+             | buffered_actions: state.buffered_actions ++ stream_format_actions,
+               track_notifications_sent?: true
+           }}
         end
 
       _other ->
@@ -343,12 +347,12 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     {actions, state} =
       if all_pads_connected? do
         {actions, state} = flush_samples(state)
-        {actions++ [resume_auto_demand: :input], state}
+        {actions ++ [resume_auto_demand: :input], state}
       else
         {[], state}
       end
 
-    state = %{state | all_pads_connected?: all_pads_connected?} 
+    state = %{state | all_pads_connected?: all_pads_connected?}
     {actions, state}
   end
 
@@ -403,7 +407,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
 
   @impl true
   def handle_end_of_stream(:input, _ctx, %{all_pads_connected?: false} = state) do
-    {[], %{state | buffered_actions: state.buffered_actions++get_end_of_stream_actions(state)}}
+    {[], %{state | buffered_actions: state.buffered_actions ++ get_end_of_stream_actions(state)}}
   end
 
   def handle_end_of_stream(:input, _ctx, %{all_pads_connected?: true} = state) do

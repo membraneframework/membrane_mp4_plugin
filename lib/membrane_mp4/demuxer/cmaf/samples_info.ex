@@ -23,7 +23,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.SamplesInfo do
     end)
   end
 
-  @spec get_samples_info(moov_box :: map()) :: map()
+  @spec get_samples_info(moof_box :: map()) :: [map()]
   def get_samples_info(%{children: boxes}) do
     boxes
     |> Enum.filter(fn {type, _content} -> type == :traf end)

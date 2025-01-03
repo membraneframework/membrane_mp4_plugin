@@ -35,14 +35,16 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
       assert_end_of_stream(pipeline, :audio_sink)
       assert :ok == Pipeline.terminate(pipeline)
 
-      assert_files_equal(video_output_path,  "test/fixtures/in_video.h264")
-      assert_files_equal(audio_output_path,  "test/fixtures/in_audio.aac")
-    end 
-  
+      assert_files_equal(video_output_path, "test/fixtures/in_video.h264")
+      assert_files_equal(audio_output_path, "test/fixtures/in_audio.aac")
+    end
+
     @tag :sometag
     @tag :tmp_dir
-    test "resolves tracks from fragmented MP4 and allows to link output pads when tracks are resolved", %{tmp_dir: dir} do
+    test "resolves tracks from fragmented MP4 and allows to link output pads when tracks are resolved",
+         %{tmp_dir: dir} do
       filename = "test/fixtures/cmaf/muxed_audio_video/concatenated.fmp4"
+
       pipeline =
         start_remote_pipeline!(
           filename: filename,
@@ -55,9 +57,10 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
                        from: _
                      },
                      2000
-      
+
       video_output_path = Path.join(dir, "out.h264")
       audio_output_path = Path.join(dir, "out.aac")
+
       structure = [
         get_child(:demuxer)
         |> via_out(Pad.ref(:output, 1))
@@ -66,7 +69,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
         get_child(:demuxer)
         |> via_out(Pad.ref(:output, 2))
         |> child(%Membrane.H264.Parser{output_stream_structure: :annexb})
-        |> child(:video_sink, %Membrane.File.Sink{location: video_output_path}),
+        |> child(:video_sink, %Membrane.File.Sink{location: video_output_path})
       ]
 
       RCPipeline.exec_actions(pipeline, spec: structure)
@@ -75,11 +78,11 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
       assert_receive %RCMessage.EndOfStream{element: :video_sink, pad: :input}, 2000
       RCPipeline.terminate(pipeline)
 
-      assert_files_equal(video_output_path,  "test/fixtures/in_video.h264")
-      assert_files_equal(audio_output_path,  "test/fixtures/in_audio.aac")
+      assert_files_equal(video_output_path, "test/fixtures/in_video.h264")
+      assert_files_equal(audio_output_path, "test/fixtures/in_audio.aac")
     end
   end
-  
+
   defp start_testing_pipeline_with_two_tracks!(opts) do
     spec = [
       child(:file, %Membrane.File.Source{location: opts[:input_file]})
