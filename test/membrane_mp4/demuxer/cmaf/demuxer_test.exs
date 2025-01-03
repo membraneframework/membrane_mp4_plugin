@@ -25,7 +25,8 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
     @tag :tmp_dir
     test "fragemnted MP4 box with interleaved audio and video samples", %{tmp_dir: dir} do
       in_path = "test/fixtures/cmaf/muxed_audio_video/concatenated.fmp4"
-      video_output_path = Path.join(dir, "out.h264")
+      # video_output_path = Path.join(dir, "out.h264") |> IO.inspect(label: :OUTPUT)
+      video_output_path = "out2.h264"
       audio_output_path = Path.join(dir, "out.aac")
 
       pipeline =
@@ -45,10 +46,11 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
     spec = [
       child(:file, %Membrane.File.Source{location: opts[:input_file]})
       |> child(:demuxer, Membrane.MP4.Demuxer.CMAF)
-      |> via_out(:output, options: [kind: :video])
+      |> via_out(Pad.ref(:output, :video), options: [kind: :video])
+      |> child(%Membrane.H264.Parser{output_stream_structure: :annexb})
       |> child(:video_sink, %Membrane.File.Sink{location: opts[:video_output_file]}),
       get_child(:demuxer)
-      |> via_out(Pad.ref(:output, 2), options: [kind: :audio])
+      |> via_out(Pad.ref(:output, :audio), options: [kind: :audio])
       |> child(:audio_sink, %Membrane.File.Sink{location: opts[:audio_output_file]})
     ]
 
