@@ -130,7 +130,11 @@ defmodule Membrane.MP4.Demuxer.CMAF do
         end
 
       _other ->
-        raise "Wrong FSM state"
+        raise """
+        Demuxer entered unexpected state.
+        Demuxer's finite state machine's state: #{inspect(state.fsm_state)}
+        Encountered box type: #{inspect(box_name)}
+        """
     end
   end
 
@@ -157,7 +161,11 @@ defmodule Membrane.MP4.Demuxer.CMAF do
          }}
 
       _other ->
-        raise "Wrong FSM state, #{inspect(state)}"
+        raise """
+        Demuxer entered unexpected state.
+        Demuxer's finite state machine's state: #{inspect(state.fsm_state)}
+        Encountered box type: #{inspect(box_name)}
+        """
     end
   end
 
@@ -170,7 +178,11 @@ defmodule Membrane.MP4.Demuxer.CMAF do
         {actions, %{state | fsm_state: new_fsm_state}}
 
       _other ->
-        raise "Wrong FSM state, #{inspect(state)}"
+        raise """
+        Demuxer entered unexpected state.
+        Demuxer's finite state machine's state: #{inspect(state.fsm_state)}
+        Encountered box type: #{inspect(box_name)}
+        """
     end
   end
 
@@ -207,6 +219,13 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       {[], %{state | buffered_actions: state.buffered_actions ++ actions}}
     end
   end
+
+  # defp parse_header(data) do
+  # case Container.Header.parse(data) do
+  # {:ok, header, _rest} -> header
+  # {:error, :not_enough_data} -> nil
+  # end
+  # end
 
   defp match_tracks_with_pads(ctx, tracks_info) do
     output_pads_data =
