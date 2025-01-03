@@ -84,17 +84,17 @@ defmodule Membrane.MP4.Demuxer.CMAF do
         unprocessed_binary: rest
     }
 
-    handle_box(ctx, state)
+    handle_boxes(ctx, state)
   end
 
-  def handle_box(ctx, %{unprocessed_boxes: []} = state) do
+  defp handle_boxes(_ctx, %{unprocessed_boxes: []} = state) do
     {[], state}
   end
 
-  def handle_box(ctx, state) do
+  defp handle_boxes(ctx, state) do
     [{first_box_name, first_box} | rest_of_boxes] = state.unprocessed_boxes
     {this_box_actions, state} = do_handle_box(ctx, first_box_name, first_box, state)
-    {actions, state} = handle_box(ctx, %{state | unprocessed_boxes: rest_of_boxes})
+    {actions, state} = handle_boxes(ctx, %{state | unprocessed_boxes: rest_of_boxes})
     {this_box_actions ++ actions, state}
   end
 
