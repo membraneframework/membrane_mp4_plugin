@@ -64,7 +64,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       fsm_state: :moov_reading,
       pads_linked_before_notification?: false,
       track_notifications_sent?: false,
-      last_timescale: nil
+      last_timescales: %{}
     }
 
     {[], state}
@@ -124,13 +124,14 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   defp do_handle_box(_ctx, first_box_name, first_box, %{fsm_state: :moof_reading} = state) do
     case first_box_name do
       :sidx ->
-        {[], %{state | last_timescale: first_box.fields.timescale}}
+        last_timescales = Map.put(state.last_timescales, first_box.fields.reference_id, first_box.fields.timescale)
+        {[], %{state | last_timescales: last_timescales}}
 
       :styp ->
         {[], state}
 
       :moof ->
-        samples_info = CMAFSamplesInfo.get_samples_info(first_box, state.last_timescale)
+        samples_info = CMAFSamplesInfo.get_samples_info(first_box)
         {[], %{state | samples_info: samples_info, fsm_state: :mdat_reading}}
 
       _other ->
@@ -152,8 +153,10 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   defp read_mdat(mdat_box, state) do
     Enum.map(state.samples_info, fn sample -> 
       payload = mdat_box.content |> :erlang.binary_part(sample.offset, sample.size) 
+      dts = Ratio.new(sample.ts, state.last_timescales[sample.track_id]) |> Membrane.Time.seconds()
+      pts = Ratio.new((sample.ts+sample.composition_offset), state.last_timescales[sample.track_id]) |> Membrane.Time.seconds()
 
-      {:buffer, {Pad.ref(:output, state.tracks_to_pad_map[sample.track_id]), %Membrane.Buffer{payload: payload}}}
+      {:buffer, {Pad.ref(:output, state.tracks_to_pad_map[sample.track_id]), %Membrane.Buffer{payload: payload, pts: pts, dts: dts}}}
     end)
   end
 

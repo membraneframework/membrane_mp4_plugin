@@ -1,5 +1,5 @@
 defmodule Membrane.MP4.Demuxer.CMAF.SamplesInfo do
-  def get_samples_info(%{children: boxes}, timescale) do
+  def get_samples_info(%{children: boxes}) do
     boxes
     |> Enum.filter(fn {type, _content} -> type == :traf end)
     |> Enum.map(fn {:traf, box} -> box end)
@@ -15,23 +15,24 @@ defmodule Membrane.MP4.Demuxer.CMAF.SamplesInfo do
     default_sample_size = traf_box.children[:tfhd].fields[:default_sample_size] || nil
 
     Enum.filter(traf_box.children, fn {box_name, _box} -> box_name == :trun end)
-    |> Enum.flat_map(fn {:trun, trun_box} ->
-      Enum.map_reduce(
+    |> Enum.flat_map_reduce(traf_box.children[:tfdt].fields.base_media_decode_time, fn {:trun, trun_box}, ts_acc ->
+        {samples, {_size_acc, ts_acc}} = Enum.map_reduce(
         trun_box.fields.samples,
-        0,#TODO: why base_data_offset + trun_box.fields.data_offset doesn't work here?
-        fn sample, size_acc ->
+        {0, ts_acc}, #TODO: why base_data_offset + trun_box.fields.data_offset doesn't work here?
+        fn sample, {size_acc, ts_acc} ->
           size = sample[:sample_size] || default_sample_size
-
+          duration = sample[:sample_duration] || default_sample_duration
           {%{
-             duration: sample[:sample_duration] || default_sample_duration,
+             duration: duration,
+             ts: ts_acc,
              size: size,
              composition_offset: sample[:composition_offset] || 0,
              offset: size_acc,
              track_id: track_id
-           }, size_acc + size}
-        end
-      )
-      |> elem(0)
-    end)
+           }, {size_acc + size, ts_acc+duration}}
+        end)
+
+      {samples, ts_acc}
+    end) |> elem(0)
   end
 end
