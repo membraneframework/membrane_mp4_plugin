@@ -1,12 +1,13 @@
 defmodule Membrane.MP4.Demuxer.CMAF do
   @moduledoc """
+  A demuxer capable of demuxing streams packed in CMAF container.
   """
   use Membrane.Filter
 
   alias Membrane.{MP4, RemoteStream}
   alias Membrane.MP4.Container
-  alias Membrane.MP4.Demuxer.ISOM.SamplesInfo, as: ISOMSamplesInfo
   alias Membrane.MP4.Demuxer.CMAF.SamplesInfo, as: CMAFSamplesInfo
+  alias Membrane.MP4.MovieBox.SampleTableBox
 
   def_input_pad :input,
     accepted_format:
@@ -49,8 +50,6 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   @type new_tracks_t() ::
           {:new_tracks, [{track_id :: integer(), content :: struct()}]}
 
-  @header_boxes [:ftyp, :moov]
-
   @impl true
   def handle_init(_ctx, _options) do
     state = %{
@@ -65,7 +64,8 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       pads_linked_before_notification?: false,
       track_notifications_sent?: false,
       last_timescales: %{},
-      how_many_segment_bytes_read: 0
+      how_many_segment_bytes_read: 0,
+      tracks_info: nil
     }
 
     {[], state}
@@ -105,17 +105,11 @@ defmodule Membrane.MP4.Demuxer.CMAF do
         {[], state}
 
       :moov ->
-        samples_info =
-          ISOMSamplesInfo.get_samples_info(
-            box,
-            0
-          )
-        tracks_to_pad_map = match_tracks_with_pads(ctx, samples_info) 
-        actions = Enum.map(samples_info.sample_tables, fn {track_id, samples_table} -> 
-          track_pad = Pad.ref(:output, Map.get(tracks_to_pad_map, track_id))
-          {:stream_format, {track_pad, samples_table.sample_description}}
-        end)
-        state = %{state | tracks_to_pad_map: tracks_to_pad_map, fsm_state: :moof_reading}
+        tracks_info = CMAFSamplesInfo.read_moov(box) |> reject_unsupported_tracks_info()
+        tracks_to_pad_map = match_tracks_with_pads(ctx, tracks_info) 
+        state = %{state | tracks_to_pad_map: tracks_to_pad_map, fsm_state: :moof_reading, tracks_info: tracks_info}
+        actions = get_stream_format(state)++maybe_get_track_notifications(state)
+
         {actions, state}
       _other ->
         raise "Wrong FSM state"
@@ -174,7 +168,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
 
   defp get_buffer_actions(samples, state) do
     Enum.map(samples, fn {buffer, track_id} ->
-      pad_id = state.track_to_pad_id[track_id]
+      pad_id = state.tracks_to_pad_map[track_id]
       {:buffer, {Pad.ref(:output, pad_id), buffer}}
     end)
   end
@@ -186,34 +180,30 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     end
   end
 
-  defp match_tracks_with_pads(ctx, samples_info) do
-    sample_tables =
-      samples_info.sample_tables
-      |> reject_unsupported_sample_types()
-
+  defp match_tracks_with_pads(ctx, tracks_info) do
     output_pads_data =
       ctx.pads
       |> Map.values()
       |> Enum.filter(&(&1.direction == :output))
 
-    if length(output_pads_data) not in [0, map_size(sample_tables)] do
-      raise_pads_not_matching_codecs_error!(ctx, samples_info)
+    if length(output_pads_data) not in [0, map_size(tracks_info)] do
+      raise_pads_not_matching_codecs_error!(ctx, tracks_info)
     end
 
     track_to_pad_id =
       case output_pads_data do
         [] ->
-          sample_tables
+          tracks_info
           |> Map.new(fn {track_id, _table} -> {track_id, track_id} end)
 
         [pad_data] ->
-          {track_id, table} = Enum.at(sample_tables, 0)
+          {track_id, track_format} = Enum.at(tracks_info, 0)
 
           if pad_data.options.kind not in [
                nil,
-               sample_description_to_kind(table.sample_description)
+               track_format_to_kind(track_format)
              ] do
-            raise_pads_not_matching_codecs_error!(ctx, samples_info)
+            raise_pads_not_matching_codecs_error!(ctx, tracks_info)
           end
 
           %{track_id => pad_data_to_pad_id(pad_data)}
@@ -222,11 +212,10 @@ defmodule Membrane.MP4.Demuxer.CMAF do
           kind_to_pads_data = output_pads_data |> Enum.group_by(& &1.options.kind)
 
           kind_to_tracks =
-            sample_tables
-            |> reject_unsupported_sample_types()
+            tracks_info
             |> Enum.group_by(
-              fn {_track_id, table} -> sample_description_to_kind(table.sample_description) end,
-              fn {track_id, _table} -> track_id end
+              fn {_track_id, track_format} -> track_format_to_kind(track_format) end,
+              fn {track_id, _track_format} -> track_id end
             )
 
           raise? =
@@ -234,7 +223,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
               length(pads) != length(kind_to_tracks[kind])
             end)
 
-          if raise?, do: raise_pads_not_matching_codecs_error!(ctx, samples_info)
+          if raise?, do: raise_pads_not_matching_codecs_error!(ctx, tracks_info)
 
           kind_to_tracks
           |> Enum.flat_map(fn {kind, tracks} ->
@@ -250,7 +239,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   defp pad_data_to_pad_id(%{ref: Pad.ref(_name, id)}), do: id
 
   @spec raise_pads_not_matching_codecs_error!(map(), map()) :: no_return()
-  defp raise_pads_not_matching_codecs_error!(ctx, samples_info) do
+  defp raise_pads_not_matching_codecs_error!(ctx, tracks_info) do
     pads_kinds =
       ctx.pads
       |> Enum.flat_map(fn
@@ -259,9 +248,8 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       end)
 
     tracks_codecs =
-      samples_info.sample_tables
-      |> reject_unsupported_sample_types()
-      |> Enum.map(fn {_track, table} -> table.sample_description.__struct__ end)
+      tracks_info
+      |> Enum.map(fn {_track, track_format} -> track_format.__struct__ end)
 
     raise """
     Pads kinds don't match with tracks codecs. Pads kinds are #{inspect(pads_kinds)}. \
@@ -269,31 +257,29 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     """
   end
 
-  defp sample_description_to_kind(%Membrane.H264{}), do: :video
-  defp sample_description_to_kind(%Membrane.H265{}), do: :video
-  defp sample_description_to_kind(%Membrane.AAC{}), do: :audio
-  defp sample_description_to_kind(%Membrane.Opus{}), do: :audio
+  defp track_format_to_kind(%Membrane.H264{}), do: :video
+  defp track_format_to_kind(%Membrane.H265{}), do: :video
+  defp track_format_to_kind(%Membrane.AAC{}), do: :audio
+  defp track_format_to_kind(%Membrane.Opus{}), do: :audio
 
   defp maybe_get_track_notifications(%{pads_linked_before_notification?: true}), do: []
 
   defp maybe_get_track_notifications(%{pads_linked_before_notification?: false} = state) do
     new_tracks =
-      state.samples_info.sample_tables
-      |> reject_unsupported_sample_types()
-      |> Enum.map(fn {track_id, table} ->
-        pad_id = state.track_to_pad_id[track_id]
-        {pad_id, table.sample_description}
+      state.tracks_info
+      |> Enum.map(fn {track_id, track_format} ->
+        pad_id = state.tracks_to_pad_map[track_id]
+        {pad_id, track_format}
       end)
 
     [{:notify_parent, {:new_tracks, new_tracks}}]
   end
 
   defp get_stream_format(state) do
-    state.samples_info.sample_tables
-    |> reject_unsupported_sample_types()
-    |> Enum.map(fn {track_id, table} ->
-      pad_id = state.track_to_pad_id[track_id]
-      {:stream_format, {Pad.ref(:output, pad_id), table.sample_description}}
+    state.tracks_info
+    |> Enum.map(fn {track_id, track_format} ->
+      pad_id = state.tracks_to_pad_map[track_id]
+      {:stream_format, {Pad.ref(:output, pad_id), track_format}}
     end)
   end
 
@@ -377,7 +363,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
 
       track_kind =
         state.samples_info.sample_tables[related_track].sample_description
-        |> sample_description_to_kind()
+        |> track_format_to_kind()
 
       if pad_kind != nil and pad_kind != track_kind do
         raise """
@@ -403,8 +389,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
 
   defp all_pads_connected?(ctx, state) do
     count_of_supported_tracks =
-      state.samples_info.sample_tables
-      |> reject_unsupported_sample_types()
+      state.tracks_info
       |> Enum.count()
 
     tracks = 1..count_of_supported_tracks
@@ -447,7 +432,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     end)
   end
 
-  defp reject_unsupported_sample_types(sample_tables) do
-    Map.reject(sample_tables, fn {_track_id, table} -> table.sample_description == nil end)
+  defp reject_unsupported_tracks_info(tracks_info) do
+    Map.reject(tracks_info, fn {_track_id, track_format} -> track_format == nil end)
   end
 end

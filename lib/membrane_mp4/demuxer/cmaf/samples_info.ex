@@ -1,4 +1,22 @@
 defmodule Membrane.MP4.Demuxer.CMAF.SamplesInfo do
+  alias Membrane.MP4.MovieBox.SampleTableBox
+  def read_moov(%{children: boxes}) do
+      
+     tracks =
+     boxes
+     |> Enum.filter(fn {type, _content} -> type == :trak end)
+     |> Enum.into(%{}, fn {:trak, %{children: boxes}} ->
+       {boxes[:tkhd].fields.track_id, boxes}
+     end)
+
+     Map.new(tracks, fn {track_id, boxes} ->
+        sample_table = SampleTableBox.unpack(
+          boxes[:mdia].children[:minf].children[:stbl],
+          boxes[:mdia].children[:mdhd].fields.timescale)
+      {track_id, sample_table.sample_description}
+      end)
+ end
+
   def get_samples_info(%{children: boxes}) do
     boxes
     |> Enum.filter(fn {type, _content} -> type == :traf end)
