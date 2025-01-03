@@ -18,7 +18,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.SamplesInfo do
     |> Enum.flat_map_reduce(traf_box.children[:tfdt].fields.base_media_decode_time, fn {:trun, trun_box}, ts_acc ->
         {samples, {_size_acc, ts_acc}} = Enum.map_reduce(
         trun_box.fields.samples,
-        {0, ts_acc}, #TODO: why base_data_offset + trun_box.fields.data_offset doesn't work here?
+        {base_data_offset + trun_box.fields.data_offset, ts_acc}, 
         fn sample, {size_acc, ts_acc} ->
           size = sample[:sample_size] || default_sample_size
           duration = sample[:sample_duration] || default_sample_duration

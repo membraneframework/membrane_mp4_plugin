@@ -64,7 +64,8 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       fsm_state: :moov_reading,
       pads_linked_before_notification?: false,
       track_notifications_sent?: false,
-      last_timescales: %{}
+      last_timescales: %{},
+      how_many_segment_bytes_read: 0
     }
 
     {[], state}
@@ -98,15 +99,15 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     {actions, %{state | unprocessed_boxes: rest_of_boxes}}
   end
 
-  defp do_handle_box(ctx, first_box_name, first_box, %{fsm_state: :moov_reading} = state) do
-    case first_box_name do
+  defp do_handle_box(ctx, box_name, box, %{fsm_state: :moov_reading} = state) do
+    case box_name do
       :ftyp ->
         {[], state}
 
       :moov ->
         samples_info =
           ISOMSamplesInfo.get_samples_info(
-            first_box,
+            box,
             0
           )
         tracks_to_pad_map = match_tracks_with_pads(ctx, samples_info) 
@@ -121,29 +122,31 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     end
   end
 
-  defp do_handle_box(_ctx, first_box_name, first_box, %{fsm_state: :moof_reading} = state) do
-    case first_box_name do
+  defp do_handle_box(_ctx, box_name, box, %{fsm_state: :moof_reading} = state) do
+    case box_name do
       :sidx ->
-        last_timescales = Map.put(state.last_timescales, first_box.fields.reference_id, first_box.fields.timescale)
+        last_timescales = Map.put(state.last_timescales, box.fields.reference_id, box.fields.timescale)
         {[], %{state | last_timescales: last_timescales}}
 
       :styp ->
         {[], state}
 
       :moof ->
-        samples_info = CMAFSamplesInfo.get_samples_info(first_box)
-        {[], %{state | samples_info: samples_info, fsm_state: :mdat_reading}}
+        samples_info = CMAFSamplesInfo.get_samples_info(box)
+        {[], %{state | samples_info: samples_info, fsm_state: :mdat_reading, how_many_segment_bytes_read: box.size+box.header_size}}
 
       _other ->
         raise "Wrong FSM state, #{inspect(state)}"
     end
   end
 
-  defp do_handle_box(_ctx, first_box_name, first_box, %{fsm_state: :mdat_reading} = state) do
-    case first_box_name do
+  defp do_handle_box(_ctx, box_name, box, %{fsm_state: :mdat_reading} = state) do
+    case box_name do
       :mdat ->
-        actions = read_mdat(first_box, state)
-        {actions, %{state | fsm_state: :moof_reading}}
+        state = Map.update!(state, :how_many_segment_bytes_read, &(&1+box.header_size))
+        {actions, state} = read_mdat(box, state)
+        new_fsm_state = if state.samples_info == [], do: :moof_reading, else: :mdat_reading
+        {actions, %{state | fsm_state: new_fsm_state}}
 
       _other ->
         raise "Wrong FSM state, #{inspect(state)}"
@@ -151,13 +154,15 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   end
 
   defp read_mdat(mdat_box, state) do
-    Enum.map(state.samples_info, fn sample -> 
-      payload = mdat_box.content |> :erlang.binary_part(sample.offset, sample.size) 
+    {this_mdat_samples, rest_of_samples_info} = Enum.split_while(state.samples_info, &(&1.offset-state.how_many_segment_bytes_read<byte_size(mdat_box.content)))
+    actions = Enum.map(this_mdat_samples, fn sample -> 
+      payload = mdat_box.content |> :erlang.binary_part(sample.offset-state.how_many_segment_bytes_read, sample.size) 
       dts = Ratio.new(sample.ts, state.last_timescales[sample.track_id]) |> Membrane.Time.seconds()
       pts = Ratio.new((sample.ts+sample.composition_offset), state.last_timescales[sample.track_id]) |> Membrane.Time.seconds()
 
       {:buffer, {Pad.ref(:output, state.tracks_to_pad_map[sample.track_id]), %Membrane.Buffer{payload: payload, pts: pts, dts: dts}}}
     end)
+    {actions, %{state |samples_info: rest_of_samples_info}}
   end
 
   defp store_samples(state, samples) do
