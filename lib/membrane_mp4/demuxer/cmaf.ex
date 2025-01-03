@@ -58,7 +58,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       samples_info: nil,
       tracks_to_pad_map: nil,
       all_pads_connected?: false,
-      buffered_samples: %{},
+      buffered_actions: [],
       end_of_stream?: false,
       fsm_state: :moov_reading,
       pads_linked_before_notification?: false,
@@ -112,9 +112,15 @@ defmodule Membrane.MP4.Demuxer.CMAF do
             tracks_info: tracks_info
         }
 
-        actions = get_stream_format(state) ++ maybe_get_track_notifications(state)
+        state = %{state | all_pads_connected?: all_pads_connected?(ctx, state)}
 
-        {actions, state}
+        stream_format_actions = get_stream_format(state) 
+      
+        if state.all_pads_connected? do
+          {stream_format_actions, state}
+        else
+          {[pause_auto_demand: :input]++get_track_notifications(state), %{state | buffered_actions: state.buffered_actions++stream_format_actions}}
+        end
 
       _other ->
         raise "Wrong FSM state"
@@ -186,14 +192,12 @@ defmodule Membrane.MP4.Demuxer.CMAF do
           %Membrane.Buffer{payload: payload, pts: pts, dts: dts}}}
       end)
 
-    {actions, %{state | samples_info: rest_of_samples_info}}
-  end
-
-  defp store_samples(state, samples) do
-    Enum.reduce(samples, state, fn {_buffer, track_id} = sample, state ->
-      samples = [sample | Map.get(state.buffered_samples, track_id, [])]
-      put_in(state, [:buffered_samples, track_id], samples)
-    end)
+    state = %{state | samples_info: rest_of_samples_info}
+    if state.all_pads_connected? do
+      {actions, state}
+    else
+      {[], %{state | buffered_actions: state.buffered_actions++actions}}
+    end
   end
 
   defp parse_header(data) do
@@ -285,9 +289,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   defp track_format_to_kind(%Membrane.AAC{}), do: :audio
   defp track_format_to_kind(%Membrane.Opus{}), do: :audio
 
-  defp maybe_get_track_notifications(%{pads_linked_before_notification?: true}), do: []
-
-  defp maybe_get_track_notifications(%{pads_linked_before_notification?: false} = state) do
+  defp get_track_notifications(state) do
     new_tracks =
       state.tracks_info
       |> Enum.map(fn {track_id, track_format} ->
@@ -428,24 +430,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   end
 
   defp flush_samples(state) do
-    actions =
-      Enum.flat_map(state.buffered_samples, fn {track_id, track_samples} ->
-        buffers =
-          track_samples
-          |> Enum.reverse()
-          |> Enum.map(fn {buffer, ^track_id} -> buffer end)
-
-        pad_id = state.track_to_pad_id[track_id]
-
-        if pad_id != nil do
-          [buffer: {Pad.ref(:output, pad_id), buffers}]
-        else
-          []
-        end
-      end)
-
-    state = %{state | buffered_samples: %{}}
-    {actions, state}
+    {state.buffered_actions, %{state | buffered_actions: []}}
   end
 
   defp get_end_of_stream_actions(ctx) do
