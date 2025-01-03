@@ -7,8 +7,8 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
   require Membrane.RCPipeline, as: RCPipeline
   require Membrane.Pad, as: Pad
 
-  alias Membrane.Testing.Pipeline
   alias Membrane.RCMessage
+  alias Membrane.Testing.Pipeline
 
   # Fixtures used in demuxer tests below were generated with `chunk_duration` option set to `Membrane.Time.seconds(1)`.
   defp assert_files_equal(file_a, file_b) do
