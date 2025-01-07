@@ -388,24 +388,16 @@ defmodule Membrane.MP4.Container.Schema do
                       reserved: <<0::16-integer>>,
                       reference_count: :uint16,
                       # TODO: make a list once list length is supported
-                      # reference_list: [
-                      #   [
-                      #     reference_type: :bin1,
-                      #     referenced_size: :uint31,
-                      #     subsegment_duration: :uint32,
-                      #     starts_with_sap: :bin1,
-                      #     sap_type: :uint3,
-                      #     sap_delta_time: :uint28
-                      #   ],
-                      #   length: :reference_count
-                      # ]
-                      reference_type: :bin1,
-                      # from the beginning of moof to the end
-                      referenced_size: :uint31,
-                      subsegment_duration: :uint32,
-                      starts_with_sap: :bin1,
-                      sap_type: :uint3,
-                      sap_delta_time: :uint28
+                      reference_list:
+                        {:list,
+                         [
+                           reference_type: :bin1,
+                           referenced_size: :uint31,
+                           subsegment_duration: :uint32,
+                           starts_with_sap: :bin1,
+                           sap_type: :uint3,
+                           sap_delta_time: :uint28
+                         ]}
                     ]
               ],
               moof: [
@@ -475,7 +467,6 @@ defmodule Membrane.MP4.Container.Schema do
                              ]}
                         ]
                   ]
-
                 ]
               ],
               mdat: [
