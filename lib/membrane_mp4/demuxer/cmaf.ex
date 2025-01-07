@@ -174,7 +174,10 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       :mdat ->
         state = Map.update!(state, :how_many_segment_bytes_read, &(&1 + box.header_size))
         {actions, state} = read_mdat(box, state)
-        new_fsm_state = if state.samples_info == [], do: :reading_fragment_header, else: :reading_fragment_data
+
+        new_fsm_state =
+          if state.samples_info == [], do: :reading_fragment_header, else: :reading_fragment_data
+
         {actions, %{state | fsm_state: new_fsm_state}}
 
       _other ->
