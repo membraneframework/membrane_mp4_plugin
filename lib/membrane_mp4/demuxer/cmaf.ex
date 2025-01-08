@@ -103,6 +103,9 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       :ftyp ->
         {[], state}
 
+      :free ->
+        {[], state}
+
       :moov ->
         tracks_info = SamplesInfo.read_moov(box) |> reject_unsupported_tracks_info()
         track_to_pad_map = match_tracks_with_pads(ctx, tracks_info)

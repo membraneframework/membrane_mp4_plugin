@@ -43,22 +43,49 @@ defmodule Membrane.MP4.Demuxer.CMAF.SamplesInfo do
 
   defp handle_track(traf_box) do
     track_id = traf_box.children[:tfhd].fields.track_id
-    base_data_offset = traf_box.children[:tfhd].fields[:base_data_offset] || 0
 
-    default_sample_duration = traf_box.children[:tfhd].fields[:default_sample_duration] || nil
-    default_sample_size = traf_box.children[:tfhd].fields[:default_sample_size] || nil
+    base_data_offset =
+      case traf_box.children[:tfhd].fields[:base_data_offset] do
+        [] -> 0
+        other -> other
+      end
+
+    default_sample_duration =
+      case traf_box.children[:tfhd].fields[:default_sample_duration] do
+        [] -> 0
+        other -> other
+      end
+
+    default_sample_size =
+      case traf_box.children[:tfhd].fields[:default_sample_size] do
+        [] -> nil
+        other -> other
+      end
+
+    base_media_decode_time =
+      case traf_box.children[:tfdt].fields.base_media_decode_time do
+        [] -> 0
+        other -> other
+      end
 
     Enum.filter(traf_box.children, fn {box_name, _box} -> box_name == :trun end)
-    |> Enum.flat_map_reduce(traf_box.children[:tfdt].fields.base_media_decode_time, fn {:trun,
-                                                                                        trun_box},
-                                                                                       ts_acc ->
+    |> Enum.flat_map_reduce(base_media_decode_time, fn {:trun, trun_box}, ts_acc ->
       {samples, {_size_acc, ts_acc}} =
         Enum.map_reduce(
           trun_box.fields.samples,
           {base_data_offset + trun_box.fields.data_offset, ts_acc},
           fn sample, {size_acc, ts_acc} ->
-            size = sample[:sample_size] || default_sample_size
-            duration = sample[:sample_duration] || default_sample_duration
+            size =
+              case sample[:sample_size] do
+                [] -> default_sample_size
+                other -> other
+              end
+
+            duration =
+              case sample[:sample_duration] do
+                [] -> default_sample_duration
+                other -> other
+              end
 
             {%{
                duration: duration,

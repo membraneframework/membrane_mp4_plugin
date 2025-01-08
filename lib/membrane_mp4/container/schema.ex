@@ -383,8 +383,10 @@ defmodule Membrane.MP4.Container.Schema do
                     [
                       reference_id: :uint32,
                       timescale: :uint32,
-                      earliest_presentation_time: :uint64,
-                      first_offset: :uint64,
+                      earliest_presentation_time: {:uint32, when: {:version, value: 0}},
+                      earliest_presentation_time: {:uint64, when: {:version, value: 1}},
+                      first_offset: {:uint32, when: {:version, value: 0}},
+                      first_offset: {:uint64, when: {:version, value: 1}},
                       reserved: <<0::16-integer>>,
                       reference_count: :uint16,
                       # TODO: make a list once list length is supported
@@ -416,9 +418,10 @@ defmodule Membrane.MP4.Container.Schema do
                       @full_box ++
                         [
                           track_id: :uint32,
-                          default_sample_duration: :uint32,
-                          default_sample_size: :uint32,
-                          default_sample_flags: :uint32
+                          base_data_offset: {:uint64, when: {:tf_flags, mask: 0x00001}},
+                          default_sample_duration: {:uint32, when: {:tf_flags, mask: 0x000008}},
+                          default_sample_size: {:uint32, when: {:tf_flags, mask: 0x000010}},
+                          default_sample_flags: {:uint32, when: {:tf_flags, mask: 0x000020}}
                         ]
                   ],
                   tfdt: [
@@ -426,7 +429,8 @@ defmodule Membrane.MP4.Container.Schema do
                     fields:
                       @full_box ++
                         [
-                          base_media_decode_time: :uint64
+                          base_media_decode_time: {:uint32, when: {:version, value: 0}},
+                          base_media_decode_time: {:uint64, when: {:version, value: 1}}
                         ]
                   ],
                   trun: [
