@@ -18,6 +18,16 @@ defmodule Membrane.MP4.Container.Schema.Parser do
         |> Map.new()
         |> Map.merge(%{black_box?: false, children: parse(children)})
         |> Map.update(:fields, [], &parse_fields/1)
+        |> case do
+          %{version: _version, fields: fields} when not is_map_key(fields, :version) ->
+            raise "Version requirement provided for box #{name}, but field version is absent"
+
+          %{version: version} = schema when is_integer(version) ->
+            %{schema | version: [version]}
+
+          schema ->
+            schema
+        end
       end
 
     {name, schema}
@@ -62,27 +72,15 @@ defmodule Membrane.MP4.Container.Schema.Parser do
     {name, type}
   end
 
-  defp parse_field({name, {type, store: context_name, when: {context_name, opts}}})
-       when is_atom(name) do
-    {name, type} = parse_field({name, type})
-    type = {type, store: context_name, when: {context_name, opts}}
-    {name, type}
-  end
-
-  defp parse_field({name, {type, store: context_name}}) when is_atom(name) do
-    {name, type} = parse_field({name, type})
-    type = {type, store: context_name}
-    {name, type}
-  end
-
-  defp parse_field({name, {type, when: {context_name, opts}}}) when is_atom(name) do
-    {name, type} = parse_field({name, type})
-    type = {type, when: {context_name, opts}}
-    {name, type}
-  end
-
   defp parse_field({name, {:list, type}}) do
     {name, type} = parse_field({name, type})
     {name, {:list, type}}
+  end
+
+  defp parse_field({name, {type, opts}}) when is_atom(name) and is_list(opts) do
+    Keyword.validate!(opts, [:store, :when])
+    {name, type} = parse_field({name, type})
+    type = {type, Map.new(opts)}
+    {name, type}
   end
 end

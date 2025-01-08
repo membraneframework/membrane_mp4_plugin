@@ -64,7 +64,7 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     end
   end
 
-  defp serialize_field(term, {type, store: context_name, when: {key, [mask: mask]}}, context) do
+  defp serialize_field(term, {type, %{store: context_name, when: {key, [mask: mask]}}}, context) do
     context_object = Map.get(context, key)
 
     if context_object != nil and (mask &&& context_object) == mask do
@@ -74,7 +74,7 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     end
   end
 
-  defp serialize_field(term, {type, store: context_name, when: {key, [value: value]}}, context) do
+  defp serialize_field(term, {type, %{store: context_name, when: {key, [value: value]}}}, context) do
     context_object = Map.get(context, key)
 
     if context_object != nil and context_object == value do
@@ -84,12 +84,12 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     end
   end
 
-  defp serialize_field(term, {type, store: context_name}, context) do
+  defp serialize_field(term, {type, %{store: context_name}}, context) do
     context = Map.put(context, context_name, term)
     serialize_field(term, type, context)
   end
 
-  defp serialize_field(term, {type, when: {key, [mask: mask]}}, context) do
+  defp serialize_field(term, {type, %{when: {key, [mask: mask]}}}, context) do
     context_object = Map.get(context, key, 0)
 
     if (mask &&& context_object) == mask do
@@ -99,7 +99,7 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     end
   end
 
-  defp serialize_field(term, {type, when: {key, [value: value]}}, context) do
+  defp serialize_field(term, {type, %{when: {key, [value: value]}}}, context) do
     context_object = Map.get(context, key, 0)
 
     if context_object == value do

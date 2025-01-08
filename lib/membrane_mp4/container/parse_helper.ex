@@ -25,6 +25,8 @@ defmodule Membrane.MP4.Container.ParseHelper do
           known?: true <- box_schema && not box_schema.black_box?,
           try:
             {:ok, {fields, rest}, context} <- parse_fields(content, box_schema.fields, context),
+          version:
+            true <- !is_map_key(box_schema, :version) or fields.version in box_schema.version,
           try:
             {:ok, children, rest, context} <- parse_boxes(rest, box_schema.children, context, []),
           leftover: <<>> <- rest do
@@ -41,6 +43,9 @@ defmodule Membrane.MP4.Container.ParseHelper do
 
       leftover: leftover ->
         {:error, [box: name, reason: {:non_empty_leftover, leftover}]}
+
+      version: false ->
+        {:error, [box: name, reason: {:invalid_version, fields.version, box_schema.version}]}
 
       try: {:error, context} ->
         {:error, [box: name] ++ context}
@@ -78,26 +83,19 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
-  defp parse_field(data, {name, {type, store: context_name, when: when_clause}}, context) do
-    if handle_when(when_clause, context) do
-      parse_field(data, {name, {type, store: context_name}}, context)
-    else
-      {:ok, :ignore, context}
-    end
-  end
+  defp parse_field(data, {name, {type, opts}}, context) when is_map(opts) do
+    withl when: true <- handle_when(opts, context),
+          parse: {:ok, {value, rest}, context} <- parse_field(data, {name, type}, context) do
+      context =
+        case opts do
+          %{store: store_name} -> Map.put(context, store_name, value)
+          _opts -> context
+        end
 
-  defp parse_field(data, {name, {type, store: context_name}}, context) do
-    {:ok, result, context} = parse_field(data, {name, type}, context)
-    {value, _rest} = result
-    context = Map.put(context, context_name, value)
-    {:ok, result, context}
-  end
-
-  defp parse_field(data, {name, {type, when: when_clause}}, context) do
-    if handle_when(when_clause, context) do
-      parse_field(data, {name, type}, context)
+      {:ok, {value, rest}, context}
     else
-      {:ok, :ignore, context}
+      when: false -> {:ok, :ignore, context}
+      parse: error -> error
     end
   end
 
@@ -176,7 +174,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
     {:error, [field: name] ++ context}
   end
 
-  defp handle_when({key, condition}, context) do
+  defp handle_when(%{when: {key, condition}}, context) do
     with {:ok, value} <- Map.fetch(context, key) do
       case condition do
         [value: cond_value] -> value == cond_value
@@ -187,4 +185,6 @@ defmodule Membrane.MP4.Container.ParseHelper do
         raise "MP4 schema field #{key} not found in context"
     end
   end
+
+  defp handle_when(_opts, _context), do: true
 end

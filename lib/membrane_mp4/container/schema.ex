@@ -66,7 +66,7 @@ defmodule Membrane.MP4.Container.Schema do
               ],
               moov: [
                 mvhd: [
-                  version: 0,
+                  version: 0..1,
                   fields:
                     @full_box ++
                       [
@@ -100,7 +100,7 @@ defmodule Membrane.MP4.Container.Schema do
                 ],
                 trak: [
                   tkhd: [
-                    version: 0,
+                    version: 0..1,
                     fields:
                       @full_box ++
                         [
@@ -132,7 +132,7 @@ defmodule Membrane.MP4.Container.Schema do
                   ],
                   mdia: [
                     mdhd: [
-                      version: 0,
+                      version: 0..1,
                       fields:
                         @full_box ++
                           [
@@ -227,7 +227,6 @@ defmodule Membrane.MP4.Container.Schema do
                             ]
                           ],
                           Opus: [
-                            version: 0,
                             fields: [
                               reserved: <<0::6*8>>,
                               data_reference_index: :uint16,
