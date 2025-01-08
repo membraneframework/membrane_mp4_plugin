@@ -109,6 +109,10 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     end
   end
 
+  defp serialize_field(term, {type, %{}}, context) do
+    serialize_field(term, type, context)
+  end
+
   defp serialize_field(term, subfields, context) when is_list(subfields) and is_map(term) do
     Bunch.Enum.try_map_reduce(subfields, context, fn
       {:reserved, data}, context ->
