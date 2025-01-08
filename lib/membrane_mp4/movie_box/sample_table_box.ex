@@ -12,7 +12,6 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     sample_deltas = assemble_sample_deltas(table)
     maybe_sample_sync = maybe_sample_sync(table)
     sample_to_chunk = assemble_sample_to_chunk(table)
-    sample_sizes = assemble_sample_sizes(table)
     chunk_offsets = assemble_chunk_offsets(table)
 
     [
@@ -47,15 +46,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
                   entry_list: sample_to_chunk
                 }
               },
-              stsz: %{
-                fields: %{
-                  version: 0,
-                  flags: 0,
-                  sample_size: 0,
-                  sample_count: table.sample_count,
-                  entry_list: sample_sizes
-                }
-              },
+              stsz: assemble_stsz(table),
               stco: %{
                 fields: %{
                   version: 0,
@@ -256,11 +247,26 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
         }
       )
 
-  defp assemble_sample_sizes(%{sample_sizes: sample_sizes}),
-    do: Enum.map(sample_sizes, &%{entry_size: &1})
-
   defp assemble_chunk_offsets(%{chunk_offsets: chunk_offsets}),
     do: Enum.map(chunk_offsets, &%{chunk_offset: &1})
+
+  defp assemble_stsz(%{sample_sizes: sample_sizes, sample_count: sample_count}) do
+    fields =
+      if sample_sizes != [] and Enum.all?(sample_sizes) == hd(sample_sizes) do
+        %{sample_size: hd(sample_sizes), entry_list: []}
+      else
+        %{sample_size: 0, entry_list: Enum.map(sample_sizes, &%{entry_size: &1})}
+      end
+
+    %{
+      fields:
+        Map.merge(fields, %{
+          version: 0,
+          flags: 0,
+          sample_count: sample_count
+        })
+    }
+  end
 
   @spec unpack(%{children: Container.t(), fields: map()}, timescale :: pos_integer()) ::
           SampleTable.t()
@@ -293,12 +299,12 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     offsets |> Enum.map(fn %{chunk_offset: offset} -> offset end)
   end
 
-  defp unpack_sample_sizes(%{fields: %{entry_list: [], sample_count: 1, sample_size: sample_size}}) do
-    [sample_size]
+  defp unpack_sample_sizes(%{fields: %{sample_size: 0, entry_list: sizes}}) do
+    Enum.map(sizes, fn %{entry_size: size} -> size end)
   end
 
-  defp unpack_sample_sizes(%{fields: %{entry_list: sizes}}) do
-    sizes |> Enum.map(fn %{entry_size: size} -> size end)
+  defp unpack_sample_sizes(%{fields: %{sample_size: sample_size, sample_count: sample_count}}) do
+    Bunch.Enum.repeated(sample_size, sample_count)
   end
 
   defp unpack_sample_description(%{children: [{avc, %{children: boxes, fields: fields}}]})

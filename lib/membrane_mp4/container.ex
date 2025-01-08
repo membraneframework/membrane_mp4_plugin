@@ -18,7 +18,10 @@ defmodule Membrane.MP4.Container do
           {:box, box_name_t}
           | {:field, field_name_t}
           | {:data, bitstring}
-          | {:reason, :box_header | {:box_size, header: pos_integer, actual: pos_integer}}
+          | {:reason,
+             :box_header
+             | {:box_size, header: pos_integer, actual: pos_integer}
+             | {:non_empty_leftover, binary}}
         ]
 
   @type serialize_error_context_t :: [{:box, box_name_t} | {:field, field_name_t}]
