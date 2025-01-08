@@ -26,7 +26,8 @@ defmodule Membrane.MP4.Container.ParseHelper do
           try:
             {:ok, {fields, rest}, context} <- parse_fields(content, box_schema.fields, context),
           try:
-            {:ok, children, <<>>, context} <- parse_boxes(rest, box_schema.children, context, []) do
+            {:ok, children, rest, context} <- parse_boxes(rest, box_schema.children, context, []),
+          leftover: <<>> <- rest do
       box = %{fields: fields, children: children, size: content_size, header_size: header_size}
       parse_boxes(data, schema, context, [{name, box} | acc])
     else
@@ -38,19 +39,33 @@ defmodule Membrane.MP4.Container.ParseHelper do
         box = %{content: content, size: content_size, header_size: header_size}
         parse_boxes(data, schema, context, [{name, box} | acc])
 
+      leftover: leftover ->
+        {:error, [box: name, reason: {:non_empty_leftover, leftover}]}
+
       try: {:error, context} ->
         {:error, [box: name] ++ context}
     end
   end
 
-  defp parse_fields(data, [], context) do
-    {:ok, {%{}, data}, context}
+  defp parse_fields(data, fields, context) do
+    do_parse_fields(data, fields, context, %{})
   end
 
-  defp parse_fields(data, [{name, type} | fields], context) do
-    with {:ok, {term, rest}, context} <- parse_field(data, {name, type}, context),
-         {:ok, {terms, rest}, context} <- parse_fields(rest, fields, context) do
-      {:ok, {Map.put(terms, name, term), rest}, context}
+  defp do_parse_fields(data, [], context, acc) do
+    {:ok, {acc, data}, context}
+  end
+
+  defp do_parse_fields(data, [{name, type} | fields], context, acc) do
+    case parse_field(data, {name, type}, context) do
+      {:ok, {term, rest}, context} ->
+        acc = Map.put(acc, name, term)
+        do_parse_fields(rest, fields, context, acc)
+
+      {:ok, :ignore, context} ->
+        do_parse_fields(data, fields, context, acc)
+
+      {:error, context} ->
+        {:error, context}
     end
   end
 
@@ -63,27 +78,11 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
-  defp parse_field(data, {name, {type, store: context_name, when: {key, [mask: mask]}}}, context) do
-    context_object = Map.get(context, key, 0)
-
-    if (mask &&& context_object) == mask do
+  defp parse_field(data, {name, {type, store: context_name, when: when_clause}}, context) do
+    if handle_when(when_clause, context) do
       parse_field(data, {name, {type, store: context_name}}, context)
     else
-      {:ok, {[], data}, context}
-    end
-  end
-
-  defp parse_field(
-         data,
-         {name, {type, store: context_name, when: {key, [value: value]}}},
-         context
-       ) do
-    context_object = Map.get(context, key, 0)
-
-    if context_object == value do
-      parse_field(data, {name, {type, store: context_name}}, context)
-    else
-      {:ok, {[], data}, context}
+      {:ok, :ignore, context}
     end
   end
 
@@ -94,23 +93,11 @@ defmodule Membrane.MP4.Container.ParseHelper do
     {:ok, result, context}
   end
 
-  defp parse_field(data, {name, {type, when: {key, [mask: mask]}}}, context) do
-    context_object = Map.get(context, key, 0)
-
-    if (mask &&& context_object) == mask do
+  defp parse_field(data, {name, {type, when: when_clause}}, context) do
+    if handle_when(when_clause, context) do
       parse_field(data, {name, type}, context)
     else
-      {:ok, {[], data}, context}
-    end
-  end
-
-  defp parse_field(data, {name, {type, when: {key, [value: value]}}}, context) do
-    context_object = Map.get(context, key, 0)
-
-    if context_object == value do
-      parse_field(data, {name, type}, context)
-    else
-      {:ok, {[], data}, context}
+      {:ok, :ignore, context}
     end
   end
 
@@ -193,5 +180,17 @@ defmodule Membrane.MP4.Container.ParseHelper do
 
   defp parse_field_error(_data, name, context) do
     {:error, [field: name] ++ context}
+  end
+
+  defp handle_when({key, condition}, context) do
+    with {:ok, value} <- Map.fetch(context, key) do
+      case condition do
+        [value: cond_value] -> value == cond_value
+        [mask: mask] -> (mask &&& value) == mask
+      end
+    else
+      :error ->
+        raise "MP4 schema field #{key} not found in context"
+    end
   end
 end
