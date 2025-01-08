@@ -377,7 +377,7 @@ defmodule Membrane.MP4.Container.Schema do
                 ]
               ],
               sidx: [
-                version: 1,
+                version: 0,
                 fields:
                   @full_box ++
                     [
@@ -389,7 +389,6 @@ defmodule Membrane.MP4.Container.Schema do
                       first_offset: {:uint64, when: {:version, value: 1}},
                       reserved: <<0::16-integer>>,
                       reference_count: :uint16,
-                      # TODO: make a list once list length is supported
                       reference_list:
                         {:list,
                          [
@@ -418,10 +417,10 @@ defmodule Membrane.MP4.Container.Schema do
                       @full_box ++
                         [
                           track_id: :uint32,
-                          base_data_offset: {:uint64, when: {:tf_flags, mask: 0x00001}},
-                          default_sample_duration: {:uint32, when: {:tf_flags, mask: 0x000008}},
-                          default_sample_size: {:uint32, when: {:tf_flags, mask: 0x000010}},
-                          default_sample_flags: {:uint32, when: {:tf_flags, mask: 0x000020}}
+                          base_data_offset: {:uint64, when: {:fo_flags, mask: 0x00001}},
+                          default_sample_duration: {:uint32, when: {:fo_flags, mask: 0x000008}},
+                          default_sample_size: {:uint32, when: {:fo_flags, mask: 0x000010}},
+                          default_sample_flags: {:uint32, when: {:fo_flags, mask: 0x000020}}
                         ]
                   ],
                   tfdt: [
