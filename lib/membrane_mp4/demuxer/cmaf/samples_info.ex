@@ -61,7 +61,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.SamplesInfo do
           fn sample, {size_acc, ts_acc} ->
             size = sample[:sample_size] || default_sample_size
             duration = sample[:sample_duration] || default_sample_duration
-            
+
             {%{
                duration: duration,
                ts: ts_acc,
