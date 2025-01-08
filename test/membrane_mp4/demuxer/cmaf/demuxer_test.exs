@@ -19,6 +19,39 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
 
   describe "CMAF demuxer" do
     @tag :tmp_dir
+    test "demuxes fragmented MP4 with just audio track", %{tmp_dir: dir} do
+      in_path = "test/fixtures/cmaf/ref_audio_concatenated.fmp4"
+      audio_output_path = Path.join(dir, "out.aac")
+
+      pipeline =
+        start_testing_audio_pipeline!(
+          input_file: in_path,
+          output_file: audio_output_path
+        )
+
+      assert_end_of_stream(pipeline, :sink)
+      assert :ok == Pipeline.terminate(pipeline)
+
+      assert_files_equal(audio_output_path, "test/fixtures/cmaf/ref_audio.aac")
+    end
+    
+    @tag :tmp_dir
+    test "demuxes fragmented MP4 with just video track", %{tmp_dir: dir} do
+      in_path = "test/fixtures/cmaf/ref_video_concatenated.fmp4"
+      video_output_path = Path.join(dir, "out.h264")
+
+      pipeline =
+        start_testing_video_pipeline!(
+          input_file: in_path,
+          output_file: video_output_path
+        )
+
+      assert_end_of_stream(pipeline, :sink)
+      assert :ok == Pipeline.terminate(pipeline)
+
+      assert_files_equal(video_output_path, "test/fixtures/cmaf/ref_video.h264")
+    end
+    @tag :tmp_dir
     test "demuxes fragmented MP4 with interleaved audio and video samples", %{tmp_dir: dir} do
       in_path = "test/fixtures/cmaf/muxed_audio_video/concatenated.fmp4"
       video_output_path = Path.join(dir, "out.h264")
@@ -80,6 +113,28 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
       assert_files_equal(video_output_path, "test/fixtures/in_video.h264")
       assert_files_equal(audio_output_path, "test/fixtures/in_audio.aac")
     end
+  end
+ 
+  defp start_testing_video_pipeline!(opts) do
+    spec =
+      child(:file, %Membrane.File.Source{location: opts[:input_file]})
+      |> child(:demuxer, Membrane.MP4.Demuxer.CMAF)
+      |> via_out(Pad.ref(:output, 1))
+      |> child(%Membrane.H264.Parser{output_stream_structure: :annexb})
+      |> child(:sink, %Membrane.File.Sink{location: opts[:output_file]})
+
+    Pipeline.start_link_supervised!(spec: spec)
+  end
+
+  defp start_testing_audio_pipeline!(opts) do
+    spec =
+      child(:file, %Membrane.File.Source{location: opts[:input_file]})
+      |> child(:demuxer, Membrane.MP4.Demuxer.CMAF)
+      |> via_out(Pad.ref(:output, 1))
+      |> child(Membrane.AAC.Parser)
+      |> child(:sink, %Membrane.File.Sink{location: opts[:output_file]})
+
+    Pipeline.start_link_supervised!(spec: spec)
   end
 
   defp start_testing_pipeline_with_two_tracks!(opts) do
