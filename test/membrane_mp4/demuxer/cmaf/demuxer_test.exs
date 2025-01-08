@@ -34,7 +34,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
 
       assert_files_equal(audio_output_path, "test/fixtures/cmaf/ref_audio.aac")
     end
-    
+
     @tag :tmp_dir
     test "demuxes fragmented MP4 with just video track", %{tmp_dir: dir} do
       in_path = "test/fixtures/cmaf/ref_video_concatenated.fmp4"
@@ -51,6 +51,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
 
       assert_files_equal(video_output_path, "test/fixtures/cmaf/ref_video.h264")
     end
+
     @tag :tmp_dir
     test "demuxes fragmented MP4 with interleaved audio and video samples", %{tmp_dir: dir} do
       in_path = "test/fixtures/cmaf/muxed_audio_video/concatenated.fmp4"
@@ -114,7 +115,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
       assert_files_equal(audio_output_path, "test/fixtures/in_audio.aac")
     end
   end
- 
+
   defp start_testing_video_pipeline!(opts) do
     spec =
       child(:file, %Membrane.File.Source{location: opts[:input_file]})
