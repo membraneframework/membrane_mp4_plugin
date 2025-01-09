@@ -439,8 +439,6 @@ defmodule Membrane.MP4.Demuxer.CMAF do
       state.tracks_info
       |> Enum.count()
 
-    tracks = 1..count_of_supported_tracks
-
     pads =
       ctx.pads
       |> Enum.flat_map(fn
@@ -448,7 +446,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
         _pad -> []
       end)
 
-    Range.size(tracks) == length(pads)
+    count_of_supported_tracks == length(pads)
   end
 
   defp flush_samples(state) do
