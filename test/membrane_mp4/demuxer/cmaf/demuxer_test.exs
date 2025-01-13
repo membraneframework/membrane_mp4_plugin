@@ -7,13 +7,12 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
   require Membrane.RCPipeline, as: RCPipeline
   require Membrane.Pad, as: Pad
 
+  alias Membrane.MP4.Demuxer.MultiFileSource
   alias Membrane.RCMessage
   alias Membrane.Testing.Pipeline
-  alias Membrane.MP4.Demuxer.MultiFileSource
 
   # Fixtures used in demuxer tests below were generated with `chunk_duration` option set to `Membrane.Time.seconds(1)`.
   describe "CMAF demuxer" do
-    @tag :sometag
     @tag :tmp_dir
     test "demuxes fragmented MP4 with just audio track", %{tmp_dir: dir} do
       input_paths = get_files("test/fixtures/cmaf/", ["ref_audio_header.mp4", "ref_audio_*.m4s"])
@@ -32,6 +31,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
       assert_files_equal(audio_output_path, "test/fixtures/cmaf/ref_audio.aac")
     end
 
+    @tag :sometag
     @tag :tmp_dir
     test "demuxes fragmented MP4 with just video track", %{tmp_dir: dir} do
       video_output_path = Path.join(dir, "out.h264")
