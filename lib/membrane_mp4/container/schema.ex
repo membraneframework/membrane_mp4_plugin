@@ -313,7 +313,7 @@ defmodule Membrane.MP4.Container.Schema do
                           fields:
                             @full_box ++
                               [
-                                sample_size: :uint32,
+                                sample_size: {:uint32, store: :sample_size},
                                 sample_count: :uint32,
                                 entry_list: {
                                   {:list,
