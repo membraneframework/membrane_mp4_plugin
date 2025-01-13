@@ -39,7 +39,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
       pipeline =
         start_testing_pipeline!(
           input_paths:
-            get_files("test/fixtures/cmaf", ["ref_video_header.mp4", "ref_video_*.m4s"]),
+            get_files("test/fixtures/cmaf", ["ref_video_header.mp4", "ref_video_segment*.m4s"]),
           video_output_file: video_output_path,
           video_pad_ref: Pad.ref(:output, 1)
         )
