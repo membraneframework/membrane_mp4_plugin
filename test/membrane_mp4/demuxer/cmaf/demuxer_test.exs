@@ -9,17 +9,19 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
 
   alias Membrane.RCMessage
   alias Membrane.Testing.Pipeline
+  alias Membrane.MP4.Demuxer.MultiFileSource
 
   # Fixtures used in demuxer tests below were generated with `chunk_duration` option set to `Membrane.Time.seconds(1)`.
   describe "CMAF demuxer" do
+    @tag :sometag
     @tag :tmp_dir
     test "demuxes fragmented MP4 with just audio track", %{tmp_dir: dir} do
-      in_path = "test/fixtures/cmaf/ref_audio_concatenated.fmp4"
+      input_paths = get_files("test/fixtures/cmaf/", ["ref_audio_header.mp4", "ref_audio_*.m4s"])
       audio_output_path = Path.join(dir, "out.aac")
 
       pipeline =
         start_testing_pipeline!(
-          input_file: in_path,
+          input_paths: input_paths,
           audio_output_file: audio_output_path,
           audio_pad_ref: Pad.ref(:output, 1)
         )
@@ -29,15 +31,15 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
 
       assert_files_equal(audio_output_path, "test/fixtures/cmaf/ref_audio.aac")
     end
-
+    
     @tag :tmp_dir
     test "demuxes fragmented MP4 with just video track", %{tmp_dir: dir} do
-      in_path = "test/fixtures/cmaf/ref_video_concatenated.fmp4"
+      
       video_output_path = Path.join(dir, "out.h264")
 
       pipeline =
         start_testing_pipeline!(
-          input_file: in_path,
+          input_paths: get_files("test/fixtures/cmaf", ["ref_video_header.mp4", "ref_video_*.m4s"]),
           video_output_file: video_output_path,
           video_pad_ref: Pad.ref(:output, 1)
         )
@@ -50,13 +52,13 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
 
     @tag :tmp_dir
     test "demuxes fragmented MP4 with interleaved audio and video samples", %{tmp_dir: dir} do
-      in_path = "test/fixtures/cmaf/muxed_audio_video/concatenated.fmp4"
+      input_paths = get_files("test/fixtures/cmaf/muxed_audio_video/", ["header.mp4", "segment_*.m4s"])
       video_output_path = Path.join(dir, "out.h264")
       audio_output_path = Path.join(dir, "out.aac")
 
       pipeline =
         start_testing_pipeline!(
-          input_file: in_path,
+          input_paths: input_paths,
           video_output_file: video_output_path,
           audio_output_file: audio_output_path,
           video_pad_ref: Pad.ref(:output, 1),
@@ -74,13 +76,16 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
     @tag :tmp_dir
     test "resolves tracks from fragmented MP4 and allows to link output pads when tracks are resolved",
          %{tmp_dir: dir} do
-      filename = "test/fixtures/cmaf/muxed_audio_video/concatenated.fmp4"
-
-      pipeline =
-        start_remote_pipeline!(
-          filename: filename,
-          file_source_chunk_size: File.stat!(filename).size - 1
-        )
+      input_paths = get_files("test/fixtures/cmaf/muxed_audio_video/", ["header.mp4", "segment_*.m4s"])
+      spec = child(:file, %MultiFileSource{
+          paths: input_paths      
+        })
+        |> child(:demuxer, Membrane.MP4.Demuxer.CMAF)
+  
+      pipeline = RCPipeline.start_link!()
+      RCPipeline.exec_actions(pipeline, spec: spec)
+      RCPipeline.subscribe(pipeline, %RCMessage.Notification{})
+      RCPipeline.subscribe(pipeline, %RCMessage.EndOfStream{})
 
       assert_receive %RCMessage.Notification{
                        element: :demuxer,
@@ -116,7 +121,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
 
   defp start_testing_pipeline!(opts) do
     input_spec = [
-      child(:file, %Membrane.File.Source{location: opts[:input_file]})
+      child(:file, %MultiFileSource{paths: opts[:input_paths]})
       |> child(:demuxer, Membrane.MP4.Demuxer.CMAF)
     ]
 
@@ -144,23 +149,10 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
         []
       end
 
-    Pipeline.start_link_supervised!(spec: input_spec ++ video_spec ++ audio_spec)
-  end
+    spec = input_spec ++ video_spec ++ audio_spec
+    IO.inspect(spec)
 
-  defp start_remote_pipeline!(opts) do
-    spec =
-      child(:file, %Membrane.File.Source{
-        location: opts[:filename],
-        chunk_size: opts[:file_source_chunk_size]
-      })
-      |> child(:demuxer, Membrane.MP4.Demuxer.CMAF)
-
-    pipeline = RCPipeline.start_link!()
-    RCPipeline.exec_actions(pipeline, spec: spec)
-    RCPipeline.subscribe(pipeline, %RCMessage.Notification{})
-    RCPipeline.subscribe(pipeline, %RCMessage.EndOfStream{})
-
-    pipeline
+    Pipeline.start_link_supervised!(spec: spec)
   end
 
   defp assert_files_equal(file_a, file_b) do
@@ -168,4 +160,17 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
     assert {:ok, b} = File.read(file_b)
     assert a == b
   end
+
+  defp get_files(directory_path, regexes) do
+    directory_path
+    |> Path.expand()                    
+    |> fn path -> 
+      Enum.map(regexes, &Path.join([path, "/", &1]))
+    end.()
+    |> Enum.map(&Path.wildcard/1)
+    |> List.flatten()     
+    |> Enum.filter(&File.regular?(&1))  
+  end
+
+
 end
