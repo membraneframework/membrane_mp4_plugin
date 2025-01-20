@@ -22,18 +22,22 @@ defmodule Membrane.MP4.SegmentIndexBox do
       sidx: %{
         children: [],
         fields: %{
+          reference_id: config.id,
+          timescale: config.timescale,
           earliest_presentation_time: config.base_timestamp,
           first_offset: 0,
           flags: 0,
           reference_count: 1,
-          reference_id: config.id,
-          reference_type: <<0::size(1)>>,
-          referenced_size: config.referenced_size,
-          sap_delta_time: 0,
-          sap_type: 0,
-          starts_with_sap: <<1::size(1)>>,
-          subsegment_duration: config.duration,
-          timescale: config.timescale,
+          reference_list: [
+            %{
+              reference_type: <<0::size(1)>>,
+              referenced_size: config.referenced_size,
+              subsegment_duration: config.duration,
+              starts_with_sap: <<1::size(1)>>,
+              sap_type: 0,
+              sap_delta_time: 0
+            }
+          ],
           version: 1
         }
       }

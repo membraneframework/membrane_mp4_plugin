@@ -377,35 +377,28 @@ defmodule Membrane.MP4.Container.Schema do
                 ]
               ],
               sidx: [
-                version: 1,
+                version: 0,
                 fields:
                   @full_box ++
                     [
                       reference_id: :uint32,
                       timescale: :uint32,
-                      earliest_presentation_time: :uint64,
-                      first_offset: :uint64,
+                      earliest_presentation_time: {:uint32, when: {:version, value: 0}},
+                      earliest_presentation_time: {:uint64, when: {:version, value: 1}},
+                      first_offset: {:uint32, when: {:version, value: 0}},
+                      first_offset: {:uint64, when: {:version, value: 1}},
                       reserved: <<0::16-integer>>,
                       reference_count: :uint16,
-                      # TODO: make a list once list length is supported
-                      # reference_list: [
-                      #   [
-                      #     reference_type: :bin1,
-                      #     referenced_size: :uint31,
-                      #     subsegment_duration: :uint32,
-                      #     starts_with_sap: :bin1,
-                      #     sap_type: :uint3,
-                      #     sap_delta_time: :uint28
-                      #   ],
-                      #   length: :reference_count
-                      # ]
-                      reference_type: :bin1,
-                      # from the beginning of moof to the end
-                      referenced_size: :uint31,
-                      subsegment_duration: :uint32,
-                      starts_with_sap: :bin1,
-                      sap_type: :uint3,
-                      sap_delta_time: :uint28
+                      reference_list:
+                        {:list,
+                         [
+                           reference_type: :bin1,
+                           referenced_size: :uint31,
+                           subsegment_duration: :uint32,
+                           starts_with_sap: :bin1,
+                           sap_type: :uint3,
+                           sap_delta_time: :uint28
+                         ]}
                     ]
               ],
               moof: [
@@ -424,9 +417,10 @@ defmodule Membrane.MP4.Container.Schema do
                       @full_box ++
                         [
                           track_id: :uint32,
-                          default_sample_duration: :uint32,
-                          default_sample_size: :uint32,
-                          default_sample_flags: :uint32
+                          base_data_offset: {:uint64, when: {:fo_flags, mask: 0x00001}},
+                          default_sample_duration: {:uint32, when: {:fo_flags, mask: 0x000008}},
+                          default_sample_size: {:uint32, when: {:fo_flags, mask: 0x000010}},
+                          default_sample_flags: {:uint32, when: {:fo_flags, mask: 0x000020}}
                         ]
                   ],
                   tfdt: [
@@ -434,7 +428,8 @@ defmodule Membrane.MP4.Container.Schema do
                     fields:
                       @full_box ++
                         [
-                          base_media_decode_time: :uint64
+                          base_media_decode_time: {:uint32, when: {:version, value: 0}},
+                          base_media_decode_time: {:uint64, when: {:version, value: 1}}
                         ]
                   ],
                   trun: [
@@ -443,15 +438,35 @@ defmodule Membrane.MP4.Container.Schema do
                       @full_box ++
                         [
                           sample_count: :uint32,
-                          data_offset: :int32,
+                          data_offset: {:int32, when: {:fo_flags, mask: 0x000001}},
+                          first_sample_flags: {:bin32, when: {:fo_flags, mask: 0x000004}},
                           samples:
                             {:list,
                              [
-                               sample_duration: :uint32,
-                               sample_size: :uint32,
-                               sample_flags: :bin32,
+                               sample_duration: {:uint32, when: {:fo_flags, mask: 0x000100}},
+                               sample_size: {:uint32, when: {:fo_flags, mask: 0x000200}},
+                               sample_flags: {:bin32, when: {:fo_flags, mask: 0x000400}},
                                sample_composition_offset:
-                                 {:uint32, when: {:fo_flags, mask: 0x800}}
+                                 {:uint32, when: {:fo_flags, mask: 0x000800}}
+                             ]}
+                        ]
+                  ],
+                  trun: [
+                    version: 1,
+                    fields:
+                      @full_box ++
+                        [
+                          sample_count: :uint32,
+                          data_offset: {:int32, when: {:fo_flags, mask: 0x000001}},
+                          first_sample_flags: {:bin32, when: {:fo_flags, mask: 0x000004}},
+                          samples:
+                            {:list,
+                             [
+                               sample_duration: {:uint32, when: {:fo_flags, mask: 0x000100}},
+                               sample_size: {:uint32, when: {:fo_flags, mask: 0x000200}},
+                               sample_flags: {:bin32, when: {:fo_flags, mask: 0x000400}},
+                               sample_composition_offset:
+                                 {:int32, when: {:fo_flags, mask: 0x000800}}
                              ]}
                         ]
                   ]

@@ -110,15 +110,21 @@ defmodule Membrane.MP4.Container.ParseHelper do
 
   defp parse_field(data, {name, {:int, size}}, context) do
     case data do
-      <<int::signed-integer-size(size), rest::bitstring>> -> {:ok, {int, rest}, context}
-      _unknown_format -> parse_field_error(data, name)
+      <<int::signed-integer-size(size), rest::bitstring>> ->
+        {:ok, {int, rest}, context}
+
+      _unknown_format ->
+        parse_field_error(data, name)
     end
   end
 
   defp parse_field(data, {name, {:uint, size}}, context) do
     case data do
-      <<uint::integer-size(size), rest::bitstring>> -> {:ok, {uint, rest}, context}
-      _unknown_format -> parse_field_error(data, name)
+      <<uint::integer-size(size), rest::bitstring>> ->
+        {:ok, {uint, rest}, context}
+
+      _unknown_format ->
+        parse_field_error(data, name)
     end
   end
 
