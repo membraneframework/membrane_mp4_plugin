@@ -462,28 +462,26 @@ defmodule ExMP4.CMAF.Demuxer do
   alias Membrane.MP4.Container
   alias Membrane.MP4.Demuxer.CMAF.SamplesInfo
 
-  defmodule State do
-    defstruct [
-      :unprocessed_boxes,
-      :unprocessed_binary,
-      :samples_info,
-      :track_to_pad_map,
-      :all_pads_connected?,
-      :buffered_actions,
-      :fsm_state,
-      :track_notifications_sent?,
-      :last_timescales,
-      :how_many_segment_bytes_read,
-      :tracks_info,
-      :flushed?
-    ]
-  end
+  defstruct [
+    :unprocessed_boxes,
+    :unprocessed_binary,
+    :samples_info,
+    :track_to_pad_map,
+    :all_pads_connected?,
+    :buffered_actions,
+    :fsm_state,
+    :track_notifications_sent?,
+    :last_timescales,
+    :how_many_segment_bytes_read,
+    :tracks_info,
+    :flushed?
+  ]
 
-  @opaque demuxer() :: %State{}
+  @opaque demuxer() :: %__MODULE__{}
 
   @spec new() :: demuxer()
   def new() do
-    %State{
+    %__MODULE__{
       unprocessed_boxes: [],
       unprocessed_binary: <<>>,
       samples_info: nil,
@@ -531,6 +529,127 @@ defmodule ExMP4.CMAF.Demuxer do
     {:error, "Cannot pop nor flush samples from already flushed #{inspect(__MODULE__)}"}
   end
 
-  defp do_pop_samples(demuxer) do
+  defp do_pop_samples(%{unprocessed_boxes: []} = demuxer) do
+    {:ok, [], demuxer}
+  end
+
+  defp handle_bdo_pop_samplesoxes(demuxer) do
+    [{first_box_name, first_box} | rest_of_boxes] = demuxer.unprocessed_boxes
+    {this_box_samples, demuxer} = handle_box(first_box_name, first_box, demuxer)
+    {:ok, samples, demuxer} = do_pop_samples(%{demuxer | unprocessed_boxes: rest_of_boxes})
+    {:ok, this_box_samples ++ samples, demuxer}
+  end
+
+  defp handle_box(box_name, box, %{fsm_state: :reading_cmaf_header} = demuxer) do
+    case box_name do
+      :ftyp ->
+        {[], demuxer}
+
+      :free ->
+        {[], demuxer}
+
+      :moov ->
+        tracks_info =
+          box
+          |> SamplesInfo.read_moov()
+          |> reject_unsupported_tracks_info()
+
+        demuxer = %{
+          demuxer
+          | fsm_state: :reading_fragment_header,
+            tracks_info: tracks_info
+        }
+
+        {[], demuxer}
+
+      _other ->
+        raise """
+        Demuxer entered unexpected state.
+        Demuxer's finite state machine's state: #{inspect(state.fsm_state)}
+        Encountered box type: #{inspect(box_name)}
+        """
+    end
+  end
+
+  defp handle_box(box_name, box, %{fsm_state: :reading_fragment_header} = demuxer) do
+    case box_name do
+      :sidx ->
+        demuxer =
+          demuxer
+          |> put_in([:last_timescales, box.fields.reference_id], box.fields.timescale)
+
+        {[], demuxer}
+
+      :styp ->
+        {[], demuxer}
+
+      :moof ->
+        {[],
+         %{
+           demuxer
+           | samples_info: SamplesInfo.get_samples_info(box),
+             fsm_state: :reading_fragment_data,
+             how_many_segment_bytes_read: box.size + box.header_size
+         }}
+
+      _other ->
+        raise """
+        Demuxer entered unexpected state.
+        Demuxer's finite state machine's state: #{inspect(demuxer.fsm_state)}
+        Encountered box type: #{inspect(box_name)}
+        """
+    end
+  end
+
+  defp handle_box(box_name, box, %{fsm_state: :reading_fragment_data} = demuxer) do
+    case box_name do
+      :mdat ->
+        state = Map.update!(demuxer, :how_many_segment_bytes_read, &(&1 + box.header_size))
+        {actions, demuxer} = read_mdat(box, demuxer)
+
+        new_fsm_state =
+          if demuxer.samples_info == [],
+            do: :reading_fragment_header,
+            else: :reading_fragment_data
+
+        {actions, %{demuxer | fsm_state: new_fsm_state}}
+
+      _other ->
+        raise """
+        Demuxer entered unexpected state.
+        Demuxer's finite state machine's state: #{inspect(state.fsm_state)}
+        Encountered box type: #{inspect(box_name)}
+        """
+    end
+  end
+
+  defp read_mdat(mdat_box, demuxer) do
+    {this_mdat_samples, rest_of_samples_info} =
+      Enum.split_while(
+        demuxer.samples_info,
+        &(&1.offset - demuxer.how_many_segment_bytes_read < byte_size(mdat_box.content))
+      )
+
+    actions =
+      Enum.map(this_mdat_samples, fn sample ->
+        payload =
+          mdat_box.content
+          |> :erlang.binary_part(sample.offset - state.how_many_segment_bytes_read, sample.size)
+
+        dts =
+          Ratio.new(sample.ts, state.last_timescales[sample.track_id]) |> Membrane.Time.seconds()
+
+        pts =
+          Ratio.new(sample.ts + sample.composition_offset, state.last_timescales[sample.track_id])
+          |> Membrane.Time.seconds()
+
+        {:buffer,
+         {Pad.ref(:output, state.track_to_pad_map[sample.track_id]),
+          %Membrane.Buffer{payload: payload, pts: pts, dts: dts}}}
+      end)
+
+    demuxer = %{demuxer | samples_info: rest_of_samples_info}
+
+    {actions, state}
   end
 end
