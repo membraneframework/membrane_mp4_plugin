@@ -456,3 +456,81 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     Map.reject(tracks_info, fn {_track_id, track_format} -> track_format == nil end)
   end
 end
+
+defmodule ExMP4.CMAF.Demuxer do
+  alias Membrane.MP4
+  alias Membrane.MP4.Container
+  alias Membrane.MP4.Demuxer.CMAF.SamplesInfo
+
+  defmodule State do
+    defstruct [
+      :unprocessed_boxes,
+      :unprocessed_binary,
+      :samples_info,
+      :track_to_pad_map,
+      :all_pads_connected?,
+      :buffered_actions,
+      :fsm_state,
+      :track_notifications_sent?,
+      :last_timescales,
+      :how_many_segment_bytes_read,
+      :tracks_info,
+      :flushed?
+    ]
+  end
+
+  @opaque demuxer() :: %State{}
+
+  @spec new() :: demuxer()
+  def new() do
+    %State{
+      unprocessed_boxes: [],
+      unprocessed_binary: <<>>,
+      samples_info: nil,
+      track_to_pad_map: nil,
+      all_pads_connected?: false,
+      buffered_actions: [],
+      fsm_state: :reading_cmaf_header,
+      track_notifications_sent?: false,
+      last_timescales: %{},
+      how_many_segment_bytes_read: 0,
+      tracks_info: nil,
+      flushed?: false
+    }
+  end
+
+  @spec feed(demuxer(), binary()) :: {:ok, demuxer()} | {:error, term()}
+  def feed(demuxer, data) do
+    {new_boxes, rest} = Container.parse!(demuxer.unprocessed_binary <> buffer.payload)
+
+    demuxer = %{
+      demuxer
+      | unprocessed_boxes: state.unprocessed_boxes ++ new_boxes,
+        unprocessed_binary: rest
+    }
+
+    {:ok, demuxer}
+  end
+
+  @spec get_tracks_info(demuxer()) :: {:ok, [any()]} | {:error, term()}
+  def get_tracks_info(demuxer) do
+    {:ok, []}
+  end
+
+  @spec pop_samples(demuxer()) :: {:ok, [any()], demuxer()} | {:error, term()}
+  def pop_samples(demuxer) do
+    {:ok, [], demuxer}
+  end
+
+  @spec flush_samples(demuxer()) :: {:ok, [any()], demuxer()} | {:error, term()}
+  def flush_samples(demuxer) do
+    {:ok, [], %{demuxer | flushed?: true}}
+  end
+
+  defp do_pop_samples(%{flushed?: true}) do
+    {:error, "Cannot pop nor flush samples from already flushed #{inspect(__MODULE__)}"}
+  end
+
+  defp do_pop_samples(demuxer) do
+  end
+end
