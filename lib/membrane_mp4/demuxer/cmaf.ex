@@ -470,7 +470,7 @@ defmodule ExMP4.CMAF.Demuxer do
             track_id: integer(),
             payload: binary(),
             pts: integer(),
-            dts: intege
+            dts: integer()
           }
   end
 
@@ -509,11 +509,11 @@ defmodule ExMP4.CMAF.Demuxer do
 
   @spec feed!(demuxer(), binary()) :: demuxer()
   def feed!(demuxer, data) do
-    {new_boxes, rest} = Container.parse!(demuxer.unprocessed_binary <> buffer.payload)
+    {new_boxes, rest} = Container.parse!(demuxer.unprocessed_binary <> data)
 
     demuxer = %{
       demuxer
-      | unprocessed_boxes: state.unprocessed_boxes ++ new_boxes,
+      | unprocessed_boxes: demuxer.unprocessed_boxes ++ new_boxes,
         unprocessed_binary: rest
     }
 
@@ -523,7 +523,7 @@ defmodule ExMP4.CMAF.Demuxer do
   @spec get_tracks_info(demuxer()) ::
           {:ok, [{track_id :: integer(), format :: struct()}]} | {:error, term()}
   def get_tracks_info(demuxer) do
-    case state.tracks_info do
+    case demuxer.tracks_info do
       nil -> {:error, :not_available_yet}
       tracks_info -> {:ok, tracks_info}
     end
@@ -566,7 +566,7 @@ defmodule ExMP4.CMAF.Demuxer do
       _other ->
         raise """
         Demuxer entered unexpected state.
-        Demuxer's finite state machine's state: #{inspect(state.fsm_state)}
+        Demuxer's finite state machine's state: #{inspect(demuxer.fsm_state)}
         Encountered box type: #{inspect(box_name)}
         """
     end
@@ -605,7 +605,10 @@ defmodule ExMP4.CMAF.Demuxer do
   defp handle_box(box_name, box, %{fsm_state: :reading_fragment_data} = demuxer) do
     case box_name do
       :mdat ->
-        state = Map.update!(demuxer, :how_many_segment_bytes_read, &(&1 + box.header_size))
+        demuxer =
+          demuxer
+          |> Map.update!(:how_many_segment_bytes_read, &(&1 + box.header_size))
+
         {samples, demuxer} = read_mdat(box, demuxer)
 
         new_fsm_state =
@@ -618,7 +621,7 @@ defmodule ExMP4.CMAF.Demuxer do
       _other ->
         raise """
         Demuxer entered unexpected state.
-        Demuxer's finite state machine's state: #{inspect(state.fsm_state)}
+        Demuxer's finite state machine's state: #{inspect(demuxer.fsm_state)}
         Encountered box type: #{inspect(box_name)}
         """
     end
@@ -636,15 +639,18 @@ defmodule ExMP4.CMAF.Demuxer do
       |> Enum.map(fn sample ->
         payload =
           mdat_box.content
-          |> :erlang.binary_part(sample.offset - state.how_many_segment_bytes_read, sample.size)
+          |> :erlang.binary_part(sample.offset - demuxer.how_many_segment_bytes_read, sample.size)
 
         dts =
-          Ratio.new(sample.ts, state.last_timescales[sample.track_id])
+          Ratio.new(sample.ts, demuxer.last_timescales[sample.track_id])
           |> Ratio.mult(1000)
           |> Ratio.floor()
 
         pts =
-          Ratio.new(sample.ts + sample.composition_offset, state.last_timescales[sample.track_id])
+          Ratio.new(
+            sample.ts + sample.composition_offset,
+            demuxer.last_timescales[sample.track_id]
+          )
           |> Ratio.mult(1000)
           |> Ratio.floor()
 
@@ -652,5 +658,9 @@ defmodule ExMP4.CMAF.Demuxer do
       end)
 
     {samples, %{demuxer | samples_info: rest_of_samples_info}}
+  end
+
+  defp reject_unsupported_tracks_info(tracks_info) do
+    Map.reject(tracks_info, fn {_track_id, track_format} -> track_format == nil end)
   end
 end
