@@ -462,11 +462,22 @@ defmodule ExMP4.CMAF.Demuxer do
   alias Membrane.MP4.Container
   alias Membrane.MP4.Demuxer.CMAF.SamplesInfo
 
+  defmodule Sample do
+    @enforce_keys [:track_id, :payload, :pts, :dts]
+    defstruct @enforce_keys
+
+    @type t :: %__MODULE__{
+            track_id: integer(),
+            payload: binary(),
+            pts: integer(),
+            dts: intege
+          }
+  end
+
   defstruct [
     :unprocessed_boxes,
     :unprocessed_binary,
     :samples_info,
-    :track_to_pad_map,
     :all_pads_connected?,
     :buffered_actions,
     :fsm_state,
@@ -485,7 +496,6 @@ defmodule ExMP4.CMAF.Demuxer do
       unprocessed_boxes: [],
       unprocessed_binary: <<>>,
       samples_info: nil,
-      track_to_pad_map: nil,
       all_pads_connected?: false,
       buffered_actions: [],
       fsm_state: :reading_cmaf_header,
@@ -497,8 +507,8 @@ defmodule ExMP4.CMAF.Demuxer do
     }
   end
 
-  @spec feed(demuxer(), binary()) :: {:ok, demuxer()} | {:error, term()}
-  def feed(demuxer, data) do
+  @spec feed!(demuxer(), binary()) :: demuxer()
+  def feed!(demuxer, data) do
     {new_boxes, rest} = Container.parse!(demuxer.unprocessed_binary <> buffer.payload)
 
     demuxer = %{
@@ -510,34 +520,25 @@ defmodule ExMP4.CMAF.Demuxer do
     {:ok, demuxer}
   end
 
-  @spec get_tracks_info(demuxer()) :: {:ok, [any()]} | {:error, term()}
+  @spec get_tracks_info(demuxer()) ::
+          {:ok, [{track_id :: integer(), format :: struct()}]} | {:error, term()}
   def get_tracks_info(demuxer) do
-    {:ok, []}
+    case state.tracks_info do
+      nil -> {:error, :not_available_yet}
+      tracks_info -> {:ok, tracks_info}
+    end
   end
 
-  @spec pop_samples(demuxer()) :: {:ok, [any()], demuxer()} | {:error, term()}
+  @spec pop_samples(demuxer()) :: {:ok, [Sample.t()], demuxer()}
+  def pop_samples(%{unprocessed_boxes: []} = demuxer) do
+    {:ok, [], demuxer}
+  end
+
   def pop_samples(demuxer) do
-    {:ok, [], demuxer}
-  end
-
-  @spec flush_samples(demuxer()) :: {:ok, [any()], demuxer()} | {:error, term()}
-  def flush_samples(demuxer) do
-    {:ok, [], %{demuxer | flushed?: true}}
-  end
-
-  defp do_pop_samples(%{flushed?: true}) do
-    {:error, "Cannot pop nor flush samples from already flushed #{inspect(__MODULE__)}"}
-  end
-
-  defp do_pop_samples(%{unprocessed_boxes: []} = demuxer) do
-    {:ok, [], demuxer}
-  end
-
-  defp handle_bdo_pop_samplesoxes(demuxer) do
     [{first_box_name, first_box} | rest_of_boxes] = demuxer.unprocessed_boxes
-    {this_box_samples, demuxer} = handle_box(first_box_name, first_box, demuxer)
-    {:ok, samples, demuxer} = do_pop_samples(%{demuxer | unprocessed_boxes: rest_of_boxes})
-    {:ok, this_box_samples ++ samples, demuxer}
+    {first_box_samples, demuxer} = handle_box(first_box_name, first_box, demuxer)
+    {:ok, samples, demuxer} = pop_samples(%{demuxer | unprocessed_boxes: rest_of_boxes})
+    {:ok, first_box_samples ++ samples, demuxer}
   end
 
   defp handle_box(box_name, box, %{fsm_state: :reading_cmaf_header} = demuxer) do
@@ -605,14 +606,14 @@ defmodule ExMP4.CMAF.Demuxer do
     case box_name do
       :mdat ->
         state = Map.update!(demuxer, :how_many_segment_bytes_read, &(&1 + box.header_size))
-        {actions, demuxer} = read_mdat(box, demuxer)
+        {samples, demuxer} = read_mdat(box, demuxer)
 
         new_fsm_state =
           if demuxer.samples_info == [],
             do: :reading_fragment_header,
             else: :reading_fragment_data
 
-        {actions, %{demuxer | fsm_state: new_fsm_state}}
+        {samples, %{demuxer | fsm_state: new_fsm_state}}
 
       _other ->
         raise """
@@ -630,26 +631,26 @@ defmodule ExMP4.CMAF.Demuxer do
         &(&1.offset - demuxer.how_many_segment_bytes_read < byte_size(mdat_box.content))
       )
 
-    actions =
-      Enum.map(this_mdat_samples, fn sample ->
+    samples =
+      this_mdat_samples
+      |> Enum.map(fn sample ->
         payload =
           mdat_box.content
           |> :erlang.binary_part(sample.offset - state.how_many_segment_bytes_read, sample.size)
 
         dts =
-          Ratio.new(sample.ts, state.last_timescales[sample.track_id]) |> Membrane.Time.seconds()
+          Ratio.new(sample.ts, state.last_timescales[sample.track_id])
+          |> Ratio.mult(1000)
+          |> Ratio.floor()
 
         pts =
           Ratio.new(sample.ts + sample.composition_offset, state.last_timescales[sample.track_id])
-          |> Membrane.Time.seconds()
+          |> Ratio.mult(1000)
+          |> Ratio.floor()
 
-        {:buffer,
-         {Pad.ref(:output, state.track_to_pad_map[sample.track_id]),
-          %Membrane.Buffer{payload: payload, pts: pts, dts: dts}}}
+        %Sample{track_id: sample.track_id, payload: payload, pts: pts, dts: dts}
       end)
 
-    demuxer = %{demuxer | samples_info: rest_of_samples_info}
-
-    {actions, state}
+    {samples, %{demuxer | samples_info: rest_of_samples_info}}
   end
 end
