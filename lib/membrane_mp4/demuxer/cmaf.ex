@@ -664,3 +664,272 @@ defmodule ExMP4.CMAF.Demuxer do
     Map.reject(tracks_info, fn {_track_id, track_format} -> track_format == nil end)
   end
 end
+
+defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
+  @moduledoc """
+  A demuxer capable of demuxing streams packed in CMAF container.
+  """
+  use Membrane.Filter
+
+  alias Membrane.{MP4, RemoteStream}
+  alias Membrane.MP4.Container
+  alias Membrane.MP4.Demuxer.CMAF.SamplesInfo, as: SamplesInfo
+
+  def_input_pad :input,
+    accepted_format:
+      %RemoteStream{type: :bytestream, content_format: content_format}
+      when content_format in [nil, MP4],
+    flow_control: :auto
+
+  def_output_pad :output,
+    accepted_format:
+      any_of(
+        %Membrane.AAC{config: {:esds, _esds}},
+        %Membrane.H264{
+          stream_structure: {_avc, _dcr},
+          alignment: :au
+        },
+        %Membrane.H265{
+          stream_structure: {_hevc, _dcr},
+          alignment: :au
+        },
+        %Membrane.Opus{self_delimiting?: false}
+      ),
+    availability: :on_request,
+    options: [
+      kind: [
+        spec: :video | :audio | nil,
+        default: nil,
+        description: """
+        Specifies, what kind of data can be handled by a pad.
+        """
+      ]
+    ]
+
+  @typedoc """
+  Notification sent when the tracks are identified in the MP4.
+
+  Upon receiving the notification, `Pad.ref(:output, track_id)` pads should be linked
+  for all the `track_id` in the list.
+  The `content` field contains the stream format which is contained in the track.
+  """
+  @type new_tracks_t() ::
+          {:new_tracks, [{track_id :: integer(), content :: struct()}]}
+
+  @impl true
+  def handle_init(_ctx, _options) do
+    demuxer = ExMP4.CMAF.Demuxer.new()
+
+    state = %{
+      demuxer: demuxer,
+      all_pads_connected?: false,
+      pad_to_track_map: %{},
+      new_tracks_sent?: false,
+      stream_format_sent?: false
+    }
+
+    {[], state}
+  end
+
+  @impl true
+  def handle_pad_added(_pad, _ctx, state) do
+    # todo: implement me
+
+    cond do
+      state.all_pads_connected? ->
+        raise "All pads have corresponding track already connected"
+
+      ctx.playback == :playing and not state.track_notifications_sent? ->
+        raise """
+        Pads can be linked either before #{inspect(__MODULE__)} enters :playing playback or after it \
+        sends {:new_tracks, ...} notification
+        """
+
+      true ->
+        :ok
+    end
+
+    # :ok = validate_pad_kind!(pad_ref, ctx.pad_options.kind, ctx, state)
+    state = %{state | all_pads_connected?: all_pads_connected?(ctx, state)}
+
+    if state.all_pads_connected? do
+      {maybe_stream_actions, state} = maybe_stream(ctx, state)
+      {maybe_stream_actions ++ [resume_auto_demand: :input], state}
+    else
+      {[], state}
+    end
+  end
+
+  @impl true
+  def handle_stream_format(:input, _stream_format, _ctx, state) do
+    {[], state}
+  end
+
+  @impl true
+  def handle_buffer(:input, buffer, ctx, state) do
+    state =
+      Map.update!(state, :demuxer, fn demuxer ->
+        ExMP4.CMAF.Demuxer.feed!(demuxer, buffer.payload)
+      end)
+
+    {maybe_notification, state} = maybe_new_tracks(state)
+    {maybe_stream_actions, state} = maybe_stream(ctx, state)
+
+    {maybe_notification ++ maybe_stream_actions, state}
+  end
+
+  defp maybe_new_tracks(state) do
+    with %{new_tracks_sent?: false} <- state,
+         {:ok, tracks_info} <- ExMP4.CMAF.Demuxer.get_tracks_info(demuxer) do
+      # should I do it?
+      # track_to_pad_map = match_tracks_with_pads(ctx, tracks_info)
+      # state = %{state | pad_to_track_map: match_tracks_with_pads(ctx, tracks_info)}
+
+      # todo: powinnismy tutaj zrobic pad_to_track_map oraz all_pads_connected?
+
+      notification = [notify_parent: {:new_tracks, tracks_info}]
+      state = %{state | new_tracks_sent?: true}
+
+      {notification, state}
+    else
+      _other -> {[], state}
+    end
+  end
+
+  defp maybe_stream(ctx, state) do
+    cond do
+      not state.all_pads_connected? ->
+        {[], state}
+
+      not state.stream_format_sent? ->
+        state = match_tracks_with_pads(ctx, state)
+
+        stream_formats = get_stream_formats(state)
+        state = %{state | stream_format_sent?: true}
+
+        {buffers, state} = get_buffers(state)
+        {stream_formats ++ buffers, state}
+
+      true ->
+        get_buffers(state)
+    end
+  end
+
+  defp all_pads_connected?(ctx, state) do
+    with {:ok, tracks_info} <- ExMP4.CMAF.Demuxer.get_tracks_info(state.demuxer) do
+      output_pads_number =
+        ctx.pads |> Enum.count(fn {_ref, data} -> data.direction == :output end)
+
+      output_pads_number == length(tracks_info)
+    else
+      {:error, :not_available_yet} -> false
+    end
+  end
+
+  defp match_tracks_with_pads(ctx, state) do
+    output_pads_data =
+      Enum.flat_map(ctx.pads, fn
+        {Pad.ref(:output, _id), pad_data} -> [pad_data]
+        _input_pad_entry -> []
+      end)
+
+    {:ok, tracks_info} = ExMP4.CMAF.Demuxer.get_tracks_info(state.demuxer)
+
+    if length(output_pads_data) not in [0, length(tracks_info)] do
+      raise ""
+    end
+
+    # todo: dokoncz case
+    # case output_pads_data do
+    #   [] ->
+    #     tracks_info
+    #     |> Map.new(fn {track_id, _format} ->
+    #       {track_id, Pad.ref(:output, track_id)}
+    #     end)
+    #   [pad_data] ->
+    #     [{track_id, stream_format}] = tracks_info
+    #     if pad_data.options.kind not in [nil, format(stream_format)] do
+    #       # raise_pads_not_matching_codecs_error!(ctx, tracks_info)
+    #     end
+    #     %{track_id => pad_data.ref}
+    # end
+    # tracks_to_pad_map =
+    kind_to_pads =
+      output_pads_data
+      |> Enum.group_by(& &1.options.kind)
+
+    kind_to_tracks =
+      tracks_info
+      |> Enum.group_by(fn {_id, format} -> format_to_kind(format) end)
+
+    if length(kind_to_pads) != length(kind_to_tracks) do
+      # raise_pads_not_matching_codecs_error!(ctx, tracks_info)
+    end
+
+
+    todo: dokoncz mnie
+
+    # Enum.reduce(tracks_info, %{acc: %{}, kind_to_pads: kind_to_pads}, fn {track_id, track_format}, acc ->
+    #   kind = format_to_kind(track_format)
+    #   pad_ref = acc.kind_to_pads[kind] |> Enum.at(0) |> pad_data_to_pad_id()
+    #   Map.put(acc.acc, track_id, pad_ref)
+    # end)
+  end
+
+  defp format_to_kind(%Membrane.H264{}), do: :video
+  defp format_to_kind(%Membrane.H265{}), do: :video
+  defp format_to_kind(%Membrane.AAC{}), do: :audio
+  defp format_to_kind(%Membrane.Opus{}), do: :audio
+
+  # @spec raise_pads_not_matching_codecs_error!(map(), map()) :: no_return()
+  # defp raise_pads_not_matching_codecs_error!(ctx, tracks_info) do
+  #   pads_kinds =
+  #     ctx.pads
+  #     |> Enum.flat_map(fn
+  #       {:input, _pad_data} -> []
+  #       {_pad_ref, %{options: %{kind: kind}}} -> [kind]
+  #     end)
+
+  #   tracks_codecs =
+  #     tracks_info
+  #     |> Enum.map(fn {_track, track_format} -> track_format.__struct__ end)
+
+  #   raise """
+  #   Pads kinds don't match with tracks codecs. Pads kinds are #{inspect(pads_kinds)}. \
+  #   Tracks codecs are #{inspect(tracks_codecs)}
+  #   """
+  # end
+
+  defp get_stream_formats(state) do
+    with {:ok, tracks_info} <- ExMP4.CMAF.Demuxer.get_tracks_info(state.demuxer) do
+      tracks_info
+      |> Enum.map(fn {track_id, track_format} ->
+        pad_ref = state.pad_to_track_map |> Map.fetch!(track_id)
+        {:stream_format, {pad_ref, track_format}}
+      end)
+    else
+      {:error, :not_available_yet} -> []
+    end
+  end
+
+  defp get_buffers(state) do
+    with {:ok, samples, demuxer} <- ExMP4.CMAF.Demuxer.pop_samples(state.demuxer) do
+      buffers =
+        Enum.map(samples, fn sample ->
+          pad_ref = state.pad_to_track_map |> Map.fetch!(sample.track_id)
+
+          buffer = %Membrane.Buffer{
+            payload: sample.payload,
+            pts: sample.pts |> Membrane.Time.milliseconds(),
+            dts: sample.dts |> Membrane.Time.milliseconds()
+          }
+
+          {:buffer, {pad_ref, buffer}}
+        end)
+
+      {buffers, %{state | demuxer: demuxer}}
+    else
+      {:error, :not_available_yet} -> {[], state}
+    end
+  end
+end
