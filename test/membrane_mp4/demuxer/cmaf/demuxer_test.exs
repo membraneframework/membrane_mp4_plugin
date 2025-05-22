@@ -50,6 +50,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
       assert_files_equal(video_output_path, "test/fixtures/cmaf/ref_video.h264")
     end
 
+    @tag :xd
     @tag :tmp_dir
     test "demuxes fragmented MP4 with interleaved audio and video samples", %{tmp_dir: dir} do
       input_paths =
@@ -85,7 +86,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
         child(:file, %MultiFileSource{
           paths: input_paths
         })
-        |> child(:demuxer, Membrane.MP4.Demuxer.CMAF)
+        |> child(:demuxer, Membrane.MP4.Demuxer.CMAF.Rewrited)
 
       pipeline = RCPipeline.start_link!()
       RCPipeline.exec_actions(pipeline, spec: spec)
@@ -127,7 +128,8 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
   defp start_testing_pipeline!(opts) do
     input_spec = [
       child(:file, %MultiFileSource{paths: opts[:input_paths]})
-      |> child(:demuxer, Membrane.MP4.Demuxer.CMAF)
+      # |> child(%Membrane.Debug.Filter{handle_buffer: &dbg/1})
+      |> child(:demuxer, Membrane.MP4.Demuxer.CMAF.Rewrited)
     ]
 
     video_spec =
