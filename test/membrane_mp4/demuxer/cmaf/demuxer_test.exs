@@ -50,7 +50,6 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
       assert_files_equal(video_output_path, "test/fixtures/cmaf/ref_video.h264")
     end
 
-    @tag :xd
     @tag :tmp_dir
     test "demuxes fragmented MP4 with interleaved audio and video samples", %{tmp_dir: dir} do
       input_paths =
@@ -76,6 +75,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
       assert_files_equal(audio_output_path, "test/fixtures/in_audio.aac")
     end
 
+    @tag :xd
     @tag :tmp_dir
     test "resolves tracks from fragmented MP4 and allows to link output pads when tracks are resolved",
          %{tmp_dir: dir} do
