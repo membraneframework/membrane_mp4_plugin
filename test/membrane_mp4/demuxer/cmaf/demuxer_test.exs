@@ -85,7 +85,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
         child(:file, %MultiFileSource{
           paths: input_paths
         })
-        |> child(:demuxer, Membrane.MP4.Demuxer.CMAF.Rewrited)
+        |> child(:demuxer, Membrane.MP4.Demuxer.CMAF)
 
       pipeline = RCPipeline.start_link!()
       RCPipeline.exec_actions(pipeline, spec: spec)
@@ -128,7 +128,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
     input_spec = [
       child(:file, %MultiFileSource{paths: opts[:input_paths]})
       # |> child(%Membrane.Debug.Filter{handle_buffer: &dbg/1})
-      |> child(:demuxer, Membrane.MP4.Demuxer.CMAF.Rewrited)
+      |> child(:demuxer, Membrane.MP4.Demuxer.CMAF)
     ]
 
     video_spec =
