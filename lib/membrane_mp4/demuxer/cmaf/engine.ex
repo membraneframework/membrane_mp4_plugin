@@ -22,14 +22,10 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
     :unprocessed_boxes,
     :unprocessed_binary,
     :samples_info,
-    :all_pads_connected?,
-    :buffered_actions,
     :fsm_state,
-    :track_notifications_sent?,
     :last_timescales,
     :how_many_segment_bytes_read,
-    :tracks_info,
-    :flushed?
+    :tracks_info
   ]
 
   @opaque t() :: %__MODULE__{}
@@ -41,14 +37,10 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
       unprocessed_boxes: [],
       unprocessed_binary: <<>>,
       samples_info: nil,
-      all_pads_connected?: false,
-      buffered_actions: [],
       fsm_state: :reading_cmaf_header,
-      track_notifications_sent?: false,
       last_timescales: %{},
       how_many_segment_bytes_read: 0,
-      tracks_info: nil,
-      flushed?: false
+      tracks_info: nil
     }
   end
 
