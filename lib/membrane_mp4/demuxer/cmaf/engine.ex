@@ -9,6 +9,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
     @enforce_keys [:track_id, :payload, :pts, :dts]
     defstruct @enforce_keys
 
+    # pts and dts are in milliseconds because Engine is Membrane-agnostic
     @type t :: %__MODULE__{
             track_id: integer(),
             payload: binary(),

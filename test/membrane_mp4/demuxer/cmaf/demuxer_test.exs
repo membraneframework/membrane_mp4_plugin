@@ -127,7 +127,6 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
   defp start_testing_pipeline!(opts) do
     input_spec = [
       child(:file, %MultiFileSource{paths: opts[:input_paths]})
-      # |> child(%Membrane.Debug.Filter{handle_buffer: &dbg/1})
       |> child(:demuxer, Membrane.MP4.Demuxer.CMAF)
     ]
 
