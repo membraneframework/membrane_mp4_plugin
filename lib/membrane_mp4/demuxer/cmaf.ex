@@ -767,7 +767,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
     # state = maybe_match_tracks_with_pads(ctx, state)
 
     if state.all_pads_connected? do
-      {maybe_stream_actions, state} = maybe_stream(state)
+      {maybe_stream_actions, state} = maybe_stream(ctx, state)
       {maybe_stream_actions ++ [resume_auto_demand: :input], state}
     else
       {[], state}
@@ -782,9 +782,9 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
 
   @impl true
   def handle_buffer(:input, buffer, ctx, state) do
-    buffer.payload
-    |> byte_size()
-    |> dbg()
+    # buffer.payload
+    # |> byte_size()
+    # |> dbg()
 
     # raise "dupa"
 
@@ -797,10 +797,21 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
     # ExMP4.CMAF.Demuxer.get_tracks_info(state.demuxer) |> dbg()
 
     {maybe_notification, state} = maybe_new_tracks(ctx, state)
-    {maybe_stream_actions, state} = maybe_stream(state)
+    {maybe_stream_actions, state} = maybe_stream(ctx, state)
 
     {maybe_notification ++ maybe_stream_actions, state}
   end
+
+  @impl true
+  def handle_end_of_stream(:input, ctx, state) do
+    maybe_stream(ctx, state)
+  end
+
+  # @impl true
+  # def handle_pad_removed(pad, ctx, state) do
+  #   ctx.pads[pad] |> dbg()
+  #   {[], state}
+  # end
 
   defp maybe_new_tracks(ctx, state) do
     with %{new_tracks_sent?: false} <- state,
@@ -816,22 +827,53 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
     end
   end
 
-  defp maybe_stream(state) do
-    cond do
-      not state.all_pads_connected? ->
-        {[], state}
-
-      not state.stream_format_sent? ->
-        stream_formats = get_stream_formats(state)
-        state = %{state | stream_format_sent?: true}
-
-        {buffers, state} = get_buffers(state)
-        {stream_formats ++ buffers, state}
-
-      true ->
-        get_buffers(state)
-    end
+  defp maybe_stream(_ctx, %{all_pads_connected?: false} = state) do
+    {[], state}
   end
+
+  defp maybe_stream(ctx, state) do
+    maybe_stream_formats =
+      if not state.stream_format_sent?,
+        do: get_stream_formats(state),
+        else: []
+
+    state = %{state | stream_format_sent?: true}
+
+    {buffers, state} = get_buffers(state)
+
+    maybe_end_of_streams =
+      if ctx.pads.input.end_of_stream?,
+        do: get_end_of_streams(ctx),
+        else: []
+
+    {maybe_stream_formats ++ buffers ++ maybe_end_of_streams, state}
+  end
+
+  # defp maybe_stream(ctx.state) do
+  #   cond do
+  #     not state.all_pads_connected? ->
+  #       {[], state}
+
+  #     not state.stream_format_sent? ->
+  #       stream_formats = get_stream_formats(state)
+  #       state = %{state | stream_format_sent?: true}
+
+  #       {buffers, state} = get_buffers(state)
+  #       {stream_formats ++ buffers, state}
+
+  #     true ->
+  #       get_buffers(state)
+  #   end
+  # end
+
+  # defp maybe_get_end_of_stream(state) do
+  #   if state.flushed? do
+  #     {:ok, end_of_streams} = ExMP4.CMAF.Demuxer.pop_samples(state.demuxer)
+  #     {end_of_streams, %{state | flushed?: true}}
+  #   else
+  #     {[], state}
+  #   end
+  # end
 
   defp all_pads_connected?(ctx, state) do
     # state.demuxer
@@ -975,5 +1017,13 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
     else
       {:error, :not_available_yet} -> {[], state}
     end
+  end
+
+  defp get_end_of_streams(ctx) do
+    ctx.pads
+    |> Enum.flat_map(fn
+      {Pad.ref(:output, _id) = pad_ref, _data} -> [end_of_stream: pad_ref]
+      {:input, _data} -> []
+    end)
   end
 end
