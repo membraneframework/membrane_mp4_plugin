@@ -33,9 +33,9 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
     :flushed?
   ]
 
-  @opaque demuxer() :: %__MODULE__{}
+  @opaque t() :: %__MODULE__{}
 
-  @spec new() :: demuxer()
+  @spec new() :: t()
   def new() do
     %__MODULE__{
       samples_to_pop: [],
@@ -53,56 +53,56 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
     }
   end
 
-  @spec feed!(demuxer(), binary()) :: demuxer()
-  def feed!(demuxer, data) do
-    {new_boxes, rest} = Container.parse!(demuxer.unprocessed_binary <> data)
+  @spec feed!(t(), binary()) :: t()
+  def feed!(engine, data) do
+    {new_boxes, rest} = Container.parse!(engine.unprocessed_binary <> data)
 
-    {samples_to_pop, demuxer} =
+    {samples_to_pop, engine} =
       %{
-        demuxer
-        | unprocessed_boxes: demuxer.unprocessed_boxes ++ new_boxes,
+        engine
+        | unprocessed_boxes: engine.unprocessed_boxes ++ new_boxes,
           unprocessed_binary: rest
       }
       |> prepare_samples_to_pop()
 
-    %{demuxer | samples_to_pop: demuxer.samples_to_pop ++ samples_to_pop}
+    %{engine | samples_to_pop: engine.samples_to_pop ++ samples_to_pop}
   end
 
-  @spec get_tracks_info(demuxer()) ::
+  @spec get_tracks_info(t()) ::
           {:ok, [{track_id :: integer(), format :: struct()}]} | {:error, term()}
-  def get_tracks_info(demuxer) do
-    case demuxer.tracks_info do
+  def get_tracks_info(engine) do
+    case engine.tracks_info do
       nil -> {:error, :not_available_yet}
       tracks_info -> {:ok, tracks_info}
     end
   end
 
-  @spec pop_samples(demuxer()) :: {:ok, [Sample.t()], demuxer()}
-  def pop_samples(demuxer) do
-    {:ok, demuxer.samples_to_pop, %{demuxer | samples_to_pop: []}}
+  @spec pop_samples(t()) :: {:ok, [Sample.t()], t()}
+  def pop_samples(engine) do
+    {:ok, engine.samples_to_pop, %{engine | samples_to_pop: []}}
   end
 
-  defp prepare_samples_to_pop(%{unprocessed_boxes: []} = demuxer) do
-    {[], demuxer}
+  defp prepare_samples_to_pop(%{unprocessed_boxes: []} = engine) do
+    {[], engine}
   end
 
-  defp prepare_samples_to_pop(demuxer) do
-    [{first_box_name, first_box} | rest_of_boxes] = demuxer.unprocessed_boxes
-    {first_box_samples, demuxer} = handle_box(first_box_name, first_box, demuxer)
+  defp prepare_samples_to_pop(engine) do
+    [{first_box_name, first_box} | rest_of_boxes] = engine.unprocessed_boxes
+    {first_box_samples, engine} = handle_box(first_box_name, first_box, engine)
 
-    {samples, demuxer} =
-      prepare_samples_to_pop(%{demuxer | unprocessed_boxes: rest_of_boxes})
+    {samples, engine} =
+      prepare_samples_to_pop(%{engine | unprocessed_boxes: rest_of_boxes})
 
-    {first_box_samples ++ samples, demuxer}
+    {first_box_samples ++ samples, engine}
   end
 
-  defp handle_box(box_name, box, %{fsm_state: :reading_cmaf_header} = demuxer) do
+  defp handle_box(box_name, box, %{fsm_state: :reading_cmaf_header} = engine) do
     case box_name do
       :ftyp ->
-        {[], demuxer}
+        {[], engine}
 
       :free ->
-        {[], demuxer}
+        {[], engine}
 
       :moov ->
         tracks_info =
@@ -110,39 +110,39 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
           |> SamplesInfo.read_moov()
           |> reject_unsupported_tracks_info()
 
-        demuxer = %{
-          demuxer
+        engine = %{
+          engine
           | fsm_state: :reading_fragment_header,
             tracks_info: tracks_info
         }
 
-        {[], demuxer}
+        {[], engine}
 
       _other ->
         raise """
         Demuxer entered unexpected state.
-        Demuxer's finite state machine's state: #{inspect(demuxer.fsm_state)}
+        Demuxer's finite state machine's state: #{inspect(engine.fsm_state)}
         Encountered box type: #{inspect(box_name)}
         """
     end
   end
 
-  defp handle_box(box_name, box, %{fsm_state: :reading_fragment_header} = demuxer) do
+  defp handle_box(box_name, box, %{fsm_state: :reading_fragment_header} = engine) do
     case box_name do
       :sidx ->
-        demuxer =
-          demuxer
+        engine =
+          engine
           |> put_in([:last_timescales, box.fields.reference_id], box.fields.timescale)
 
-        {[], demuxer}
+        {[], engine}
 
       :styp ->
-        {[], demuxer}
+        {[], engine}
 
       :moof ->
         {[],
          %{
-           demuxer
+           engine
            | samples_info: SamplesInfo.get_samples_info(box),
              fsm_state: :reading_fragment_data,
              how_many_segment_bytes_read: box.size + box.header_size
@@ -151,42 +151,42 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
       _other ->
         raise """
         Demuxer entered unexpected state.
-        Demuxer's finite state machine's state: #{inspect(demuxer.fsm_state)}
+        Demuxer's finite state machine's state: #{inspect(engine.fsm_state)}
         Encountered box type: #{inspect(box_name)}
         """
     end
   end
 
-  defp handle_box(box_name, box, %{fsm_state: :reading_fragment_data} = demuxer) do
+  defp handle_box(box_name, box, %{fsm_state: :reading_fragment_data} = engine) do
     case box_name do
       :mdat ->
-        demuxer =
-          demuxer
+        engine =
+          engine
           |> Map.update!(:how_many_segment_bytes_read, &(&1 + box.header_size))
 
-        {samples, demuxer} = read_mdat(box, demuxer)
+        {samples, engine} = read_mdat(box, engine)
 
         new_fsm_state =
-          if demuxer.samples_info == [],
+          if engine.samples_info == [],
             do: :reading_fragment_header,
             else: :reading_fragment_data
 
-        {samples, %{demuxer | fsm_state: new_fsm_state}}
+        {samples, %{engine | fsm_state: new_fsm_state}}
 
       _other ->
         raise """
         Demuxer entered unexpected state.
-        Demuxer's finite state machine's state: #{inspect(demuxer.fsm_state)}
+        Demuxer's finite state machine's state: #{inspect(engine.fsm_state)}
         Encountered box type: #{inspect(box_name)}
         """
     end
   end
 
-  defp read_mdat(mdat_box, demuxer) do
+  defp read_mdat(mdat_box, engine) do
     {this_mdat_samples, rest_of_samples_info} =
       Enum.split_while(
-        demuxer.samples_info,
-        &(&1.offset - demuxer.how_many_segment_bytes_read < byte_size(mdat_box.content))
+        engine.samples_info,
+        &(&1.offset - engine.how_many_segment_bytes_read < byte_size(mdat_box.content))
       )
 
     samples =
@@ -194,17 +194,17 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
       |> Enum.map(fn sample ->
         payload =
           mdat_box.content
-          |> :erlang.binary_part(sample.offset - demuxer.how_many_segment_bytes_read, sample.size)
+          |> :erlang.binary_part(sample.offset - engine.how_many_segment_bytes_read, sample.size)
 
         dts =
-          Ratio.new(sample.ts, demuxer.last_timescales[sample.track_id])
+          Ratio.new(sample.ts, engine.last_timescales[sample.track_id])
           |> Ratio.mult(1000)
           |> Ratio.floor()
 
         pts =
           Ratio.new(
             sample.ts + sample.composition_offset,
-            demuxer.last_timescales[sample.track_id]
+            engine.last_timescales[sample.track_id]
           )
           |> Ratio.mult(1000)
           |> Ratio.floor()
@@ -212,7 +212,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
         %Sample{track_id: sample.track_id, payload: payload, pts: pts, dts: dts}
       end)
 
-    {samples, %{demuxer | samples_info: rest_of_samples_info}}
+    {samples, %{engine | samples_info: rest_of_samples_info}}
   end
 
   defp reject_unsupported_tracks_info(tracks_info) do
@@ -273,10 +273,8 @@ defmodule Membrane.MP4.Demuxer.CMAF do
 
   @impl true
   def handle_init(_ctx, _options) do
-    demuxer = __MODULE__.Engine.new()
-
     state = %{
-      demuxer: demuxer,
+      engine: __MODULE__.Engine.new(),
       all_pads_connected?: false,
       track_to_pad_map: nil,
       new_tracks_sent?: false,
@@ -320,8 +318,8 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   @impl true
   def handle_buffer(:input, buffer, ctx, state) do
     state =
-      Map.update!(state, :demuxer, fn demuxer ->
-        __MODULE__.Engine.feed!(demuxer, buffer.payload)
+      Map.update!(state, :engine, fn engine ->
+        __MODULE__.Engine.feed!(engine, buffer.payload)
       end)
 
     {maybe_notification, state} = maybe_new_tracks(ctx, state)
@@ -338,7 +336,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
 
   defp maybe_new_tracks(ctx, state) do
     with %{new_tracks_sent?: false} <- state,
-         {:ok, tracks_info} <- __MODULE__.Engine.get_tracks_info(state.demuxer) do
+         {:ok, tracks_info} <- __MODULE__.Engine.get_tracks_info(state.engine) do
       state = %{state | all_pads_connected?: all_pads_connected?(ctx, state)}
       state = match_tracks_with_pads(ctx, state)
 
@@ -381,7 +379,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   end
 
   defp all_pads_connected?(ctx, state) do
-    with {:ok, tracks_info} <- __MODULE__.Engine.get_tracks_info(state.demuxer) do
+    with {:ok, tracks_info} <- __MODULE__.Engine.get_tracks_info(state.engine) do
       output_pads_number =
         ctx.pads |> Enum.count(fn {_ref, data} -> data.direction == :output end)
 
@@ -398,7 +396,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
         _input_pad_entry -> []
       end)
 
-    {:ok, tracks_info} = __MODULE__.Engine.get_tracks_info(state.demuxer)
+    {:ok, tracks_info} = __MODULE__.Engine.get_tracks_info(state.engine)
 
     if length(output_pads_data) not in [0, map_size(tracks_info)] do
       raise_pads_not_matching_tracks_error!(ctx, tracks_info)
@@ -477,7 +475,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   end
 
   defp get_stream_formats(state) do
-    with {:ok, tracks_info} <- __MODULE__.Engine.get_tracks_info(state.demuxer) do
+    with {:ok, tracks_info} <- __MODULE__.Engine.get_tracks_info(state.engine) do
       tracks_info
       |> Enum.map(fn {track_id, track_format} ->
         pad_ref = state.track_to_pad_map |> Map.fetch!(track_id)
@@ -489,7 +487,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   end
 
   defp get_buffers(state) do
-    with {:ok, samples, demuxer} <- __MODULE__.Engine.pop_samples(state.demuxer) do
+    with {:ok, samples, engine} <- __MODULE__.Engine.pop_samples(state.engine) do
       buffers =
         Enum.map(samples, fn sample ->
           pad_ref = state.track_to_pad_map |> Map.fetch!(sample.track_id)
@@ -503,7 +501,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
           {:buffer, {pad_ref, buffer}}
         end)
 
-      {buffers, %{state | demuxer: demuxer}}
+      {buffers, %{state | engine: engine}}
     else
       {:error, :not_available_yet} -> {[], state}
     end
