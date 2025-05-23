@@ -465,6 +465,7 @@ defmodule ExMP4.CMAF.Demuxer do
   alias Membrane.MP4.Demuxer.CMAF.SamplesInfo
 
   defmodule Sample do
+    @moduledoc false
     @enforce_keys [:track_id, :payload, :pts, :dts]
     defstruct @enforce_keys
 
@@ -783,9 +784,10 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
       end)
 
     {maybe_notification, state} = maybe_new_tracks(ctx, state)
+    maybe_pause = maybe_pause_auto_demand(ctx, state)
     {maybe_stream_actions, state} = maybe_stream(ctx, state)
 
-    {maybe_notification ++ maybe_stream_actions, state}
+    {maybe_notification ++ maybe_pause ++ maybe_stream_actions, state}
   end
 
   @impl true
@@ -806,15 +808,24 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
     end
   end
 
+  defp maybe_pause_auto_demand(ctx, state) do
+    if state.new_tracks_sent? and not state.all_pads_connected? and
+         not ctx.pads.input.auto_demand_paused? do
+      [pause_auto_demand: :input]
+    else
+      []
+    end
+  end
+
   defp maybe_stream(_ctx, %{all_pads_connected?: false} = state) do
     {[], state}
   end
 
   defp maybe_stream(ctx, state) do
     maybe_stream_formats =
-      if not state.stream_format_sent?,
-        do: get_stream_formats(state),
-        else: []
+      if state.stream_format_sent?,
+        do: [],
+        else: get_stream_formats(state)
 
     state = %{state | stream_format_sent?: true}
 
@@ -836,15 +847,6 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
       output_pads_number == map_size(tracks_info)
     else
       {:error, :not_available_yet} -> false
-    end
-  end
-
-  defp maybe_match_tracks_with_pads(ctx, state) do
-    with %{all_pads_connected?: true, track_to_pad_map: nil} <- state,
-         {:ok, _tracks_info} <- ExMP4.CMAF.Demuxer.get_tracks_info(state.demuxer) do
-      match_tracks_with_pads(ctx, state)
-    else
-      _other -> state
     end
   end
 
@@ -892,11 +894,12 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
             raise_pads_not_matching_tracks_error!(ctx, tracks_info)
           end
 
-          Enum.each(kind_to_tracks, fn {kind, kind_tracks} ->
-            if length(kind_tracks) != length(kind_to_pads[kind]) do
-              raise_pads_not_matching_tracks_error!(ctx, tracks_info)
-            end
+          Enum.any?(kind_to_pads, fn {kind, pads} ->
+            length(pads) != length(kind_to_tracks[kind])
           end)
+          |> if do
+            raise_pads_not_matching_tracks_error!(ctx, tracks_info)
+          end
 
           kind_to_tracks
           |> Enum.flat_map(fn {kind, tracks} ->
