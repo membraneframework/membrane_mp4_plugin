@@ -521,11 +521,9 @@ defmodule ExMP4.CMAF.Demuxer do
         | unprocessed_boxes: demuxer.unprocessed_boxes ++ new_boxes,
           unprocessed_binary: rest
       }
-      # |> IO.inspect(label: "DUPA B")
       |> prepare_samples_to_pop()
 
     %{demuxer | samples_to_pop: demuxer.samples_to_pop ++ samples_to_pop}
-    # |> IO.inspect(label: "DUPA A")
   end
 
   @spec get_tracks_info(demuxer()) ::
@@ -762,9 +760,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
         :ok
     end
 
-    # :ok = validate_pad_kind!(pad_ref, ctx.pad_options.kind, ctx, state)
     state = %{state | all_pads_connected?: all_pads_connected?(ctx, state)}
-    # state = maybe_match_tracks_with_pads(ctx, state)
 
     if state.all_pads_connected? do
       {maybe_stream_actions, state} = maybe_stream(ctx, state)
@@ -775,26 +771,16 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
   end
 
   @impl true
-  def handle_stream_format(:input, stream_format, _ctx, state) do
-    # stream_format |> dbg()
+  def handle_stream_format(:input, _stream_format, _ctx, state) do
     {[], state}
   end
 
   @impl true
   def handle_buffer(:input, buffer, ctx, state) do
-    # buffer.payload
-    # |> byte_size()
-    # |> dbg()
-
-    # raise "dupa"
-
     state =
       Map.update!(state, :demuxer, fn demuxer ->
         ExMP4.CMAF.Demuxer.feed!(demuxer, buffer.payload)
       end)
-
-    # state.demuxer |> dbg()
-    # ExMP4.CMAF.Demuxer.get_tracks_info(state.demuxer) |> dbg()
 
     {maybe_notification, state} = maybe_new_tracks(ctx, state)
     {maybe_stream_actions, state} = maybe_stream(ctx, state)
@@ -807,17 +793,10 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
     maybe_stream(ctx, state)
   end
 
-  # @impl true
-  # def handle_pad_removed(pad, ctx, state) do
-  #   ctx.pads[pad] |> dbg()
-  #   {[], state}
-  # end
-
   defp maybe_new_tracks(ctx, state) do
     with %{new_tracks_sent?: false} <- state,
          {:ok, tracks_info} <- ExMP4.CMAF.Demuxer.get_tracks_info(state.demuxer) do
       state = %{state | all_pads_connected?: all_pads_connected?(ctx, state)}
-      # state = maybe_match_tracks_with_pads(ctx, state)
       state = match_tracks_with_pads(ctx, state)
 
       notification = [notify_parent: {:new_tracks, Map.to_list(tracks_info)}]
@@ -849,46 +828,14 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
     {maybe_stream_formats ++ buffers ++ maybe_end_of_streams, state}
   end
 
-  # defp maybe_stream(ctx.state) do
-  #   cond do
-  #     not state.all_pads_connected? ->
-  #       {[], state}
-
-  #     not state.stream_format_sent? ->
-  #       stream_formats = get_stream_formats(state)
-  #       state = %{state | stream_format_sent?: true}
-
-  #       {buffers, state} = get_buffers(state)
-  #       {stream_formats ++ buffers, state}
-
-  #     true ->
-  #       get_buffers(state)
-  #   end
-  # end
-
-  # defp maybe_get_end_of_stream(state) do
-  #   if state.flushed? do
-  #     {:ok, end_of_streams} = ExMP4.CMAF.Demuxer.pop_samples(state.demuxer)
-  #     {end_of_streams, %{state | flushed?: true}}
-  #   else
-  #     {[], state}
-  #   end
-  # end
-
   defp all_pads_connected?(ctx, state) do
-    # state.demuxer
-    # |> dbg()
-
     with {:ok, tracks_info} <- ExMP4.CMAF.Demuxer.get_tracks_info(state.demuxer) do
       output_pads_number =
         ctx.pads |> Enum.count(fn {_ref, data} -> data.direction == :output end)
 
       output_pads_number == map_size(tracks_info)
-      # |> IO.inspect(label: "ALL_PADS_CONNECTED? 1")
     else
-      {:error, :not_available_yet} ->
-        false
-        #  |> IO.inspect(label: "ALL_PADS_CONNECTED? 2")
+      {:error, :not_available_yet} -> false
     end
   end
 
@@ -911,10 +858,9 @@ defmodule Membrane.MP4.Demuxer.CMAF.Rewrited do
     {:ok, tracks_info} = ExMP4.CMAF.Demuxer.get_tracks_info(state.demuxer)
 
     if length(output_pads_data) not in [0, map_size(tracks_info)] do
-      raise ""
+      raise_pads_not_matching_tracks_error!(ctx, tracks_info)
     end
 
-    # todo: dokoncz case
     track_to_pad_map =
       case output_pads_data do
         [] ->
