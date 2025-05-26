@@ -2,7 +2,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   @moduledoc """
   A Membrane Filter capable of demuxing streams packed in CMAF container.
 
-  Uses under the hood `Membrane.MP4.Demuxer.CMAF.Engine`.
+  Under the hood it uses `Membrane.MP4.Demuxer.CMAF.Engine`.
   """
   use Membrane.Filter
 
@@ -66,7 +66,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   def handle_pad_added(_pad, ctx, state) do
     cond do
       state.all_pads_connected? ->
-        raise "All pads have corresponding track already connected"
+        raise "Each pad is already connected to its corresponding track."
 
       ctx.playback == :playing and not state.new_tracks_sent? ->
         raise """

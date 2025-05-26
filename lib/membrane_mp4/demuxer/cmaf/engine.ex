@@ -2,7 +2,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   @moduledoc """
   A module capable of demuxing streams packed in CMAF container.
 
-  Is used to demux Membrane Stream in `Membrane.MP4.Demuxer.CMAF`.
+  It is used to demux streams in `Membrane.MP4.Demuxer.CMAF`.
   """
   use Bunch.Access
 

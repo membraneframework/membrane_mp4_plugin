@@ -1,6 +1,6 @@
 defmodule Membrane.MP4.Demuxer.CMAF.Engine.Sample do
   @moduledoc """
-  Struct representing a sample returned by .
+  Struct representing a sample returned by `Membrane.MP4.Demuxer.CMAF.Engine`.
 
   Timestamps are in milliseconds, as `Membrane.MP4.Demuxer.CMAF.Engine`
   is Membrane-agnostic.
