@@ -1,6 +1,8 @@
 defmodule Membrane.MP4.Demuxer.CMAF do
   @moduledoc """
-  A demuxer capable of demuxing streams packed in CMAF container.
+  A Membrane Filter capable of demuxing streams packed in CMAF container.
+
+  Uses under the hood `Membrane.MP4.Demuxer.CMAF.Engine`.
   """
   use Membrane.Filter
 

@@ -1,22 +1,13 @@
 defmodule Membrane.MP4.Demuxer.CMAF.Engine do
+  @moduledoc """
+  A module capable of demuxing streams packed in CMAF container.
+
+  Is used to demux Membrane Stream in `Membrane.MP4.Demuxer.CMAF`.
+  """
   use Bunch.Access
 
   alias Membrane.MP4.Container
   alias Membrane.MP4.Demuxer.CMAF.SamplesInfo
-
-  defmodule Sample do
-    @moduledoc false
-    @enforce_keys [:track_id, :payload, :pts, :dts]
-    defstruct @enforce_keys
-
-    # pts and dts are in milliseconds because Engine is Membrane-agnostic
-    @type t :: %__MODULE__{
-            track_id: integer(),
-            payload: binary(),
-            pts: integer(),
-            dts: integer()
-          }
-  end
 
   defstruct [
     :samples_to_pop,
@@ -68,7 +59,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
     end
   end
 
-  @spec pop_samples(t()) :: {:ok, [Sample.t()], t()}
+  @spec pop_samples(t()) :: {:ok, [__MODULE__.Sample.t()], t()}
   def pop_samples(engine) do
     {:ok, engine.samples_to_pop, %{engine | samples_to_pop: []}}
   end
@@ -200,7 +191,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
           |> Ratio.mult(1000)
           |> Ratio.floor()
 
-        %Sample{track_id: sample.track_id, payload: payload, pts: pts, dts: dts}
+        %__MODULE__.Sample{track_id: sample.track_id, payload: payload, pts: pts, dts: dts}
       end)
 
     {samples, %{engine | samples_info: rest_of_samples_info}}
