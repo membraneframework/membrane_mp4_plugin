@@ -11,7 +11,6 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
 
   defstruct [
     :samples_to_pop,
-    :unprocessed_boxes,
     :unprocessed_binary,
     :samples_info,
     :fsm_state,
@@ -26,7 +25,6 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   def new() do
     %__MODULE__{
       samples_to_pop: [],
-      unprocessed_boxes: [],
       unprocessed_binary: <<>>,
       samples_info: nil,
       fsm_state: :reading_cmaf_header,
@@ -37,22 +35,21 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   end
 
   @spec feed!(t(), binary()) :: t()
-  def feed!(engine, data) do
-    {new_boxes, rest} = Container.parse!(engine.unprocessed_binary <> data)
+  def feed!(%__MODULE__{} = engine, data) do
+    {parsed_boxes, rest} = Container.parse!(engine.unprocessed_binary <> data)
+    engine = %{engine | unprocessed_binary: rest}
 
-    {samples_to_pop, engine} =
-      %{
-        engine
-        | unprocessed_boxes: engine.unprocessed_boxes ++ new_boxes,
-          unprocessed_binary: rest
-      }
-      |> prepare_samples_to_pop()
+    {new_samples, engine} =
+      parsed_boxes
+      |> Enum.flat_map_reduce(engine, fn {box_name, box}, engine ->
+        handle_box(box_name, box, engine)
+      end)
 
-    %{engine | samples_to_pop: engine.samples_to_pop ++ samples_to_pop}
+    engine |> Map.update!(:samples_to_pop, &(&1 ++ new_samples))
   end
 
   @spec get_tracks_info(t()) :: {:ok, %{integer() => struct()}} | {:error, term()}
-  def get_tracks_info(engine) do
+  def get_tracks_info(%__MODULE__{} = engine) do
     case engine.tracks_info do
       nil -> {:error, :not_available_yet}
       tracks_info -> {:ok, tracks_info}
@@ -60,22 +57,8 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   end
 
   @spec pop_samples(t()) :: {:ok, [__MODULE__.Sample.t()], t()}
-  def pop_samples(engine) do
+  def pop_samples(%__MODULE__{} = engine) do
     {:ok, engine.samples_to_pop, %{engine | samples_to_pop: []}}
-  end
-
-  defp prepare_samples_to_pop(%{unprocessed_boxes: []} = engine) do
-    {[], engine}
-  end
-
-  defp prepare_samples_to_pop(engine) do
-    [{first_box_name, first_box} | rest_of_boxes] = engine.unprocessed_boxes
-    {first_box_samples, engine} = handle_box(first_box_name, first_box, engine)
-
-    {samples, engine} =
-      prepare_samples_to_pop(%{engine | unprocessed_boxes: rest_of_boxes})
-
-    {first_box_samples ++ samples, engine}
   end
 
   defp handle_box(box_name, box, %{fsm_state: :reading_cmaf_header} = engine) do
