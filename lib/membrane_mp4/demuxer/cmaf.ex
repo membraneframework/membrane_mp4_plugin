@@ -156,17 +156,6 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     {maybe_stream_formats ++ buffers ++ maybe_end_of_streams, state}
   end
 
-  defp maybe_handle_all_pads_connected(ctx, state) do
-    # korzystamy z tego tam gdzie resolve all pads connected
-
-    # todo:
-    # all pads connected
-    # if since now, then
-    #    match tracks with pads
-    #    maybe stream
-    #    resume auto demand
-  end
-
   defp resolve_all_pads_connected(ctx, state) do
     all_pads_connected? =
       with {:ok, tracks_info} <- __MODULE__.Engine.get_tracks_info(state.engine) do
@@ -182,7 +171,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
     %{state | all_pads_connected?: all_pads_connected?}
   end
 
-  defp match_tracks_with_pads(ctx, state) do
+  defp match_tracks_with_pads(ctx, %{track_to_pad_map: nil} = state) do
     output_pads_data =
       Enum.flat_map(ctx.pads, fn
         {Pad.ref(:output, _id), pad_data} -> [pad_data]
