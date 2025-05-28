@@ -10,7 +10,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   alias Membrane.MP4.Demuxer.CMAF.SamplesInfo
 
   defstruct [
-    :samples_to_pop,
+    :frames_to_pop,
     :unprocessed_binary,
     :samples_info,
     :fsm_state,
@@ -24,7 +24,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   @spec new() :: t()
   def new() do
     %__MODULE__{
-      samples_to_pop: [],
+      frames_to_pop: [],
       unprocessed_binary: <<>>,
       samples_info: nil,
       fsm_state: :reading_cmaf_header,
@@ -34,6 +34,14 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
     }
   end
 
+  @doc """
+  This function feeds the demuxer engine with the binary data containing
+  content of CMAF MP4 files.
+
+  Then, demuxed stream frames can be retrieved using `pop_frames/1`.
+
+  The function raises if the binary data is malformed.
+  """
   @spec feed!(t(), binary()) :: t()
   def feed!(%__MODULE__{} = engine, data) do
     {parsed_boxes, rest} = Container.parse!(engine.unprocessed_binary <> data)
@@ -45,10 +53,22 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
         handle_box(box_name, box, engine)
       end)
 
-    engine |> Map.update!(:samples_to_pop, &(&1 ++ new_samples))
+    engine |> Map.update!(:frames_to_pop, &(&1 ++ new_samples))
   end
 
-  @spec get_tracks_info(t()) :: {:ok, %{integer() => struct()}} | {:error, term()}
+  @doc """
+  Returns the tracks information that has been parsed from the CMAF stream.
+
+  The tracks information is a map where keys are track IDs and values are
+  stream format structs.
+
+  If the tracks information is not available yet, it returns an error tuple
+  `{:error, :not_available_yet}` and it means that engine has to be fed with
+  more data before the tracks information can be retrieved.
+  """
+
+  @spec get_tracks_info(t()) ::
+          {:ok, %{(track_id :: integer()) => stream_format :: struct()}} | {:error, term()}
   def get_tracks_info(%__MODULE__{} = engine) do
     case engine.tracks_info do
       nil -> {:error, :not_available_yet}
@@ -56,9 +76,19 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
     end
   end
 
-  @spec pop_samples(t()) :: {:ok, [__MODULE__.Sample.t()], t()}
-  def pop_samples(%__MODULE__{} = engine) do
-    {:ok, engine.samples_to_pop, %{engine | samples_to_pop: []}}
+  @doc """
+  Pops frames that have been demuxed from the CMAF stream privided in `feed!/2`.
+
+  Returns a tuple with `:ok` and a list of frames, and the updated demuxer engine
+  state.
+
+  The frames are instances of `Membrane.MP4.Demuxer.CMAF.Frame`.
+
+  If no frames are available, it returns an empty list.
+  """
+  @spec pop_frames(t()) :: {:ok, [__MODULE__.Frame.t()], t()}
+  def pop_frames(%__MODULE__{} = engine) do
+    {:ok, engine.frames_to_pop, %{engine | frames_to_pop: []}}
   end
 
   defp handle_box(box_name, box, %{fsm_state: :reading_cmaf_header} = engine) do
@@ -174,7 +204,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
           |> Ratio.mult(1000)
           |> Ratio.floor()
 
-        %__MODULE__.Sample{track_id: sample.track_id, payload: payload, pts: pts, dts: dts}
+        %__MODULE__.Frame{track_id: sample.track_id, payload: payload, pts: pts, dts: dts}
       end)
 
     {samples, %{engine | samples_info: rest_of_samples_info}}
