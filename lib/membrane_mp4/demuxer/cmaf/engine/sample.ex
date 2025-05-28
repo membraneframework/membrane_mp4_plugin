@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.Demuxer.CMAF.Engine.Frame do
+defmodule Membrane.MP4.Demuxer.CMAF.Engine.Sample do
   @moduledoc """
   Struct representing a sample returned by `Membrane.MP4.Demuxer.CMAF.Engine`.
 

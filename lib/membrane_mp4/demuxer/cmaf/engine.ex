@@ -10,7 +10,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   alias Membrane.MP4.Demuxer.CMAF.SamplesInfo
 
   defstruct [
-    :frames_to_pop,
+    :samples_to_pop,
     :unprocessed_binary,
     :samples_info,
     :fsm_state,
@@ -24,7 +24,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   @spec new() :: t()
   def new() do
     %__MODULE__{
-      frames_to_pop: [],
+      samples_to_pop: [],
       unprocessed_binary: <<>>,
       samples_info: nil,
       fsm_state: :reading_cmaf_header,
@@ -38,7 +38,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   This function feeds the demuxer engine with the binary data containing
   content of CMAF MP4 files.
 
-  Then, demuxed stream frames can be retrieved using `pop_frames/1`.
+  Then, demuxed stream samples can be retrieved using `pop_samples/1`.
 
   The function raises if the binary data is malformed.
   """
@@ -53,7 +53,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
         handle_box(box_name, box, engine)
       end)
 
-    engine |> Map.update!(:frames_to_pop, &(&1 ++ new_samples))
+    engine |> Map.update!(:samples_to_pop, &(&1 ++ new_samples))
   end
 
   @doc """
@@ -77,18 +77,18 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   end
 
   @doc """
-  Pops frames that have been demuxed from the CMAF stream privided in `feed!/2`.
+  Pops samples that have been demuxed from the CMAF stream privided in `feed!/2`.
 
-  Returns a tuple with `:ok` and a list of frames, and the updated demuxer engine
+  Returns a tuple with `:ok` and a list of samples, and the updated demuxer engine
   state.
 
-  The frames are instances of `Membrane.MP4.Demuxer.CMAF.Frame`.
+  The samples are instances of `Membrane.MP4.Demuxer.CMAF.Sample`.
 
-  If no frames are available, it returns an empty list.
+  If no samples are available, it returns an empty list.
   """
-  @spec pop_frames(t()) :: {:ok, [__MODULE__.Frame.t()], t()}
-  def pop_frames(%__MODULE__{} = engine) do
-    {:ok, engine.frames_to_pop, %{engine | frames_to_pop: []}}
+  @spec pop_samples(t()) :: {:ok, [__MODULE__.Sample.t()], t()}
+  def pop_samples(%__MODULE__{} = engine) do
+    {:ok, engine.samples_to_pop, %{engine | samples_to_pop: []}}
   end
 
   defp handle_box(box_name, box, %{fsm_state: :reading_cmaf_header} = engine) do
@@ -204,7 +204,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
           |> Ratio.mult(1000)
           |> Ratio.floor()
 
-        %__MODULE__.Frame{track_id: sample.track_id, payload: payload, pts: pts, dts: dts}
+        %__MODULE__.Sample{track_id: sample.track_id, payload: payload, pts: pts, dts: dts}
       end)
 
     {samples, %{engine | samples_info: rest_of_samples_info}}
