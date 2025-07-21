@@ -111,6 +111,25 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     end
 
     @tag :tmp_dir
+    @tag :sometag
+    test "an .mp4 file with 64-bit versions of boxes and DemuxingSource", %{tmp_dir: dir} do
+      in_path = "test/fixtures/isom/ref_64_bit_boxes.mp4"
+      video_output_path = Path.join(dir, "out.h264")
+      audio_output_path = Path.join(dir, "out.aac")
+
+      pipeline =
+        start_testing_pipeline_with_two_tracks_and_demuxing_source!(
+          input_file: in_path,
+          video_output_file: video_output_path,
+          audio_output_file: audio_output_path
+        )
+
+      assert_end_of_stream(pipeline, :video_sink)
+      assert_end_of_stream(pipeline, :audio_sink)
+      assert :ok == Pipeline.terminate(pipeline)
+    end
+
+    @tag :tmp_dir
     test "an .mp4 file with media chunks not starting at the beginning of the mdat box", %{
       tmp_dir: dir
     } do
@@ -334,6 +353,27 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
       |> child(:video_sink, %Membrane.File.Sink{location: opts[:video_output_file]}),
       get_child(:demuxer)
       |> via_out(Pad.ref(:output, 2), options: [kind: :audio])
+      |> child(:audio_sink, %Membrane.File.Sink{location: opts[:audio_output_file]})
+    ]
+
+    Pipeline.start_link_supervised!(spec: spec)
+  end
+
+  defp start_testing_pipeline_with_two_tracks_and_demuxing_source!(opts) do
+    callback = fn start, size ->
+      f = File.open!(opts[:input_file])
+      :file.position(f, start)
+      content = IO.binread(f, size)
+      File.close(f)
+      content
+    end
+
+    spec = [
+      child(:demuxing_source, %Membrane.MP4.DemuxingSource{provide_data_callback: callback})
+      |> via_out(Pad.ref(:output, 1))
+      |> child(:video_sink, %Membrane.File.Sink{location: opts[:video_output_file]}),
+      get_child(:demuxing_source)
+      |> via_out(Pad.ref(:output, 2))
       |> child(:audio_sink, %Membrane.File.Sink{location: opts[:audio_output_file]})
     ]
 
