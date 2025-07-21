@@ -1,28 +1,55 @@
 defmodule Membrane.MP4.Demuxer.ISOM.Engine do
+  @moduledoc """
+  A module capable of demuxing streams packed in MP4 ISOM container.
+
+  It is used to demux streams in `Membrane.MP4.Demuxer.ISOM`.
+  """
+
   alias Membrane.MP4.Container
   alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
+  alias Membrane.MP4.Demuxer.Sample
+  alias Membrane.MP4.Track.SampleTable
 
-  @max_header_size 16
+  @type provide_data_cb :: (start :: non_neg_integer(), size :: pos_integer() -> binary())
+  @opaque t :: %__MODULE__{
+            provide_data_cb: provide_data_cb(),
+            cursor: non_neg_integer(),
+            box_positions: %{
+              Container.box_name_t() =>
+                {offset :: non_neg_integer(), header_size :: pos_integer(),
+                 content_size :: pos_integer()}
+            },
+            boxes: Container.t(),
+            tracks: %{
+              pos: non_neg_integer(),
+              samples: [
+                %{
+                  size: pos_integer(),
+                  sample_delta: pos_integer(),
+                  track_id: pos_integer()
+                }
+              ]
+            },
+            samples_info: SamplesInfo.t()
+          }
 
   @enforce_keys [:provide_data_cb]
   defstruct @enforce_keys ++
               [
                 cursor: 0,
                 box_positions: %{},
-                boxes: %{},
-                samples_info: nil,
+                boxes: [],
+                samples_info: %{},
                 tracks: %{}
               ]
 
-  defp default_provide_data_cb(start, size) do
-    f = File.open!("test/fixtures/isom/ref_two_tracks.mp4")
-    :file.position(f, start)
-    content = IO.binread(f, size)
-    File.close(f)
-    content
-  end
+  @max_header_size 16
 
-  def new(provide_data_cb \\ &default_provide_data_cb/2) do
+  @doc """
+  Returns new instance of the `#{inspect(__MODULE__)}``.
+  """
+  @spec new(provide_data_cb()) :: t()
+  def new(provide_data_cb) do
     %__MODULE__{provide_data_cb: provide_data_cb}
     |> find_box(:moov)
     |> read_box(:moov)
@@ -31,10 +58,18 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
     |> initialize_tracks()
   end
 
-  def get_tracks_info(state) do
+  @doc """
+  Returns a map describing tracks found in the MP4 file.
+  """
+  @spec get_tracks_info(t()) :: %{(track_id :: pos_integer()) => SampleTable.t()}
+  def(get_tracks_info(state)) do
     state.samples_info.sample_tables
   end
 
+  @doc """
+  Reads the sample from given track.
+  """
+  @spec read_sample(t(), track_id :: pos_integer()) :: {:ok, Sample.t(), t()} | :end_of_stream
   def read_sample(state, track_id) do
     pos = state.tracks[track_id].pos
     sample = state.tracks[track_id].samples |> Enum.at(pos)
@@ -58,15 +93,20 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         pts = dts + sample.sample_composition_offset
 
         state = update_in(state.tracks[track_id].pos, &(&1 + 1))
-        pts_seconds = pts / state.samples_info.timescales[track_id]
-        dts_seconds = dts / state.samples_info.timescales[track_id]
+        pts_ms = pts / state.samples_info.timescales[track_id] * 1000
+        dts_ms = dts / state.samples_info.timescales[track_id] * 1000
 
-        {:ok, %{payload: data, pts: pts_seconds, dts: dts_seconds}, state}
+        {:ok, %Sample{payload: data, pts: pts_ms, dts: dts_ms, track_id: track_id}, state}
     end
   end
 
-  def seek_in_samples(state, track_id, timestamp_seconds) do
-    timestamp_in_native_unit = timestamp_seconds * state.samples_info.timescales[track_id]
+  @doc """
+  Moves the track cursor so that it points at the first sample with DTS 
+  equal or greater than provided `timestamp_ms`.
+  """
+  @spec seek_in_samples(t(), track_id :: pos_integer(), timestamp_ms :: non_neg_integer()) :: t()
+  def seek_in_samples(state, track_id, timestamp_ms) do
+    timestamp_in_native_unit = timestamp_ms / 1000 * state.samples_info.timescales[track_id]
 
     new_pos =
       state.tracks[track_id].samples
@@ -101,10 +141,10 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   defp read_box(state, box_name) do
     {box_start, box_header_size, box_content_size} = Map.get(state.box_positions, box_name)
 
-    {[{box_name, box}], _rest} =
+    {[box], _rest} =
       state.provide_data_cb.(box_start, box_header_size + box_content_size) |> Container.parse!()
 
-    update_in(state.boxes, &Map.put(&1, box_name, box))
+    update_in(state.boxes, &[box | &1])
   end
 
   defp resolve_samples(state) do
@@ -123,6 +163,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
     tracks =
       Map.keys(state.samples_info.sample_tables)
       |> Enum.map(fn id ->
+        # let's keep the list of samples corresponding to given track_id 
+        # in the `:tracks` field so that we don't need to filter it out
+        # every time we work with samples
         samples = Enum.filter(state.samples_info.samples, &(&1.track_id == id))
         {id, %{pos: 0, samples: samples}}
       end)

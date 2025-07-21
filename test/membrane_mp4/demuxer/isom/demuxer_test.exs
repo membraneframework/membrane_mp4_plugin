@@ -369,7 +369,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     end
 
     spec = [
-      child(:demuxing_source, %Membrane.MP4.DemuxingSource{provide_data_callback: callback})
+      child(:demuxing_source, %Membrane.MP4.Demuxer.DemuxingSource{
+        provide_data_callback: callback
+      })
       |> via_out(Pad.ref(:output, 1))
       |> child(:video_sink, %Membrane.File.Sink{location: opts[:video_output_file]}),
       get_child(:demuxing_source)

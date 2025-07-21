@@ -1,4 +1,4 @@
-defmodule Membrane.MP4.DemuxingSource do
+defmodule Membrane.MP4.Demuxer.DemuxingSource do
   use Membrane.Source
 
   alias Membrane.MP4.Demuxer.ISOM.Engine
