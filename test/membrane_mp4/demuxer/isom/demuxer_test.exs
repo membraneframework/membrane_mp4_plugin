@@ -111,7 +111,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     end
 
     @tag :tmp_dir
-    @tag :sometag
     test "an .mp4 file with 64-bit versions of boxes and DemuxingSource", %{tmp_dir: dir} do
       in_path = "test/fixtures/isom/ref_64_bit_boxes.mp4"
       video_output_path = Path.join(dir, "out.h264")
@@ -370,7 +369,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
 
     spec = [
       child(:demuxing_source, %Membrane.MP4.Demuxer.DemuxingSource{
-        provide_data_callback: callback
+        provide_data_cb: callback
       })
       |> via_out(Pad.ref(:output, 1))
       |> child(:video_sink, %Membrane.File.Sink{location: opts[:video_output_file]}),

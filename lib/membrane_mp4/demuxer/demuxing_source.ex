@@ -1,7 +1,24 @@
 defmodule Membrane.MP4.Demuxer.DemuxingSource do
-  use Membrane.Source
+  @moduledoc """
+  A Membrane Source capable of reading streams from the MP4 file.
 
+  It requires specifying `provide_data_callback` - a function that will be called 
+  each time data from MP4 needs to be read.
+  Once the Demuxer identifies the tracks in the MP4, `t:new_tracks_t/0` notification 
+  is sent for each of the tracks. The parent can then link `Pad.ref(:output, track_id)` for desired tracks.
+  """
+  use Membrane.Source
   alias Membrane.MP4.Demuxer.ISOM.Engine
+
+  @typedoc """
+  Notification sent when the tracks are identified in the MP4.
+
+  Upon receiving the notification, `Pad.ref(:output, track_id)` pads should be linked
+  for the desired `track_id`s in the list.
+  The `content` field contains the stream format describing given track.
+  """
+  @type new_tracks_t() ::
+          {:new_tracks, [{track_id :: integer(), content :: struct()}]}
 
   def_output_pad :output,
     accepted_format:
@@ -18,23 +35,26 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
         %Membrane.Opus{self_delimiting?: false}
       ),
     availability: :on_request,
-    flow_control: :manual,
-    options: [
-      kind: [
-        spec: :video | :audio | nil,
-        default: nil,
-        description: """
-        Specifies, what kind of data can be handled by a pad.
-        """
-      ]
-    ]
+    flow_control: :manual
 
-  def_options provide_data_callback: [
-                spec: function()
+  def_options provide_data_cb: [
+                spec: Engine.provide_data_cb(),
+                description: """
+                A function that will be called each time the `#{inspect(__MODULE__)}` 
+                needs data. It should read desired number of bytes from MP4 file,
+                starting at given position.
+                """
               ],
-              start_at: [
+              start_at_ms: [
                 spec: non_neg_integer(),
-                default: 0
+                default: 0,
+                description: """
+                Specifies the decoding timestamp (represented in milliseconds) of 
+                the first sample that should be read from each of the tracks.
+
+                If there is no sample with exactly such a timestamp, that sample
+                will be the first sample with DTS greater than provided timestamp.
+                """
               ]
 
   @impl true
@@ -50,9 +70,9 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
 
   @impl true
   def handle_setup(_ctx, state) do
-    engine = Engine.new(state.provide_data_callback)
+    engine = Engine.new(state.provide_data_cb)
     track_ids = Engine.get_tracks_info(engine) |> Map.keys()
-    engine = Enum.reduce(track_ids, engine, &Engine.seek_in_samples(&2, &1, state.start_at))
+    engine = Enum.reduce(track_ids, engine, &Engine.seek_in_samples(&2, &1, state.start_at_ms))
     {[], %{state | engine: engine}}
   end
 
@@ -72,11 +92,14 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
   @impl true
   def handle_demand(Pad.ref(:output, track_id) = pad, _demand_size, _demand_unit, ctx, state) do
     case Engine.read_sample(state.engine, track_id) do
+      :end_of_stream ->
+        {[end_of_stream: pad], state}
+
       {:ok, sample, engine} ->
         buffer = %Membrane.Buffer{
           payload: sample.payload,
-          pts: Ratio.new(sample.pts) |> Membrane.Time.seconds(),
-          dts: Ratio.new(sample.dts) |> Membrane.Time.seconds()
+          pts: Ratio.new(sample.pts) |> Membrane.Time.milliseconds(),
+          dts: Ratio.new(sample.dts) |> Membrane.Time.milliseconds()
         }
 
         state = %{state | engine: engine}
@@ -95,9 +118,6 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
           end
 
         {maybe_send_stream_format ++ [buffer: {pad, buffer}, redemand: pad], state}
-
-      :end_of_stream ->
-        {[end_of_stream: pad], state}
     end
   end
 

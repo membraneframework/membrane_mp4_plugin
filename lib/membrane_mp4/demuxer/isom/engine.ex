@@ -18,7 +18,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   @type provide_data_cb :: (start :: non_neg_integer(), size :: pos_integer() -> binary())
 
   @typedoc """
-  A type representing the `#{inspect(__MODULE__)}`
+  A type representing the `#{inspect(__MODULE__)}`.
   """
   @opaque t :: %__MODULE__{
             provide_data_cb: provide_data_cb(),
