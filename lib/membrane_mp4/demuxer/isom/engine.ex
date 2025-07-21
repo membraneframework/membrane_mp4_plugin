@@ -10,6 +10,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   alias Membrane.MP4.Demuxer.Sample
   alias Membrane.MP4.Track.SampleTable
 
+  @typedoc """
+  A type representing a callback that is used to provide data to the demuxer.
+  The callback needs to accept the start position and size (both expressed in bytes) and 
+  needs to return a binary of that size.
+  """
   @type provide_data_cb :: (start :: non_neg_integer(), size :: pos_integer() -> binary())
   @opaque t :: %__MODULE__{
             provide_data_cb: provide_data_cb(),
