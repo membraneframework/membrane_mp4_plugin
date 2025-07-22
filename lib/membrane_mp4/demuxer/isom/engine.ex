@@ -15,32 +15,36 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   The callback needs to accept the start position and size (both expressed in bytes) and 
   needs to return a binary of that size.
   """
-  @type provide_data_cb :: (start :: non_neg_integer(), size :: pos_integer() -> binary())
+  @type provide_data_cb :: (start :: non_neg_integer(), size :: pos_integer(), state :: any() ->
+                              {data :: binary(), state :: any()})
 
   @typedoc """
   A type representing the `#{inspect(__MODULE__)}`.
   """
-  @opaque t :: %__MODULE__{
-            provide_data_cb: provide_data_cb(),
-            cursor: non_neg_integer(),
-            box_positions: %{
-              Container.box_name_t() =>
-                {offset :: non_neg_integer(), header_size :: pos_integer(),
-                 content_size :: pos_integer()}
-            },
-            boxes: Container.t(),
-            tracks: %{
-              pos: non_neg_integer(),
-              samples: [
-                %{
-                  size: pos_integer(),
-                  sample_delta: pos_integer(),
-                  track_id: pos_integer()
-                }
-              ]
-            },
-            samples_info: SamplesInfo.t()
+  @opaque(
+    t :: %__MODULE__{
+      provide_data_cb: provide_data_cb(),
+      cursor: non_neg_integer(),
+      box_positions: %{
+        Container.box_name_t() =>
+          {offset :: non_neg_integer(), header_size :: pos_integer(),
+           content_size :: pos_integer()}
+      },
+      boxes: Container.t(),
+      tracks: %{
+        pos: non_neg_integer(),
+        samples: [
+          %{
+            size: pos_integer(),
+            sample_delta: pos_integer(),
+            track_id: pos_integer()
           }
+        ]
+      },
+      samples_info: SamplesInfo.t()
+    },
+    provider_state: any()
+  )
 
   @enforce_keys [:provide_data_cb]
   defstruct @enforce_keys ++
@@ -49,7 +53,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
                 box_positions: %{},
                 boxes: [],
                 samples_info: %{},
-                tracks: %{}
+                tracks: %{},
+                provider_state: nil
               ]
 
   @max_header_size 16
@@ -90,7 +95,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
       sample ->
         size = sample.size
         offset = sample.sample_offset
-        data = state.provide_data_cb.(offset, size)
+        {data, provider_state} = state.provide_data_cb.(offset, size, state.provider_state)
+        state = put_in(state.provider_state, provider_state)
 
         dts =
           state.tracks[track_id].samples
@@ -130,7 +136,10 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   end
 
   defp find_box(state, box_name) do
-    data = state.provide_data_cb.(state.cursor, @max_header_size)
+    {data, provider_state} =
+      state.provide_data_cb.(state.cursor, @max_header_size, state.provider_state)
+
+    state = put_in(state.provider_state, provider_state)
     {:ok, header, _rest} = Container.Header.parse(data)
 
     if header.name == box_name do
@@ -150,8 +159,12 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   defp read_box(state, box_name) do
     {box_start, box_header_size, box_content_size} = Map.get(state.box_positions, box_name)
 
-    {[box], _rest} =
-      state.provide_data_cb.(box_start, box_header_size + box_content_size) |> Container.parse!()
+    {data, provider_state} =
+      state.provide_data_cb.(box_start, box_header_size + box_content_size, state.provider_state)
+
+    state = put_in(state.provider_state, provider_state)
+
+    {[box], _rest} = Container.parse!(data)
 
     update_in(state.boxes, &[box | &1])
   end

@@ -354,12 +354,12 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     assert_files_equal(out_path, ref_path)
   end
 
-  defp provide_data_cb(input_file_path, start, size) do
+  defp provide_data_cb(input_file_path, start, size, _provider_state) do
     f = File.open!(input_file_path)
     :file.position(f, start)
     content = IO.binread(f, size)
     File.close(f)
-    content
+    {content, nil}
   end
 
   defp start_testing_pipeline!(false = _use_demuxing_source?, opts) do
@@ -375,7 +375,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
   defp start_testing_pipeline!(true = _use_demuxing_source?, opts) do
     spec =
       child(:demuxer, %Membrane.MP4.Demuxer.DemuxingSource{
-        provide_data_cb: &provide_data_cb(opts[:input_file], &1, &2)
+        provide_data_cb: &provide_data_cb(opts[:input_file], &1, &2, &3)
       })
       |> via_out(Pad.ref(:output, 1))
       |> child(:sink, %Membrane.File.Sink{location: opts[:output_file]})
@@ -400,7 +400,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
   defp start_testing_pipeline_with_two_tracks!(true = _use_demuxing_source?, opts) do
     spec = [
       child(:demuxer, %Membrane.MP4.Demuxer.DemuxingSource{
-        provide_data_cb: &provide_data_cb(opts[:input_file], &1, &2)
+        provide_data_cb: &provide_data_cb(opts[:input_file], &1, &2, &3)
       })
       |> via_out(:output, options: [kind: :video])
       |> child(:video_sink, %Membrane.File.Sink{location: opts[:video_output_file]}),
@@ -431,7 +431,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
   defp start_remote_pipeline!(true = _use_demuxing_source?, opts) do
     spec =
       child(:demuxer, %Membrane.MP4.Demuxer.DemuxingSource{
-        provide_data_cb: &provide_data_cb(opts[:filename], &1, &2)
+        provide_data_cb: &provide_data_cb(opts[:filename], &1, &2, &3)
       })
 
     pipeline = RCPipeline.start_link!()
