@@ -55,7 +55,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   @max_header_size 16
 
   @doc """
-  Returns new instance of the `#{inspect(__MODULE__)}``.
+  Returns new instance of the `#{inspect(__MODULE__)}`.
   """
   @spec new(provide_data_cb()) :: t()
   def new(provide_data_cb) do
