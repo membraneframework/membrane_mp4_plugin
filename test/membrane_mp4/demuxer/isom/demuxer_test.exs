@@ -354,12 +354,12 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     assert_files_equal(out_path, ref_path)
   end
 
-  defp provide_data_cb(input_file_path, start, size, _provider_state) do
+  defp provide_data_cb(input_file_path, start, size, provider_state) do
     f = File.open!(input_file_path)
     :file.position(f, start)
     content = IO.binread(f, size)
     File.close(f)
-    {content, nil}
+    {content, provider_state}
   end
 
   defp start_testing_pipeline!(false = _use_demuxing_source?, opts) do
