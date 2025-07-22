@@ -362,7 +362,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     content
   end
 
-  defp start_testing_pipeline!(_use_demuxing_source? = false, opts) do
+  defp start_testing_pipeline!(false = _use_demuxing_source?, opts) do
     spec =
       child(:file, %Membrane.File.Source{location: opts[:input_file]})
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
@@ -372,7 +372,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     Pipeline.start_link_supervised!(spec: spec)
   end
 
-  defp start_testing_pipeline!(_use_demuxing_source? = true, opts) do
+  defp start_testing_pipeline!(true = _use_demuxing_source?, opts) do
     spec =
       child(:demuxer, %Membrane.MP4.Demuxer.DemuxingSource{
         provide_data_cb: &provide_data_cb(opts[:input_file], &1, &2)
@@ -383,7 +383,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     Pipeline.start_link_supervised!(spec: spec)
   end
 
-  defp start_testing_pipeline_with_two_tracks!(_use_demuxing_source? = false, opts) do
+  defp start_testing_pipeline_with_two_tracks!(false = _use_demuxing_source?, opts) do
     spec = [
       child(:file, %Membrane.File.Source{location: opts[:input_file]})
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
@@ -397,7 +397,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     Pipeline.start_link_supervised!(spec: spec)
   end
 
-  defp start_testing_pipeline_with_two_tracks!(_use_demuxing_source? = true, opts) do
+  defp start_testing_pipeline_with_two_tracks!(true = _use_demuxing_source?, opts) do
     spec = [
       child(:demuxer, %Membrane.MP4.Demuxer.DemuxingSource{
         provide_data_cb: &provide_data_cb(opts[:input_file], &1, &2)
@@ -412,7 +412,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     Pipeline.start_link_supervised!(spec: spec)
   end
 
-  defp start_remote_pipeline!(_use_demuxing_source? = false, opts) do
+  defp start_remote_pipeline!(false = _use_demuxing_source?, opts) do
     spec =
       child(:file, %Membrane.File.Source{
         location: opts[:filename],
@@ -428,7 +428,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     pipeline
   end
 
-  defp start_remote_pipeline!(_use_demuxing_source? = true, opts) do
+  defp start_remote_pipeline!(true = _use_demuxing_source?, opts) do
     spec =
       child(:demuxer, %Membrane.MP4.Demuxer.DemuxingSource{
         provide_data_cb: &provide_data_cb(opts[:filename], &1, &2)

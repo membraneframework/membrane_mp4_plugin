@@ -125,10 +125,10 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
   def handle_pad_added(Pad.ref(:output, track_id), _ctx, state) do
     track_ids = Engine.get_tracks_info(state.engine) |> Map.keys()
 
-    if track_id not in track_ids do
-      raise "Unknown track id: #{inspect(track_id)}. The available tracks are: #{inspect(track_ids)}"
-    else
+    if track_id in track_ids do
       {[], state}
+    else
+      raise "Unknown track id: #{inspect(track_id)}. The available tracks are: #{inspect(track_ids)}"
     end
   end
 
