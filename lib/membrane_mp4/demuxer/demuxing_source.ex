@@ -35,7 +35,16 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
         %Membrane.Opus{self_delimiting?: false}
       ),
     availability: :on_request,
-    flow_control: :manual
+    flow_control: :manual,
+    options: [
+      kind: [
+        spec: :video | :audio | nil,
+        default: nil,
+        description: """
+        Specifies, what kind of data can be handled by a pad.
+        """
+      ]
+    ]
 
   def_options provide_data_cb: [
                 spec: Engine.provide_data_cb(),
@@ -62,7 +71,8 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
     state =
       Map.from_struct(opts)
       |> Map.merge(%{
-        engine: nil
+        engine: nil,
+        pad_to_track_id: %{}
       })
 
     {[], state}
@@ -90,7 +100,9 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
   end
 
   @impl true
-  def handle_demand(Pad.ref(:output, track_id) = pad, _demand_size, _demand_unit, ctx, state) do
+  def handle_demand(pad, _demand_size, _demand_unit, ctx, state) do
+    track_id = state.pad_to_track_id[pad]
+
     case Engine.read_sample(state.engine, track_id) do
       :end_of_stream ->
         {[end_of_stream: pad], state}
@@ -122,15 +134,34 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
   end
 
   @impl true
-  def handle_pad_added(Pad.ref(:output, track_id), _ctx, state) do
-    track_ids = Engine.get_tracks_info(state.engine) |> Map.keys()
+  def handle_pad_added(Pad.ref(:output, pad_id) = pad, ctx, state) do
+    tracks_info = Engine.get_tracks_info(state.engine)
 
-    if track_id in track_ids do
-      {[], state}
-    else
-      raise "Unknown track id: #{inspect(track_id)}. The available tracks are: #{inspect(track_ids)}"
-    end
+    track_id =
+      cond do
+        ctx.pad_options.kind != nil ->
+          {track_id, _track} =
+            Enum.find(tracks_info, fn {_track_id, track} ->
+              resolve_kind(track.sample_description) == ctx.pad_options.kind
+            end)
+
+          track_id
+
+        pad_id in Map.keys(tracks_info) ->
+          pad_id
+
+        true ->
+          raise "Couldn't find track corresponding to pad: #{inspect(pad)}. The available tracks are: #{Map.keys(tracks_info) |> inspect()}"
+      end
+
+    state = put_in(state.pad_to_track_id[pad], track_id)
+    {[], state}
   end
+
+  defp resolve_kind(%Membrane.AAC{}), do: :audio
+  defp resolve_kind(%Membrane.Opus{}), do: :audio
+  defp resolve_kind(%Membrane.H264{}), do: :video
+  defp resolve_kind(%Membrane.H265{}), do: :video
 
   defp reject_unsupported_sample_types(sample_tables) do
     Map.reject(sample_tables, fn {_track_id, table} -> table.sample_description == nil end)

@@ -402,7 +402,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
       child(:demuxer, %Membrane.MP4.Demuxer.DemuxingSource{
         provide_data_cb: &provide_data_cb(opts[:input_file], &1, &2)
       })
-      |> via_out(Pad.ref(:output, 1))
+      |> via_out(:output, options: [kind: :video])
       |> child(:video_sink, %Membrane.File.Sink{location: opts[:video_output_file]}),
       get_child(:demuxer)
       |> via_out(Pad.ref(:output, 2))
