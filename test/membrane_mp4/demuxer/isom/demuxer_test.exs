@@ -405,7 +405,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
       |> via_out(:output, options: [kind: :video])
       |> child(:video_sink, %Membrane.File.Sink{location: opts[:video_output_file]}),
       get_child(:demuxer)
-      |> via_out(Pad.ref(:output, 2))
+      |> via_out(:output, options: [kind: :audio])
       |> child(:audio_sink, %Membrane.File.Sink{location: opts[:audio_output_file]})
     ]
 
