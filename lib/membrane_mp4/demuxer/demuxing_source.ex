@@ -41,7 +41,10 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
         spec: :video | :audio | nil,
         default: nil,
         description: """
-        Specifies, what kind of data can be handled by a pad.
+         Specifies the decoding timestamp of 
+                  the first sample that should be read from each of the tracks.
+                  If there is no sample with exactly such a timestamp, that sample
+                  will be the first sample with DTS greater than provided timestamp.
         """
       ]
     ]
@@ -54,11 +57,11 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
                 starting at given position.
                 """
               ],
-              start_at_ms: [
+              start_at: [
                 spec: non_neg_integer(),
                 default: 0,
                 description: """
-                Specifies the decoding timestamp (represented in milliseconds) of 
+                Specifies the decoding timestamp of 
                 the first sample that should be read from each of the tracks.
 
                 If there is no sample with exactly such a timestamp, that sample
@@ -82,7 +85,14 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
   def handle_setup(_ctx, state) do
     engine = Engine.new(state.provide_data_cb)
     track_ids = Engine.get_tracks_info(engine) |> Map.keys()
-    engine = Enum.reduce(track_ids, engine, &Engine.seek_in_samples(&2, &1, state.start_at_ms))
+
+    engine =
+      Enum.reduce(
+        track_ids,
+        engine,
+        &Engine.seek_in_samples(&2, &1, Membrane.Time.as_milliseconds(state.start_at, :round))
+      )
+
     {[], %{state | engine: engine}}
   end
 
