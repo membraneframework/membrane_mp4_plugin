@@ -85,32 +85,27 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   """
   @spec read_sample(t(), track_id :: pos_integer()) :: {:ok, Sample.t(), t()} | :end_of_stream
   def read_sample(state, track_id) do
-    pos = state.tracks[track_id].pos
-    sample = state.tracks[track_id].samples |> Enum.at(pos)
+    last_dts = state.tracks[track_id].last_dts
 
-    case sample do
-      nil ->
+    case state.tracks[track_id].samples do
+      [] ->
         :end_of_stream
 
-      sample ->
+      [sample | rest] ->
         size = sample.size
         offset = sample.sample_offset
         {data, provider_state} = state.provide_data_cb.(offset, size, state.provider_state)
         state = put_in(state.provider_state, provider_state)
 
-        dts =
-          state.tracks[track_id].samples
-          |> Enum.slice(0..pos)
-          |> Enum.drop(-1)
-          |> Enum.map(& &1.sample_delta)
-          |> Enum.sum()
-
+        dts = last_dts || 0
         pts = dts + sample.sample_composition_offset
 
         state = update_in(state.tracks[track_id].pos, &(&1 + 1))
+        state = put_in(state.tracks[track_id].last_dts, dts + sample.sample_delta)
         pts_ms = pts / state.samples_info.timescales[track_id] * 1000
         dts_ms = dts / state.samples_info.timescales[track_id] * 1000
 
+        state = put_in(state.tracks[track_id].samples, rest)
         {:ok, %Sample{payload: data, pts: pts_ms, dts: dts_ms, track_id: track_id}, state}
     end
   end
@@ -189,7 +184,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         # in the `:tracks` field so that we don't need to filter it out
         # every time we work with samples
         samples = Enum.filter(state.samples_info.samples, &(&1.track_id == id))
-        {id, %{pos: 0, samples: samples}}
+        {id, %{pos: 0, samples: samples, last_dts: nil}}
       end)
       |> Enum.into(%{})
 
