@@ -47,7 +47,8 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
                   will be the first sample with DTS greater than provided timestamp.
         """
       ]
-    ]
+    ],
+    demand_unit: :buffers
 
   def_options provide_data_cb: [
                 spec: Engine.provide_data_cb(),
