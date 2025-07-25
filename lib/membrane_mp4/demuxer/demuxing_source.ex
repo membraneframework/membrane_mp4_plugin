@@ -111,7 +111,9 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
   end
 
   @impl true
-  def handle_demand(pad, _demand_size, _demand_unit, ctx, state) do
+  def handle_demand(pad, demand_size, demand_unit, ctx, state) do
+    require Membrane.Logger
+    Membrane.Logger.warning("DEMAND - pad: #{inspect(pad)}, demand_size: #{demand_size}, demand_unit: #{inspect(demand_unit)}")
     track_id = state.pad_to_track_id[pad]
 
     case Engine.read_sample(state.engine, track_id) do
