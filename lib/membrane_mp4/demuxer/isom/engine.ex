@@ -118,16 +118,16 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   def seek_in_samples(state, track_id, timestamp_ms) do
     timestamp_in_native_unit = timestamp_ms / 1000 * state.samples_info.timescales[track_id]
 
-    new_pos =
+    samples =
       state.tracks[track_id].samples
       |> Enum.map_reduce(0, &{{&1, &2}, &1.sample_delta + &2})
       |> elem(0)
-      |> Enum.take_while(fn {_sample, cumulative_duration} ->
+      |> Enum.drop_while(fn {_sample, cumulative_duration} ->
         cumulative_duration < timestamp_in_native_unit
       end)
-      |> length()
+      |> Enum.map(&elem(&1, 0))
 
-    put_in(state.tracks[track_id].pos, new_pos)
+    put_in(state.tracks[track_id].samples, samples)
   end
 
   defp find_box(state, box_name) do
