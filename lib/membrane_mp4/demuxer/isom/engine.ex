@@ -97,7 +97,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         {data, provider_state} = state.provide_data_cb.(offset, size, state.provider_state)
         state = put_in(state.provider_state, provider_state)
 
-        dts = last_dts || 0
+        dts = last_dts
         pts = dts + sample.sample_composition_offset
 
         state = update_in(state.tracks[track_id].pos, &(&1 + 1))
@@ -118,16 +118,22 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   def seek_in_samples(state, track_id, timestamp_ms) do
     timestamp_in_native_unit = timestamp_ms / 1000 * state.samples_info.timescales[track_id]
 
-    samples =
+    {to_drop, samples} =
       state.tracks[track_id].samples
       |> Enum.map_reduce(0, &{{&1, &2}, &1.sample_delta + &2})
       |> elem(0)
-      |> Enum.drop_while(fn {_sample, cumulative_duration} ->
+      |> Enum.split_while(fn {_sample, cumulative_duration} ->
         cumulative_duration < timestamp_in_native_unit
       end)
-      |> Enum.map(&elem(&1, 0))
 
-    put_in(state.tracks[track_id].samples, samples)
+    new_last_dts = case List.last(to_drop) do
+      {_sample, cumulative_duration} -> cumulative_duration
+      nil -> 0
+    end
+    samples = Enum.map(samples, &elem(&1, 0))
+
+    state = put_in(state.tracks[track_id].samples, samples)
+    put_in(state.tracks[track_id].last_dts, new_last_dts)
   end
 
   defp find_box(state, box_name) do
@@ -184,7 +190,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         # in the `:tracks` field so that we don't need to filter it out
         # every time we work with samples
         samples = Enum.filter(state.samples_info.samples, &(&1.track_id == id))
-        {id, %{pos: 0, samples: samples, last_dts: nil}}
+        {id, %{pos: 0, samples: samples, last_dts: 0}}
       end)
       |> Enum.into(%{})
 
