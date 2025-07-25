@@ -85,7 +85,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   """
   @spec read_sample(t(), track_id :: pos_integer()) :: {:ok, Sample.t(), t()} | :end_of_stream
   def read_sample(state, track_id) do
-    last_dts = state.tracks[track_id].last_dts
+    next_dts = state.tracks[track_id].next_dts
 
     case state.tracks[track_id].samples do
       [] ->
@@ -97,11 +97,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         {data, provider_state} = state.provide_data_cb.(offset, size, state.provider_state)
         state = put_in(state.provider_state, provider_state)
 
-        dts = last_dts
+        dts = next_dts
         pts = dts + sample.sample_composition_offset
 
         state = update_in(state.tracks[track_id].pos, &(&1 + 1))
-        state = put_in(state.tracks[track_id].last_dts, dts + sample.sample_delta)
+        state = put_in(state.tracks[track_id].next_dts, dts + sample.sample_delta)
         pts_ms = pts / state.samples_info.timescales[track_id] * 1000
         dts_ms = dts / state.samples_info.timescales[track_id] * 1000
 
@@ -126,14 +126,16 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         cumulative_duration < timestamp_in_native_unit
       end)
 
-    new_last_dts = case List.last(to_drop) do
-      {_sample, cumulative_duration} -> cumulative_duration
-      nil -> 0
-    end
+    new_next_dts =
+      case List.last(to_drop) do
+        {_sample, cumulative_duration} -> cumulative_duration
+        nil -> 0
+      end
+
     samples = Enum.map(samples, &elem(&1, 0))
 
     state = put_in(state.tracks[track_id].samples, samples)
-    put_in(state.tracks[track_id].last_dts, new_last_dts)
+    put_in(state.tracks[track_id].next_dts, new_next_dts)
   end
 
   defp find_box(state, box_name) do
@@ -190,7 +192,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         # in the `:tracks` field so that we don't need to filter it out
         # every time we work with samples
         samples = Enum.filter(state.samples_info.samples, &(&1.track_id == id))
-        {id, %{pos: 0, samples: samples, last_dts: 0}}
+        {id, %{pos: 0, samples: samples, next_dts: 0}}
       end)
       |> Enum.into(%{})
 
