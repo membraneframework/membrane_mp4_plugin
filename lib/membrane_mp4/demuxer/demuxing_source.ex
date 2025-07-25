@@ -111,48 +111,37 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
   end
 
   @impl true
-  def handle_demand(pad, demand_size, demand_unit, ctx, state) do
-    {time, r} =
-      :timer.tc(fn ->
-        track_id = state.pad_to_track_id[pad]
+  def handle_demand(pad, _demand_size, _demand_unit, ctx, state) do
+    track_id = state.pad_to_track_id[pad]
 
-        case Engine.read_sample(state.engine, track_id) do
-          :end_of_stream ->
-            {[end_of_stream: pad], state}
+    case Engine.read_sample(state.engine, track_id) do
+      :end_of_stream ->
+        {[end_of_stream: pad], state}
 
-          {:ok, sample, engine} ->
-            buffer = %Membrane.Buffer{
-              payload: sample.payload,
-              pts: Ratio.new(sample.pts) |> Membrane.Time.milliseconds(),
-              dts: Ratio.new(sample.dts) |> Membrane.Time.milliseconds()
-            }
+      {:ok, sample, engine} ->
+        buffer = %Membrane.Buffer{
+          payload: sample.payload,
+          pts: Ratio.new(sample.pts) |> Membrane.Time.milliseconds(),
+          dts: Ratio.new(sample.dts) |> Membrane.Time.milliseconds()
+        }
 
-            state = %{state | engine: engine}
+        state = %{state | engine: engine}
 
-            maybe_send_stream_format =
-              if ctx.pads[pad].stream_format == nil do
-                stream_format =
-                  state.engine
-                  |> Engine.get_tracks_info()
-                  |> Map.get(track_id)
-                  |> Map.get(:sample_description)
+        maybe_send_stream_format =
+          if ctx.pads[pad].stream_format == nil do
+            stream_format =
+              state.engine
+              |> Engine.get_tracks_info()
+              |> Map.get(track_id)
+              |> Map.get(:sample_description)
 
-                [{:stream_format, {pad, stream_format}}]
-              else
-                []
-              end
+            [{:stream_format, {pad, stream_format}}]
+          else
+            []
+          end
 
-            {maybe_send_stream_format ++ [buffer: {pad, buffer}, redemand: pad], state}
-        end
-      end)
-
-    require Membrane.Logger
-
-    Membrane.Logger.warning(
-      "DEMAND - pad: #{inspect(pad)}, demand_size: #{demand_size}, demand_unit: #{inspect(demand_unit)} TOOK: #{time} us"
-    )
-
-    r
+        {maybe_send_stream_format ++ [buffer: {pad, buffer}, redemand: pad], state}
+    end
   end
 
   @impl true
