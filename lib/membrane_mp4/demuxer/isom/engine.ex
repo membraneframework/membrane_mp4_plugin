@@ -22,26 +22,26 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   A type representing the `#{inspect(__MODULE__)}`.
   """
   @opaque t :: %__MODULE__{
-      provide_data_cb: provide_data_cb(),
-      cursor: non_neg_integer(),
-      box_positions: %{
-        Container.box_name_t() =>
-          {offset :: non_neg_integer(), header_size :: pos_integer(),
-           content_size :: pos_integer()}
-      },
-      boxes: Container.t(),
-      tracks: %{
-        samples: [
-          %{
-            size: pos_integer(),
-            sample_delta: pos_integer(),
-            track_id: pos_integer()
+            provide_data_cb: provide_data_cb(),
+            cursor: non_neg_integer(),
+            box_positions: %{
+              Container.box_name_t() =>
+                {offset :: non_neg_integer(), header_size :: pos_integer(),
+                 content_size :: pos_integer()}
+            },
+            boxes: Container.t(),
+            tracks: %{
+              samples: [
+                %{
+                  size: pos_integer(),
+                  sample_delta: pos_integer(),
+                  track_id: pos_integer()
+                }
+              ]
+            },
+            samples_info: SamplesInfo.t(),
+            provider_state: any()
           }
-        ]
-      },
-      samples_info: SamplesInfo.t(),
-      provider_state: any()
-    }
 
   @enforce_keys [:provide_data_cb]
   defstruct @enforce_keys ++
@@ -98,8 +98,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         pts = dts + sample.sample_composition_offset
 
         state = put_in(state.tracks[track_id].next_dts, dts + sample.sample_delta)
-        pts_ms = pts / state.samples_info.timescales[track_id] * 1000 |> round()
-        dts_ms = dts / state.samples_info.timescales[track_id] * 1000 |> round()
+        pts_ms = (pts / state.samples_info.timescales[track_id] * 1000) |> round()
+        dts_ms = (dts / state.samples_info.timescales[track_id] * 1000) |> round()
 
         state = put_in(state.tracks[track_id].samples, rest)
         {:ok, %Sample{payload: data, pts: pts_ms, dts: dts_ms, track_id: track_id}, state}
