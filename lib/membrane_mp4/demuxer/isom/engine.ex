@@ -21,8 +21,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   @typedoc """
   A type representing the `#{inspect(__MODULE__)}`.
   """
-  @opaque(
-    t :: %__MODULE__{
+  @opaque t :: %__MODULE__{
       provide_data_cb: provide_data_cb(),
       cursor: non_neg_integer(),
       box_positions: %{
@@ -32,7 +31,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
       },
       boxes: Container.t(),
       tracks: %{
-        pos: non_neg_integer(),
         samples: [
           %{
             size: pos_integer(),
@@ -41,10 +39,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
           }
         ]
       },
-      samples_info: SamplesInfo.t()
-    },
-    provider_state: any()
-  )
+      samples_info: SamplesInfo.t(),
+      provider_state: any()
+    }
 
   @enforce_keys [:provide_data_cb]
   defstruct @enforce_keys ++
@@ -52,8 +49,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
                 cursor: 0,
                 box_positions: %{},
                 boxes: [],
-                samples_info: %{},
                 tracks: %{},
+                samples_info: %{},
                 provider_state: nil
               ]
 
@@ -100,10 +97,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         dts = next_dts
         pts = dts + sample.sample_composition_offset
 
-        state = update_in(state.tracks[track_id].pos, &(&1 + 1))
         state = put_in(state.tracks[track_id].next_dts, dts + sample.sample_delta)
-        pts_ms = pts / state.samples_info.timescales[track_id] * 1000
-        dts_ms = dts / state.samples_info.timescales[track_id] * 1000
+        pts_ms = pts / state.samples_info.timescales[track_id] * 1000 |> round()
+        dts_ms = dts / state.samples_info.timescales[track_id] * 1000 |> round()
 
         state = put_in(state.tracks[track_id].samples, rest)
         {:ok, %Sample{payload: data, pts: pts_ms, dts: dts_ms, track_id: track_id}, state}
@@ -192,7 +188,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         # in the `:tracks` field so that we don't need to filter it out
         # every time we work with samples
         samples = Enum.filter(state.samples_info.samples, &(&1.track_id == id))
-        {id, %{pos: 0, samples: samples, next_dts: 0}}
+        {id, %{samples: samples, next_dts: 0}}
       end)
       |> Enum.into(%{})
 
