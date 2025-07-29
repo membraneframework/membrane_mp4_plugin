@@ -89,9 +89,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         :end_of_stream
 
       [sample | rest] ->
-        size = sample.size
-        offset = sample.sample_offset
-        {data, provider_state} = state.provide_data_cb.(offset, size, state.provider_state)
+        {data, provider_state} = state.provide_data_cb.(sample.offset, sample.size, state.provider_state)
         state = put_in(state.provider_state, provider_state)
 
         dts = next_dts
