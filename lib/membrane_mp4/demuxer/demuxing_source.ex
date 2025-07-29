@@ -4,8 +4,13 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
 
   It requires specifying `provide_data_callback` - a function that will be called 
   each time data from MP4 needs to be read.
-  Once the Demuxer identifies the tracks in the MP4, `t:new_tracks_t/0` notification 
-  is sent for each of the tracks. The parent can then link `Pad.ref(:output, track_id)` for desired tracks.
+  If you know in advance what kind of track you want to read from the MP4, you can 
+  link the element's `Pad.ref(:output, id)` (with any desired `id`) pad with the 
+  `kind: :audio | :video` option provided.
+  Alternatively, you can spawn the element without linking its pads and wait until 
+  the tracks are resolved. Once the Demuxer identifies the tracks in the MP4, `t:new_tracks_t/0` 
+  notification is sent with description of each of the tracks and a corresponding `track_id`. 
+  The parent can then link  `Pad.ref(:output, track_id)` for desired tracks.
   """
   use Membrane.Source
   alias Membrane.MP4.Demuxer.ISOM.Engine
