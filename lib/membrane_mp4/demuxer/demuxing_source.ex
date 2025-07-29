@@ -107,7 +107,7 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
         {track_id, table.sample_description}
       end)
 
-    {[{:notify_parent, {:new_tracks, new_tracks}}], state}
+    {[notify_parent: {:new_tracks, new_tracks}], state}
   end
 
   @impl true
