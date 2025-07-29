@@ -8,6 +8,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
 
   alias Membrane.MP4.Container
   alias Membrane.MP4.Demuxer.CMAF.SamplesInfo
+  alias Membrane.MP4.Demuxer.Sample
 
   defstruct [
     :samples_to_pop,
@@ -82,11 +83,11 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   Returns a tuple with `:ok` and a list of samples, and the updated demuxer engine
   state.
 
-  The samples are instances of `Membrane.MP4.Demuxer.CMAF.Sample`.
+  The samples are instances of `Membrane.MP4.Demuxer.Sample`.
 
   If no samples are available, it returns an empty list.
   """
-  @spec pop_samples(t()) :: {:ok, [__MODULE__.Sample.t()], t()}
+  @spec pop_samples(t()) :: {:ok, [Sample.t()], t()}
   def pop_samples(%__MODULE__{} = engine) do
     {:ok, engine.samples_to_pop, %{engine | samples_to_pop: []}}
   end
@@ -204,7 +205,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
           |> Ratio.mult(1000)
           |> Ratio.floor()
 
-        %__MODULE__.Sample{track_id: sample.track_id, payload: payload, pts: pts, dts: dts}
+        %Sample{track_id: sample.track_id, payload: payload, pts: pts, dts: dts}
       end)
 
     {samples, %{engine | samples_info: rest_of_samples_info}}

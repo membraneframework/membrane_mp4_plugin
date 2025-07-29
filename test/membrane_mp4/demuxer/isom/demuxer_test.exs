@@ -21,115 +21,144 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
 
   defp ref_path_for(filename), do: "test/fixtures/payloaded/isom/payloaded_#{filename}"
 
-  describe "Demuxer should allow for transmuxing of" do
-    @tag :tmp_dir
-    test "a single fast start H264 track", %{tmp_dir: dir} do
-      in_path = "test/fixtures/isom/ref_video_fast_start.mp4"
-      out_path = Path.join(dir, "out")
+  Enum.map([false, true], fn use_demuxing_source? ->
+    describe "Demuxer should allow for transmuxing of with use_demuxing_source? = #{use_demuxing_source?}" do
+      @tag :tmp_dir
+      test "a single fast start H264 track", %{tmp_dir: dir} do
+        in_path = "test/fixtures/isom/ref_video_fast_start.mp4"
+        out_path = Path.join(dir, "out")
 
-      pipeline =
-        start_testing_pipeline!(
-          input_file: in_path,
-          output_file: out_path
-        )
+        pipeline =
+          start_testing_pipeline!(
+            unquote(use_demuxing_source?),
+            input_file: in_path,
+            output_file: out_path
+          )
 
-      perform_test(pipeline, "video", out_path)
+        perform_test(pipeline, "video", out_path)
+      end
+
+      @tag :tmp_dir
+      test "a single fast start AAC track",
+           %{tmp_dir: dir} do
+        in_path = "test/fixtures/isom/ref_aac_fast_start.mp4"
+        out_path = Path.join(dir, "out")
+
+        pipeline =
+          start_testing_pipeline!(
+            unquote(use_demuxing_source?),
+            input_file: in_path,
+            output_file: out_path
+          )
+
+        perform_test(pipeline, "aac", out_path)
+      end
+
+      @tag :tmp_dir
+      test "a single non-fast-start H264 track", %{tmp_dir: dir} do
+        in_path = "test/fixtures/isom/ref_video.mp4"
+        out_path = Path.join(dir, "out")
+
+        pipeline =
+          start_testing_pipeline!(
+            unquote(use_demuxing_source?),
+            input_file: in_path,
+            output_file: out_path
+          )
+
+        perform_test(pipeline, "video", out_path)
+      end
+
+      @tag :tmp_dir
+      test "a single non-fast-start H265 track", %{tmp_dir: dir} do
+        in_path = "test/fixtures/isom/ref_video_hevc.mp4"
+        out_path = Path.join(dir, "out")
+
+        pipeline =
+          start_testing_pipeline!(
+            unquote(use_demuxing_source?),
+            input_file: in_path,
+            output_file: out_path
+          )
+
+        perform_test(pipeline, "video_hevc", out_path)
+      end
+
+      @tag :tmp_dir
+      test "a single non-fast-start AAC track", %{tmp_dir: dir} do
+        in_path = "test/fixtures/isom/ref_aac.mp4"
+        out_path = Path.join(dir, "out")
+
+        pipeline =
+          start_testing_pipeline!(
+            unquote(use_demuxing_source?),
+            input_file: in_path,
+            output_file: out_path
+          )
+
+        perform_test(pipeline, "aac", out_path)
+      end
+
+      @tag :tmp_dir
+      test "an .mp4 file with 64-bit versions of boxes", %{tmp_dir: dir} do
+        in_path = "test/fixtures/isom/ref_64_bit_boxes.mp4"
+        video_output_path = Path.join(dir, "out.h264")
+        audio_output_path = Path.join(dir, "out.aac")
+
+        pipeline =
+          start_testing_pipeline_with_two_tracks!(
+            unquote(use_demuxing_source?),
+            input_file: in_path,
+            video_output_file: video_output_path,
+            audio_output_file: audio_output_path
+          )
+
+        assert_end_of_stream(pipeline, :video_sink)
+        assert_end_of_stream(pipeline, :audio_sink)
+        assert :ok == Pipeline.terminate(pipeline)
+      end
+
+      @tag :tmp_dir
+      test "an .mp4 file with 64-bit versions of boxes and DemuxingSource", %{tmp_dir: dir} do
+        in_path = "test/fixtures/isom/ref_64_bit_boxes.mp4"
+        video_output_path = Path.join(dir, "out.h264")
+        audio_output_path = Path.join(dir, "out.aac")
+
+        pipeline =
+          start_testing_pipeline_with_two_tracks!(
+            unquote(use_demuxing_source?),
+            input_file: in_path,
+            video_output_file: video_output_path,
+            audio_output_file: audio_output_path
+          )
+
+        assert_end_of_stream(pipeline, :video_sink)
+        assert_end_of_stream(pipeline, :audio_sink)
+        assert :ok == Pipeline.terminate(pipeline)
+      end
+
+      @tag :tmp_dir
+      test "an .mp4 file with media chunks not starting at the beginning of the mdat box", %{
+        tmp_dir: dir
+      } do
+        in_path = "test/fixtures/isom/ref_zeros_at_mdat_beginning.mp4"
+        video_output_path = Path.join(dir, "out.h264")
+        audio_output_path = Path.join(dir, "out.aac")
+
+        pipeline =
+          start_testing_pipeline_with_two_tracks!(
+            unquote(use_demuxing_source?),
+            input_file: in_path,
+            video_output_file: video_output_path,
+            audio_output_file: audio_output_path
+          )
+
+        assert_end_of_stream(pipeline, :video_sink)
+        assert_end_of_stream(pipeline, :audio_sink)
+        assert :ok == Pipeline.terminate(pipeline)
+      end
     end
-
-    @tag :tmp_dir
-    test "a single fast start AAC track", %{tmp_dir: dir} do
-      in_path = "test/fixtures/isom/ref_aac_fast_start.mp4"
-      out_path = Path.join(dir, "out")
-
-      pipeline =
-        start_testing_pipeline!(
-          input_file: in_path,
-          output_file: out_path
-        )
-
-      perform_test(pipeline, "aac", out_path)
-    end
-
-    @tag :tmp_dir
-    test "a single non-fast-start H264 track", %{tmp_dir: dir} do
-      in_path = "test/fixtures/isom/ref_video.mp4"
-      out_path = Path.join(dir, "out")
-
-      pipeline =
-        start_testing_pipeline!(
-          input_file: in_path,
-          output_file: out_path
-        )
-
-      perform_test(pipeline, "video", out_path)
-    end
-
-    @tag :tmp_dir
-    test "a single non-fast-start H265 track", %{tmp_dir: dir} do
-      in_path = "test/fixtures/isom/ref_video_hevc.mp4"
-      out_path = Path.join(dir, "out")
-
-      pipeline =
-        start_testing_pipeline!(
-          input_file: in_path,
-          output_file: out_path
-        )
-
-      perform_test(pipeline, "video_hevc", out_path)
-    end
-
-    @tag :tmp_dir
-    test "a single non-fast-start AAC track", %{tmp_dir: dir} do
-      in_path = "test/fixtures/isom/ref_aac.mp4"
-      out_path = Path.join(dir, "out")
-
-      pipeline =
-        start_testing_pipeline!(
-          input_file: in_path,
-          output_file: out_path
-        )
-
-      perform_test(pipeline, "aac", out_path)
-    end
-
-    @tag :tmp_dir
-    test "an .mp4 file with 64-bit versions of boxes", %{tmp_dir: dir} do
-      in_path = "test/fixtures/isom/ref_64_bit_boxes.mp4"
-      video_output_path = Path.join(dir, "out.h264")
-      audio_output_path = Path.join(dir, "out.aac")
-
-      pipeline =
-        start_testing_pipeline_with_two_tracks!(
-          input_file: in_path,
-          video_output_file: video_output_path,
-          audio_output_file: audio_output_path
-        )
-
-      assert_end_of_stream(pipeline, :video_sink)
-      assert_end_of_stream(pipeline, :audio_sink)
-      assert :ok == Pipeline.terminate(pipeline)
-    end
-
-    @tag :tmp_dir
-    test "an .mp4 file with media chunks not starting at the beginning of the mdat box", %{
-      tmp_dir: dir
-    } do
-      in_path = "test/fixtures/isom/ref_zeros_at_mdat_beginning.mp4"
-      video_output_path = Path.join(dir, "out.h264")
-      audio_output_path = Path.join(dir, "out.aac")
-
-      pipeline =
-        start_testing_pipeline_with_two_tracks!(
-          input_file: in_path,
-          video_output_file: video_output_path,
-          audio_output_file: audio_output_path
-        )
-
-      assert_end_of_stream(pipeline, :video_sink)
-      assert_end_of_stream(pipeline, :audio_sink)
-      assert :ok == Pipeline.terminate(pipeline)
-    end
-  end
+  end)
 
   describe "Demuxer with `non_fast_start_optimization: true` should allow for demuxing" do
     @tag :tmp_dir
@@ -174,6 +203,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
 
       pipeline =
         start_testing_pipeline_with_two_tracks!(
+          false,
           input_file: in_path,
           video_output_file: video_output_path,
           audio_output_file: audio_output_path
@@ -194,6 +224,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
 
       pipeline =
         start_testing_pipeline_with_two_tracks!(
+          false,
           input_file: in_path,
           video_output_file: video_output_path,
           audio_output_file: audio_output_path
@@ -206,6 +237,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
   end
 
   describe "output pad connected after new_tracks_t() notification" do
+    # This test makes sense only for Demuxer being a filter as 
+    # it waits until end_of_stream arrives on element's input pad
     @tag :tmp_dir
     test "output pad connected after end_of_stream", %{tmp_dir: dir} do
       out_path = Path.join(dir, "out")
@@ -213,6 +246,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
 
       pipeline =
         start_remote_pipeline!(
+          false,
           filename: filename,
           file_source_chunk_size: File.stat!(filename).size
         )
@@ -239,71 +273,75 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
       assert_files_equal(out_path, ref_path_for("video"))
     end
 
-    @tag :tmp_dir
-    test "output pad connected after moov box has been read", %{tmp_dir: dir} do
-      out_path = Path.join(dir, "out")
-      filename = "test/fixtures/isom/ref_video.mp4"
+    Enum.map([false, true], fn use_demuxing_source? ->
+      @tag :tmp_dir
+      test "output pad connected after moov box has been read with use_demuxing_source? = #{use_demuxing_source?}",
+           %{tmp_dir: dir} do
+        out_path = Path.join(dir, "out")
+        filename = "test/fixtures/isom/ref_video.mp4"
 
-      pipeline =
-        start_remote_pipeline!(
-          filename: filename,
-          file_source_chunk_size: File.stat!(filename).size - 1
-        )
+        pipeline =
+          start_remote_pipeline!(
+            unquote(use_demuxing_source?),
+            filename: filename,
+            file_source_chunk_size: File.stat!(filename).size - 1
+          )
 
-      assert_receive %RCMessage.Notification{
-                       element: :demuxer,
-                       data: {:new_tracks, [{1, _payload}]},
-                       from: _
-                     },
-                     2000
+        assert_receive %RCMessage.Notification{
+                         element: :demuxer,
+                         data: {:new_tracks, [{1, _payload}]},
+                         from: _
+                       },
+                       2000
 
-      structure = [
-        get_child(:demuxer)
-        |> via_out(Pad.ref(:output, 1))
-        |> child(:sink, %Membrane.File.Sink{location: out_path})
-      ]
+        structure = [
+          get_child(:demuxer)
+          |> via_out(Pad.ref(:output, 1))
+          |> child(:sink, %Membrane.File.Sink{location: out_path})
+        ]
 
-      RCPipeline.exec_actions(pipeline, spec: {structure, []})
-      assert_receive %RCMessage.EndOfStream{element: :demuxer, pad: :input}, 2000
-      assert_receive %RCMessage.EndOfStream{element: :sink, pad: :input}, 2000
+        RCPipeline.exec_actions(pipeline, spec: {structure, []})
+        assert_receive %RCMessage.EndOfStream{element: :sink, pad: :input}, 2000
 
-      RCPipeline.terminate(pipeline)
+        RCPipeline.terminate(pipeline)
 
-      assert_files_equal(out_path, ref_path_for("video"))
-    end
+        assert_files_equal(out_path, ref_path_for("video"))
+      end
 
-    @tag :tmp_dir
-    test "file is properly demuxed when unsupported sample type is present", %{tmp_dir: dir} do
-      out_path = Path.join(dir, "out")
-      filename = "test/fixtures/isom/ref_video_with_tmcd.mp4"
+      @tag :tmp_dir
+      test "file is properly demuxed when unsupported sample type is present with use_demuxing_source? = #{use_demuxing_source?}",
+           %{tmp_dir: dir} do
+        out_path = Path.join(dir, "out")
+        filename = "test/fixtures/isom/ref_video_with_tmcd.mp4"
 
-      pipeline =
-        start_remote_pipeline!(
-          filename: filename,
-          file_source_chunk_size: File.stat!(filename).size - 1
-        )
+        pipeline =
+          start_remote_pipeline!(
+            unquote(use_demuxing_source?),
+            filename: filename,
+            file_source_chunk_size: File.stat!(filename).size - 1
+          )
 
-      assert_receive %RCMessage.Notification{
-                       element: :demuxer,
-                       data: {:new_tracks, [{1, _payload}]},
-                       from: _
-                     },
-                     2000
+        assert_receive %RCMessage.Notification{
+                         element: :demuxer,
+                         data: {:new_tracks, [{1, _payload}]},
+                         from: _
+                       },
+                       2000
 
-      structure = [
-        get_child(:demuxer)
-        |> via_out(Pad.ref(:output, 1))
-        |> child(:sink, %Membrane.File.Sink{location: out_path})
-      ]
+        structure = [
+          get_child(:demuxer)
+          |> via_out(Pad.ref(:output, 1))
+          |> child(:sink, %Membrane.File.Sink{location: out_path})
+        ]
 
-      RCPipeline.exec_actions(pipeline, spec: {structure, []})
-      assert_receive %RCMessage.EndOfStream{element: :demuxer, pad: :input}, 2000
-      assert_receive %RCMessage.EndOfStream{element: :sink, pad: :input}, 2000
+        RCPipeline.exec_actions(pipeline, spec: {structure, []})
+        assert_receive %RCMessage.EndOfStream{element: :sink, pad: :input}, 2000
 
-      RCPipeline.terminate(pipeline)
+        RCPipeline.terminate(pipeline)
 
-      assert_files_equal(out_path, ref_path_for("video"))
-    end
+        assert_files_equal(out_path, ref_path_for("video"))
+      end
+    end)
   end
 
   defp perform_test(pid, filename, out_path) do
@@ -316,7 +354,15 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     assert_files_equal(out_path, ref_path)
   end
 
-  defp start_testing_pipeline!(opts) do
+  defp provide_data_cb(input_file_path, start, size, provider_state) do
+    f = File.open!(input_file_path)
+    :file.position(f, start)
+    content = IO.binread(f, size)
+    File.close(f)
+    {content, provider_state}
+  end
+
+  defp start_testing_pipeline!(false = _use_demuxing_source?, opts) do
     spec =
       child(:file, %Membrane.File.Source{location: opts[:input_file]})
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
@@ -326,7 +372,18 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     Pipeline.start_link_supervised!(spec: spec)
   end
 
-  defp start_testing_pipeline_with_two_tracks!(opts) do
+  defp start_testing_pipeline!(true = _use_demuxing_source?, opts) do
+    spec =
+      child(:demuxer, %Membrane.MP4.Demuxer.DemuxingSource{
+        provide_data_cb: &provide_data_cb(opts[:input_file], &1, &2, &3)
+      })
+      |> via_out(Pad.ref(:output, 1))
+      |> child(:sink, %Membrane.File.Sink{location: opts[:output_file]})
+
+    Pipeline.start_link_supervised!(spec: spec)
+  end
+
+  defp start_testing_pipeline_with_two_tracks!(false = _use_demuxing_source?, opts) do
     spec = [
       child(:file, %Membrane.File.Source{location: opts[:input_file]})
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
@@ -340,13 +397,42 @@ defmodule Membrane.MP4.Demuxer.ISOM.DemuxerTest do
     Pipeline.start_link_supervised!(spec: spec)
   end
 
-  defp start_remote_pipeline!(opts) do
+  defp start_testing_pipeline_with_two_tracks!(true = _use_demuxing_source?, opts) do
+    spec = [
+      child(:demuxer, %Membrane.MP4.Demuxer.DemuxingSource{
+        provide_data_cb: &provide_data_cb(opts[:input_file], &1, &2, &3)
+      })
+      |> via_out(:output, options: [kind: :video])
+      |> child(:video_sink, %Membrane.File.Sink{location: opts[:video_output_file]}),
+      get_child(:demuxer)
+      |> via_out(:output, options: [kind: :audio])
+      |> child(:audio_sink, %Membrane.File.Sink{location: opts[:audio_output_file]})
+    ]
+
+    Pipeline.start_link_supervised!(spec: spec)
+  end
+
+  defp start_remote_pipeline!(false = _use_demuxing_source?, opts) do
     spec =
       child(:file, %Membrane.File.Source{
         location: opts[:filename],
         chunk_size: opts[:file_source_chunk_size]
       })
       |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
+
+    pipeline = RCPipeline.start_link!()
+    RCPipeline.exec_actions(pipeline, spec: spec)
+    RCPipeline.subscribe(pipeline, %RCMessage.Notification{})
+    RCPipeline.subscribe(pipeline, %RCMessage.EndOfStream{})
+
+    pipeline
+  end
+
+  defp start_remote_pipeline!(true = _use_demuxing_source?, opts) do
+    spec =
+      child(:demuxer, %Membrane.MP4.Demuxer.DemuxingSource{
+        provide_data_cb: &provide_data_cb(opts[:filename], &1, &2, &3)
+      })
 
     pipeline = RCPipeline.start_link!()
     RCPipeline.exec_actions(pipeline, spec: spec)
