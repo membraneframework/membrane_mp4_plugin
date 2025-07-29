@@ -42,9 +42,9 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
         default: nil,
         description: """
          Specifies the decoding timestamp of 
-                  the first sample that should be read from each of the tracks.
-                  If there is no sample with exactly such a timestamp, that sample
-                  will be the first sample with DTS greater than provided timestamp.
+         the first sample that should be read from each of the tracks.
+         If there is no sample with exactly such a timestamp, that sample
+         will be the first sample with DTS greater than provided timestamp.
         """
       ]
     ],
