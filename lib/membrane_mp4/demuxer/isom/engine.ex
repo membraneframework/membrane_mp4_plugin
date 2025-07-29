@@ -90,7 +90,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
 
       [sample | rest] ->
         {data, provider_state} =
-          state.provide_data_cb.(sample.offset, sample.size, state.provider_state)
+          state.provide_data_cb.(sample.sample_offset, sample.size, state.provider_state)
 
         state = put_in(state.provider_state, provider_state)
 
