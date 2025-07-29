@@ -73,7 +73,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   Returns a map describing tracks found in the MP4 file.
   """
   @spec get_tracks_info(t()) :: %{(track_id :: pos_integer()) => SampleTable.t()}
-  def(get_tracks_info(state)) do
+  def get_tracks_info(state) do
     state.samples_info.sample_tables
   end
 
