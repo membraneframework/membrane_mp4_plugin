@@ -81,7 +81,8 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
       Map.from_struct(opts)
       |> Map.merge(%{
         engine: nil,
-        pad_to_track_id: %{}
+        pad_to_track_id: %{},
+        should_send_discontinuity?: opts.start_at != 0
       })
 
     {[], state}
@@ -145,7 +146,16 @@ defmodule Membrane.MP4.Demuxer.DemuxingSource do
             []
           end
 
-        {maybe_send_stream_format ++ [buffer: {pad, buffer}, redemand: pad], state}
+        maybe_send_discontinuity =
+          if state.should_send_discontinuity? do
+            [event: {pad, %Membrane.Event.Discontinuity{duration: buffer.pts}}]
+          else
+            []
+          end
+
+        {maybe_send_stream_format ++
+           maybe_send_discontinuity ++ [buffer: {pad, buffer}, redemand: pad],
+         %{state | should_send_discontinuity?: false}}
     end
   end
 
