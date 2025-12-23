@@ -50,6 +50,20 @@ defmodule Membrane.MP4.Container.Schema.Default do
     ]
   ]
 
+  @av1_schema [
+    version: 0,
+    fields: @visual_sample_entry,
+    av1C: [
+      black_box?: true
+    ],
+    pasp: [
+      fields: [
+        h_spacing: :uint32,
+        v_spacing: :uint32
+      ]
+    ]
+  ]
+
   @schema_def ftyp: [
                 fields: [
                   major_brand: :str32,
@@ -197,6 +211,7 @@ defmodule Membrane.MP4.Container.Schema.Default do
                           avc3: @avc_schema,
                           hvc1: @hevc_schema,
                           hev1: @hevc_schema,
+                          av01: @av1_schema,
                           mp4a: [
                             fields: [
                               reserved: <<0::6*8>>,

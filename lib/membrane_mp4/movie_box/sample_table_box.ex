@@ -5,6 +5,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
   require Membrane.Logger
   alias Membrane.{AAC, H264, H265, Opus}
   alias Membrane.MP4.{Container, Helper, Track.SampleTable}
+  alias Membrane.RTP.AV1.Format, as: AV1Format
 
   @spec assemble(SampleTable.t()) :: Container.t()
   def assemble(table) do
@@ -183,6 +184,99 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
       }
     ]
   end
+
+  defp assemble_sample_description(%AV1Format{} = format) do
+    av1c_content = build_av1c(format)
+
+    [
+      {:av01,
+       %{
+         children: [
+           av1C: %{
+             content: av1c_content
+           },
+           pasp: %{
+             children: [],
+             fields: %{h_spacing: 1, v_spacing: 1}
+           }
+         ],
+         fields: %{
+           compressor_name: <<0::size(32)-unit(8)>>,
+           depth: 24,
+           flags: 0,
+           frame_count: 1,
+           # Width/height should be extracted from Sequence Header OBU
+           # Using 0 as placeholder - will be updated when first frame is received
+           height: 0,
+           horizresolution: {0, 0},
+           num_of_entries: 1,
+           version: 0,
+           vertresolution: {0, 0},
+           width: 0
+         }
+       }}
+    ]
+  end
+
+  # Build av1C (AV1CodecConfigurationRecord) per ISO/IEC 14496-15
+  defp build_av1c(%AV1Format{} = format) do
+    config = av1c_config(format)
+
+    <<
+      # Byte 0: marker (1) | version (7)
+      1::1,
+      1::7,
+      # Byte 1: seq_profile (3) | seq_level_idx_0 (5)
+      config.profile::3,
+      config.level_idx::5,
+      # Byte 2: seq_tier_0 (1) | high_bitdepth (1) | twelve_bit (1) | monochrome (1) |
+      #         chroma_subsampling_x (1) | chroma_subsampling_y (1) | chroma_sample_position (2)
+      config.tier::1,
+      config.high_bitdepth::1,
+      config.twelve_bit::1,
+      config.monochrome::1,
+      config.chroma_subsampling_x::1,
+      config.chroma_subsampling_y::1,
+      config.chroma_sample_position::2,
+      # Byte 3: reserved (3) | initial_presentation_delay_present (1) | reserved (4)
+      0::3,
+      0::1,
+      0::4
+    >>
+  end
+
+  defp av1c_config(%AV1Format{} = format) do
+    %{
+      profile: format.profile || 0,
+      level_idx: level_string_to_idx(format.level) || 8,
+      tier: format.tier || 0,
+      # Defaults for 8-bit, 4:2:0
+      high_bitdepth: 0,
+      twelve_bit: 0,
+      monochrome: 0,
+      chroma_subsampling_x: 1,
+      chroma_subsampling_y: 1,
+      chroma_sample_position: 0
+    }
+  end
+
+  # Convert AV1 level string to level index
+  defp level_string_to_idx(nil), do: nil
+  defp level_string_to_idx("2.0"), do: 0
+  defp level_string_to_idx("2.1"), do: 1
+  defp level_string_to_idx("3.0"), do: 4
+  defp level_string_to_idx("3.1"), do: 5
+  defp level_string_to_idx("4.0"), do: 8
+  defp level_string_to_idx("4.1"), do: 9
+  defp level_string_to_idx("5.0"), do: 12
+  defp level_string_to_idx("5.1"), do: 13
+  defp level_string_to_idx("5.2"), do: 14
+  defp level_string_to_idx("5.3"), do: 15
+  defp level_string_to_idx("6.0"), do: 16
+  defp level_string_to_idx("6.1"), do: 17
+  defp level_string_to_idx("6.2"), do: 18
+  defp level_string_to_idx("6.3"), do: 19
+  defp level_string_to_idx(_), do: nil
 
   defp assemble_sample_deltas(%{timescale: timescale, decoding_deltas: decoding_deltas}),
     do:

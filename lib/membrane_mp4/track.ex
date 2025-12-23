@@ -10,6 +10,7 @@ defmodule Membrane.MP4.Track do
   alias __MODULE__.SampleTable
   alias Membrane.{AAC, H264, H265}
   alias Membrane.MP4.Helper
+  alias Membrane.RTP.AV1.Format, as: AV1Format
 
   @type t :: %__MODULE__{
           id: pos_integer(),
@@ -90,6 +91,8 @@ defmodule Membrane.MP4.Track do
           | {:avc1, %{profile: binary(), compatibility: binary(), level: binary()}}
           | {:hvc1,
              %{profile: non_neg_integer(), tier: non_neg_integer(), level: non_neg_integer()}}
+          | {:av01,
+             %{profile: non_neg_integer(), level: String.t() | nil, tier: non_neg_integer()}}
           | nil
 
   def get_encoding_info(%__MODULE__{
@@ -139,6 +142,16 @@ defmodule Membrane.MP4.Track do
     {hevc, map}
   end
 
+  def get_encoding_info(%__MODULE__{stream_format: %AV1Format{} = format}) do
+    map = %{
+      profile: format.profile || 0,
+      level: format.level,
+      tier: format.tier || 0
+    }
+
+    {:av01, map}
+  end
+
   def get_encoding_info(_unknown), do: nil
 
   defp get_timescale(stream_format) do
@@ -148,6 +161,9 @@ defmodule Membrane.MP4.Track do
 
       %Membrane.AAC{sample_rate: sample_rate} ->
         sample_rate
+
+      %AV1Format{clock_rate: clock_rate} ->
+        clock_rate
 
       %module{framerate: nil} when module in [H264, H265] ->
         30 * 1024

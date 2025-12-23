@@ -13,7 +13,8 @@ defmodule Membrane.MP4.MovieBox.TrackBox do
 
   defguardp is_audio(track)
             when not is_struct(track.stream_format, Membrane.H264) and
-                   not is_struct(track.stream_format, Membrane.H265)
+                   not is_struct(track.stream_format, Membrane.H265) and
+                   not is_struct(track.stream_format, Membrane.RTP.AV1.Format)
 
   @spec assemble(Track.t()) :: Container.t()
   def assemble(track) do
