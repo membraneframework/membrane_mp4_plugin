@@ -3,9 +3,8 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
   require Membrane.H264
   require Membrane.Logger
-  alias Membrane.{AAC, H264, H265, Opus}
   alias Membrane.MP4.{Container, Helper, Track.SampleTable}
-  alias Membrane.RTP.AV1.Format, as: AV1Format
+  alias Membrane.{AAC, AV1, H264, H265, Opus}
 
   @spec assemble(SampleTable.t()) :: Container.t()
   def assemble(table) do
@@ -185,7 +184,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     ]
   end
 
-  defp assemble_sample_description(%AV1Format{} = format) do
+  defp assemble_sample_description(%AV1{} = format) do
     av1c_content = build_av1c(format)
 
     [
@@ -219,7 +218,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
   end
 
   # Build av1C (AV1CodecConfigurationRecord) per ISO/IEC 14496-15
-  defp build_av1c(%AV1Format{} = format) do
+  defp build_av1c(%AV1{} = format) do
     config = av1c_config(format)
 
     <<
@@ -245,7 +244,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     >>
   end
 
-  defp av1c_config(%AV1Format{} = format) do
+  defp av1c_config(%AV1{} = format) do
     %{
       profile: format.profile || 0,
       level_idx: level_string_to_idx(format.level) || 8,

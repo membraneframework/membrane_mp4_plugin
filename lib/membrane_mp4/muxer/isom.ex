@@ -6,7 +6,6 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   alias Membrane.{Buffer, File, MP4, RemoteStream, Time, TimestampQueue}
   alias Membrane.MP4.{Container, FileTypeBox, MediaDataBox, MovieBox, Track}
-  alias Membrane.RTP.AV1.Format, as: AV1Format
 
   @ftyp FileTypeBox.assemble("isom", ["isom", "iso2", "avc1", "mp41"])
   @ftyp_size @ftyp |> Container.serialize!() |> byte_size()
@@ -26,7 +25,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
           alignment: :au
         },
         %Membrane.Opus{self_delimiting?: false},
-        %Membrane.RTP.AV1.Format{}
+        %Membrane.AV1{}
       ),
     availability: :on_request
 
@@ -195,7 +194,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
     buffer =
       case track.stream_format do
-        %AV1Format{} -> %Buffer{buffer | payload: strip_temporal_delimiter(buffer.payload)}
+        %Membrane.AV1{} -> %Buffer{buffer | payload: strip_temporal_delimiter(buffer.payload)}
         _other -> buffer
       end
 

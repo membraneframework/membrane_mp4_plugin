@@ -176,11 +176,11 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
     # With 85% rule, we get fewer but larger buffers, so collect all available buffers
     {all_buffers, independent_count} = collect_all_buffers(pipeline, [], 0)
-    
+
     # Should have at least some buffers and exactly 2 independent ones (keyframes)
     assert length(all_buffers) > 0, "Expected some buffers"
     assert independent_count == 2, "Expected exactly 2 independent buffers (keyframes)"
-    
+
     # All buffers should meet duration requirements
     Enum.each(all_buffers, fn buffer ->
       assert buffer.metadata.duration <= Membrane.Time.milliseconds(900)
@@ -230,10 +230,10 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     # With 85% rule, we get fewer but larger partial segments before reaching keyframe
     # Collect and verify partial segments until we find an independent one
     {partial_segments, independent_buffer} = collect_until_independent(pipeline, [])
-    
+
     # Should have collected some partial segments
     assert length(partial_segments) > 0, "Expected some partial segments with 85% rule"
-    
+
     # All collected segments should be non-independent and within duration limits
     Enum.each(partial_segments, fn buffer ->
       refute buffer.metadata.independent?
@@ -425,6 +425,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       {acc, nil}
     else
       assert_sink_buffer(pipeline, :sink, buffer, 1000)
+
       if buffer.metadata.independent? do
         # Found independent segment, return partials and this buffer
         {Enum.reverse(acc), buffer}
@@ -434,18 +435,21 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       end
     end
   end
-  
+
   # Collects all buffers until no more are available  
   # Returns {all_buffers, independent_count}
   defp collect_all_buffers(pipeline, acc, independent_count) do
     try do
       assert_sink_buffer(pipeline, :sink, buffer, 500)
-      new_independent_count = if buffer.metadata.independent?, 
-        do: independent_count + 1, 
-        else: independent_count
+
+      new_independent_count =
+        if buffer.metadata.independent?,
+          do: independent_count + 1,
+          else: independent_count
+
       collect_all_buffers(pipeline, [buffer | acc], new_independent_count)
     rescue
-      ExUnit.AssertionError -> 
+      ExUnit.AssertionError ->
         # No more buffers available
         {Enum.reverse(acc), independent_count}
     end

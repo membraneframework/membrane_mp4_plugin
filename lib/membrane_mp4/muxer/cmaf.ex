@@ -777,10 +777,10 @@ defmodule Membrane.MP4.Muxer.CMAF do
        when is_integer(chunk_target_duration) do
     # HLS specification requires partial segments to be at least 85% of target duration
     min_chunk_duration = trunc(chunk_target_duration * 0.85)
-    
+
     # Ensure minimum chunk duration is at least 50ms to prevent too small chunks
     min_chunk_duration = max(min_chunk_duration, Membrane.Time.milliseconds(50))
-    
+
     if chunk_target_duration < min_chunk_duration do
       raise """
         Chunk target duration is smaller than minimal duration.
