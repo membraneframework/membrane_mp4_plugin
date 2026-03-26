@@ -174,17 +174,17 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
         chunk_target_duration: Time.milliseconds(500)
       )
 
-    # With 85% rule, we get fewer but larger buffers, so collect all available buffers
-    {all_buffers, independent_count} = collect_all_buffers(pipeline, [], 0)
+    independent_buffers =
+      1..21
+      |> Enum.reduce(0, fn _i, acc ->
+        assert_sink_buffer(pipeline, :sink, buffer)
 
-    # Should have at least some buffers and exactly 2 independent ones (keyframes)
-    assert length(all_buffers) > 0, "Expected some buffers"
-    assert independent_count == 2, "Expected exactly 2 independent buffers (keyframes)"
+        assert buffer.metadata.duration < Membrane.Time.milliseconds(550)
 
-    # All buffers should meet duration requirements
-    Enum.each(all_buffers, fn buffer ->
-      assert buffer.metadata.duration <= Membrane.Time.milliseconds(900)
-    end)
+        if buffer.metadata.independent?, do: acc + 1, else: acc
+      end)
+
+    assert independent_buffers == 2
 
     assert_end_of_stream(pipeline, :sink)
     refute_sink_buffer(pipeline, :sink, _buffer, 0)
@@ -224,27 +224,21 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     # first independent segment
     assert_sink_buffer(pipeline, :sink, buffer)
     assert buffer.metadata.independent?
-    # With 85% rule, chunks can be larger as they wait to collect minimum required duration
-    assert buffer.metadata.duration <= Membrane.Time.milliseconds(900)
+    assert buffer.metadata.duration <= Membrane.Time.milliseconds(550)
 
-    # With 85% rule, we get fewer but larger partial segments before reaching keyframe
-    # Collect and verify partial segments until we find an independent one
-    {partial_segments, independent_buffer} = collect_until_independent(pipeline, [])
-
-    # Should have collected some partial segments
-    assert length(partial_segments) > 0, "Expected some partial segments with 85% rule"
-
-    # All collected segments should be non-independent and within duration limits
-    Enum.each(partial_segments, fn buffer ->
+    # partial segments for the following 8 seconds without a keyframe
+    for _ <- 1..16 do
+      assert_sink_buffer(pipeline, :sink, buffer)
       refute buffer.metadata.independent?
-      assert buffer.metadata.duration <= Membrane.Time.milliseconds(900)
-    end)
+      assert buffer.metadata.duration <= Membrane.Time.milliseconds(550)
+    end
 
-    # The independent buffer should be independent (keyframe)
-    assert independent_buffer.metadata.independent?
+    # independent part wth a keyframe
+    assert_sink_buffer(pipeline, :sink, buffer)
+    assert buffer.metadata.independent?
 
-    # With 85% rule, chunks can be larger as they wait to collect minimum required duration
-    assert independent_buffer.metadata.duration <= Membrane.Time.milliseconds(900)
+    assert buffer.metadata.duration <= Membrane.Time.milliseconds(550) and
+             buffer.metadata.duration >= Membrane.Time.milliseconds(500)
 
     for _iteration <- 1..3 do
       assert_sink_buffer(pipeline, :sink, buffer)
@@ -415,43 +409,6 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
       assert_end_of_stream(pipeline, :sink)
       Testing.Pipeline.terminate(pipeline)
-    end
-  end
-
-  # Recursively collects partial segments until an independent one is found
-  # Returns {partial_segments, independent_buffer}
-  defp collect_until_independent(pipeline, acc, max_attempts \\ 25) do
-    if max_attempts <= 0 do
-      {acc, nil}
-    else
-      assert_sink_buffer(pipeline, :sink, buffer, 1000)
-
-      if buffer.metadata.independent? do
-        # Found independent segment, return partials and this buffer
-        {Enum.reverse(acc), buffer}
-      else
-        # This is a partial segment, add to accumulator and continue
-        collect_until_independent(pipeline, [buffer | acc], max_attempts - 1)
-      end
-    end
-  end
-
-  # Collects all buffers until no more are available  
-  # Returns {all_buffers, independent_count}
-  defp collect_all_buffers(pipeline, acc, independent_count) do
-    try do
-      assert_sink_buffer(pipeline, :sink, buffer, 500)
-
-      new_independent_count =
-        if buffer.metadata.independent?,
-          do: independent_count + 1,
-          else: independent_count
-
-      collect_all_buffers(pipeline, [buffer | acc], new_independent_count)
-    rescue
-      ExUnit.AssertionError ->
-        # No more buffers available
-        {Enum.reverse(acc), independent_count}
     end
   end
 

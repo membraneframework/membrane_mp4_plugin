@@ -184,7 +184,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     ]
   end
 
-  defp assemble_sample_description(%AV1{} = format) do
+  defp assemble_sample_description(%AV1{width: width, height: height} = format) do
     av1c_content = build_av1c(format)
 
     [
@@ -204,14 +204,12 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
            depth: 24,
            flags: 0,
            frame_count: 1,
-           # Width/height should be extracted from Sequence Header OBU
-           # Using 0 as placeholder - will be updated when first frame is received
-           height: 0,
+           height: height || 0,
            horizresolution: {0, 0},
            num_of_entries: 1,
            version: 0,
            vertresolution: {0, 0},
-           width: 0
+           width: width || 0
          }
        }}
     ]

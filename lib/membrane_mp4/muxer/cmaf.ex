@@ -769,23 +769,18 @@ defmodule Membrane.MP4.Muxer.CMAF do
     end)
   end
 
+  @min_chunk_duration Membrane.Time.milliseconds(50)
   defp set_chunk_duration_range(
          %{
            chunk_target_duration: chunk_target_duration
          } = state
        )
        when is_integer(chunk_target_duration) do
-    # HLS specification requires partial segments to be at least 85% of target duration
-    min_chunk_duration = trunc(chunk_target_duration * 0.85)
-
-    # Ensure minimum chunk duration is at least 50ms to prevent too small chunks
-    min_chunk_duration = max(min_chunk_duration, Membrane.Time.milliseconds(50))
-
-    if chunk_target_duration < min_chunk_duration do
+    if chunk_target_duration < @min_chunk_duration do
       raise """
         Chunk target duration is smaller than minimal duration.
         Duration: #{Membrane.Time.as_milliseconds(chunk_target_duration, :round)}
-        Minimum: #{Membrane.Time.as_milliseconds(min_chunk_duration, :round)}
+        Minumum: #{Membrane.Time.as_milliseconds(@min_chunk_duration, :round)}
       """
     end
 
@@ -793,7 +788,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     |> Map.delete(:chunk_target_duration)
     |> Map.put(
       :chunk_duration_range,
-      DurationRange.new(min_chunk_duration, chunk_target_duration)
+      DurationRange.new(@min_chunk_duration, chunk_target_duration)
     )
   end
 
