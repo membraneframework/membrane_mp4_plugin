@@ -298,7 +298,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
       )
       |> update_in(
         [:sample_queues, pad],
-        &%SamplesQueue{&1 | track_with_keyframes?: is_video_pad}
+        &%{&1 | track_with_keyframes?: is_video_pad}
       )
       |> then(fn state ->
         if is_video_pad do
@@ -345,7 +345,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     # In case DTS is not set, use PTS. This is the case for audio tracks or H264 originated
     # from an RTP stream. ISO base media file format specification uses DTS for calculating
     # decoding deltas, and so is the implementation of sample table in this plugin.
-    sample = %Buffer{sample | dts: Buffer.get_dts_or_pts(sample)}
+    sample = %{sample | dts: Buffer.get_dts_or_pts(sample)}
 
     {sample, state} =
       state
@@ -488,7 +488,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
           sample_metadata =
             Map.put(sample.metadata, :duration, SamplesQueue.last_sample(queue).metadata.duration)
 
-          sample = %Buffer{sample | metadata: sample_metadata}
+          sample = %{sample | metadata: sample_metadata}
 
           queue = SamplesQueue.force_push(queue, sample)
           put_in(state, [:sample_queues, pad], queue)
@@ -724,7 +724,7 @@ defmodule Membrane.MP4.Muxer.CMAF do
     else
       duration = Ratio.to_float(sample.dts - prev_sample.dts)
       prev_sample_metadata = Map.put(prev_sample.metadata, :duration, duration)
-      prev_sample = %Buffer{prev_sample | metadata: prev_sample_metadata}
+      prev_sample = %{prev_sample | metadata: prev_sample_metadata}
 
       state =
         state

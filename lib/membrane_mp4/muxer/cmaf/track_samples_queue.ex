@@ -26,7 +26,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   """
   @spec force_push(t(), Membrane.Buffer.t()) :: t()
   def force_push(%__MODULE__{collectable?: false} = queue, sample) do
-    %__MODULE__{
+    %{
       queue
       | target_samples: [sample | queue.target_samples],
         collected_samples_duration: queue.collected_samples_duration + sample.metadata.duration
@@ -34,7 +34,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   end
 
   def force_push(%__MODULE__{collectable?: true} = queue, sample) do
-    %__MODULE__{
+    %{
       queue
       | excess_samples: [sample | queue.excess_samples]
     }
@@ -56,13 +56,13 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     track_duration = duration_from_sample(sample)
 
     if track_duration <= target_duration do
-      %__MODULE__{
+      %{
         queue
         | collected_samples_duration: queue.collected_samples_duration + sample.metadata.duration,
           target_samples: [sample | queue.target_samples]
       }
     else
-      %__MODULE__{
+      %{
         queue
         | collectable?: true,
           target_samples: Enum.reverse(queue.target_samples),
@@ -72,7 +72,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   end
 
   def plain_push_until_target(%__MODULE__{collectable?: true} = queue, sample, _base_timestamp) do
-    %__MODULE__{queue | excess_samples: [sample | queue.excess_samples]}
+    %{queue | excess_samples: [sample | queue.excess_samples]}
   end
 
   @doc """
@@ -124,7 +124,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
 
   defp do_push(queue, sample, duration, min_duration, _target_duration, _max_duration)
        when duration <= min_duration do
-    %__MODULE__{
+    %{
       queue
       | collected_samples_duration: queue.collected_samples_duration + sample.metadata.duration,
         target_samples: [sample | queue.target_samples]
@@ -139,14 +139,14 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     } = queue
 
     if queue.track_with_keyframes? and key_frame?(sample.metadata) do
-      %__MODULE__{
+      %{
         queue
         | collectable?: true,
           target_samples: Enum.reverse(target_samples),
           excess_samples: [sample]
       }
     else
-      %__MODULE__{
+      %{
         queue
         | collected_samples_duration: collected_samples_duration + sample.metadata.duration,
           target_samples: [sample | target_samples]
@@ -164,7 +164,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
 
     if (queue.track_with_keyframes? and key_frame?(sample.metadata)) or
          not queue.track_with_keyframes? do
-      %__MODULE__{
+      %{
         queue
         | collectable?: true,
           target_samples: Enum.reverse(excess_samples ++ target_samples),
@@ -173,7 +173,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
     else
       # in case we already exceeded the target duration we don't want to push the sample to target samples group (unless further we encounter a key frame)
       # NOTE: but we increase the duration
-      %__MODULE__{
+      %{
         queue
         | collected_samples_duration: collected_samples_duration + sample.metadata.duration,
           excess_samples: [sample | excess_samples]
@@ -183,12 +183,12 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
 
   defp do_push(queue, sample, _duration, _min_duration, _target_duration, _max_duration) do
     if queue.collectable? do
-      %__MODULE__{queue | excess_samples: [sample | queue.excess_samples]}
+      %{queue | excess_samples: [sample | queue.excess_samples]}
     else
       if queue.track_with_keyframes? and key_frame?(sample.metadata) do
         target_samples = queue.excess_samples ++ queue.target_samples
 
-        %__MODULE__{
+        %{
           queue
           | collectable?: true,
             target_samples: Enum.reverse(target_samples),
@@ -196,7 +196,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
             excess_samples: [sample]
         }
       else
-        %__MODULE__{
+        %{
           queue
           | collectable?: true,
             target_samples: Enum.reverse(queue.target_samples),
@@ -223,7 +223,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
 
     result = Enum.reverse(target_samples)
 
-    queue = %__MODULE__{
+    queue = %{
       queue
       | target_samples: excess_samples,
         excess_samples: [],
@@ -245,7 +245,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   def collect(%__MODULE__{collectable?: true} = queue) do
     %__MODULE__{target_samples: target_samples, excess_samples: excess_samples} = queue
 
-    queue = %__MODULE__{
+    queue = %{
       queue
       | collectable?: false,
         target_samples: excess_samples,
@@ -327,7 +327,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   defp duration_from_sample(sample), do: Ratio.to_float(sample.dts) + sample.metadata.duration
 
   defp reset_queue(queue) do
-    %__MODULE__{
+    %{
       queue
       | collectable?: false,
         collected_samples_duration: 0,

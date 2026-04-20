@@ -63,7 +63,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelperTest do
     if awaiting do
       duration = buffer.dts - awaiting.dts
 
-      awaiting = %Membrane.Buffer{
+      awaiting = %{
         awaiting
         | metadata: Map.put(awaiting.metadata, :duration, duration)
       }

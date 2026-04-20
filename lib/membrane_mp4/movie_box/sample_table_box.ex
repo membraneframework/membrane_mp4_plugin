@@ -3,8 +3,8 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
   require Membrane.H264
   require Membrane.Logger
-  alias Membrane.MP4.{Container, Helper, Track.SampleTable}
   alias Membrane.{AAC, H264, H265, Opus}
+  alias Membrane.MP4.{Container, Helper, Track.SampleTable}
 
   @spec assemble(SampleTable.t()) :: Container.t()
   def assemble(table) do

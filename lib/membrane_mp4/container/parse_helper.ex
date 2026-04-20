@@ -35,7 +35,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
         # more data needed
         {:ok, Enum.reverse(acc), data, context}
 
-      known?: _ ->
+      known?: _unknown ->
         box = %{content: content, size: content_size, header_size: header_size}
         parse_boxes(data, schema, context, [{name, box} | acc])
 

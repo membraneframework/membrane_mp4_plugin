@@ -31,7 +31,7 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueueTest do
   defp empty_audio_queue(duration_range \\ @default_duration_range),
     do: %Queue{track_with_keyframes?: false, duration_range: duration_range}
 
-  defp with_collectable(queue), do: %Queue{queue | collectable?: true}
+  defp with_collectable(queue), do: %{queue | collectable?: true}
 
   describe "Pushing to queue using plain_push_until_target/3 should" do
     test "not change to collectable state when the track's duration is smaller than min duration" do
