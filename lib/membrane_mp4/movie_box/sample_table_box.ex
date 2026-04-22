@@ -192,8 +192,10 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
   defp maybe_sample_composition_offsets(%{composition_offsets: []}), do: []
 
-  defp maybe_sample_composition_offsets(%{composition_offsets: [%{sample_composition_offset: 0}]}),
-    do: []
+  defp maybe_sample_composition_offsets(%{
+         composition_offsets: [%{sample_composition_offset: 0}]
+       }),
+       do: []
 
   defp maybe_sample_composition_offsets(%{
          timescale: timescale,
