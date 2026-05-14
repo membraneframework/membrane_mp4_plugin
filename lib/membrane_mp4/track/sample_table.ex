@@ -185,7 +185,7 @@ defmodule Membrane.MP4.Track.SampleTable do
   defp update_samples_per_chunk(sample_table, sample_count) do
     Map.update!(sample_table, :samples_per_chunk, fn previous_chunks ->
       case previous_chunks do
-        [%{first_chunk: _, sample_count: ^sample_count} | _rest] ->
+        [%{first_chunk: _first_chunk, sample_count: ^sample_count} | _rest] ->
           previous_chunks
 
         _different_count ->

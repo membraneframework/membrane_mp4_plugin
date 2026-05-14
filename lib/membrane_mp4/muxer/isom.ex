@@ -186,7 +186,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
     # In case DTS is not set, use PTS. This is the case for audio tracks or H264 originated
     # from an RTP stream. ISO base media file format specification uses DTS for calculating
     # decoding deltas, and so is the implementation of sample table in this plugin.
-    buffer = %Buffer{buffer | dts: Buffer.get_dts_or_pts(buffer)}
+    buffer = %{buffer | dts: Buffer.get_dts_or_pts(buffer)}
 
     state
     |> update_in([:pad_to_track, pad_ref], &Track.store_sample(&1, buffer))

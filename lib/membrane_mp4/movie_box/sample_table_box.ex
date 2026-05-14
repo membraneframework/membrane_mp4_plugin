@@ -3,8 +3,8 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
   require Membrane.H264
   require Membrane.Logger
-  alias Membrane.MP4.{Container, Helper, Track.SampleTable}
   alias Membrane.{AAC, H264, H265, Opus}
+  alias Membrane.MP4.{Container, Helper, Track.SampleTable}
 
   @spec assemble(SampleTable.t()) :: Container.t()
   def assemble(table) do
@@ -192,8 +192,10 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
   defp maybe_sample_composition_offsets(%{composition_offsets: []}), do: []
 
-  defp maybe_sample_composition_offsets(%{composition_offsets: [%{sample_composition_offset: 0}]}),
-    do: []
+  defp maybe_sample_composition_offsets(%{
+         composition_offsets: [%{sample_composition_offset: 0}]
+       }),
+       do: []
 
   defp maybe_sample_composition_offsets(%{
          timescale: timescale,

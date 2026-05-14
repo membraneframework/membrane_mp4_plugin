@@ -346,7 +346,7 @@ defmodule Membrane.MP4.Muxer.CMAF.SegmentHelper do
          %SamplesQueue{duration_range: old_duration_range} = queue,
          duration_range
        ) do
-    {%SamplesQueue{queue | duration_range: duration_range}, old_duration_range}
+    {%{queue | duration_range: duration_range}, old_duration_range}
   end
 
   defp update_partial_duration(state, pad, samples) do
