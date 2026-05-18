@@ -7,9 +7,39 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
   require Membrane.RCPipeline, as: RCPipeline
   require Membrane.Pad, as: Pad
 
+  alias Membrane.MP4.Demuxer.CMAF.Engine
   alias Membrane.MP4.Demuxer.MultiFileSource
   alias Membrane.RCMessage
   alias Membrane.Testing.Pipeline
+
+  describe "emsg metadata" do
+    test "attaches emsg_pts_ms and emsg_message_data to samples from fragments with emsg box" do
+      fixture = File.read!("test/fixtures/cmaf/emsg/fixture.mp4")
+
+      engine = Engine.new() |> Engine.feed!(fixture)
+      {:ok, samples, _engine} = Engine.pop_samples(engine)
+
+      emsg_samples = Enum.filter(samples, &Map.has_key?(&1.metadata, :emsg_pts_ms))
+
+      assert length(emsg_samples) > 0
+
+      assert Enum.all?(emsg_samples, fn sample ->
+               sample.metadata.emsg_pts_ms == 0 and
+                 binary_part(sample.metadata.emsg_message_data, 0, 3) == "ID3"
+             end)
+    end
+
+    test "samples have empty metadata when no emsg box is present" do
+      header = File.read!("test/fixtures/cmaf/ref_audio_header.mp4")
+      segment = File.read!("test/fixtures/cmaf/ref_audio_segment1.m4s")
+
+      engine = Engine.new() |> Engine.feed!(header) |> Engine.feed!(segment)
+      {:ok, samples, _engine} = Engine.pop_samples(engine)
+
+      assert length(samples) > 0
+      assert Enum.all?(samples, fn sample -> sample.metadata == %{} end)
+    end
+  end
 
   # Fixtures used in demuxer tests below were generated with `chunk_duration` option set to `Membrane.Time.seconds(1)`.
   describe "CMAF demuxer" do
