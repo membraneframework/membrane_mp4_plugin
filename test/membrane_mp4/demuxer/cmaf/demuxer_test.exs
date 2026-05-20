@@ -14,19 +14,21 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
 
   describe "emsg metadata" do
     test "attaches emsg_pts_ms and emsg_message_data to samples from fragments with emsg box" do
-      fixture = File.read!("test/fixtures/cmaf/emsg/fixture.mp4")
+      fixture = File.read!("test/fixtures/cmaf/emsg.mp4")
 
       engine = Engine.new() |> Engine.feed!(fixture)
       {:ok, samples, _engine} = Engine.pop_samples(engine)
 
       emsg_samples = Enum.filter(samples, &Map.has_key?(&1.metadata, :emsg_pts_ms))
 
-      assert length(emsg_samples) > 0
+      assert length(emsg_samples) == 25
 
-      assert Enum.all?(emsg_samples, fn sample ->
-               sample.metadata.emsg_pts_ms == 0 and
-                 binary_part(sample.metadata.emsg_message_data, 0, 3) == "ID3"
-             end)
+      first_sample = Enum.at(emsg_samples, 0)
+      assert first_sample.metadata.emsg_pts_ms == 92_852
+
+      Enum.each(emsg_samples, fn sample ->
+        assert binary_part(sample.metadata.emsg_message_data, 0, 3) == "ID3"
+      end)
     end
 
     test "samples have empty metadata when no emsg box is present" do
@@ -36,7 +38,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
       engine = Engine.new() |> Engine.feed!(header) |> Engine.feed!(segment)
       {:ok, samples, _engine} = Engine.pop_samples(engine)
 
-      assert length(samples) > 0
+      assert samples != []
       assert Enum.all?(samples, fn sample -> sample.metadata == %{} end)
     end
   end

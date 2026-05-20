@@ -137,7 +137,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
         {[], engine}
 
       :emsg ->
-        {[], %{engine | pending_emsg: parse_emsg(box.content)}}
+        {[], %{engine | pending_emsg: emsg_to_metadata(box.fields)}}
 
       :moof ->
         {[],
@@ -189,6 +189,9 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
         &(&1.offset - engine.how_many_segment_bytes_read < byte_size(mdat_box.content))
       )
 
+    emsg_metadata =
+      resolve_emsg_metadata(engine.pending_emsg, this_mdat_samples, engine.last_timescales)
+
     samples =
       Enum.flat_map(this_mdat_samples, fn sample ->
         case Map.fetch(engine.last_timescales, sample.track_id) do
@@ -210,19 +213,13 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
               |> Ratio.mult(1000)
               |> Ratio.floor()
 
-            metadata =
-              case engine.pending_emsg do
-                nil -> %{}
-                emsg -> emsg
-              end
-
             [
               %Sample{
                 track_id: sample.track_id,
                 payload: payload,
                 pts: pts,
                 dts: dts,
-                metadata: metadata
+                metadata: emsg_metadata
               }
             ]
 
@@ -238,33 +235,37 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
     Map.reject(tracks_info, fn {_track_id, track_format} -> track_format == nil end)
   end
 
-  # emsg (ISO 23009-1 Event Message Box) arrives as a black box (not in MP4 schema).
-  # Version 0 structure: version(1) + flags(3) + scheme_id_uri(str\0) + value(str\0)
-  #                      + timescale(u32) + presentation_time_delta(u32)
-  #                      + event_duration(u32) + id(u32) + message_data
-  # Version 1 structure: same but presentation_time(u64) instead of presentation_time_delta(u32).
-  defp parse_emsg(<<0::8, _flags::24, rest::binary>>) do
-    with [_scheme_id_uri, after_scheme] <- :binary.split(rest, <<0>>),
-         [_value, after_value] <- :binary.split(after_scheme, <<0>>),
-         <<timescale::32, pts_delta::32, _duration::32, _id::32, message_data::binary>> <-
-           after_value do
-      pts_ms = div(pts_delta * 1000, timescale)
-      %{emsg_pts_ms: pts_ms, emsg_message_data: message_data}
-    else
-      _ -> nil
-    end
+  # version 0: pts is relative to segment's base_media_decode_time — resolved later in read_mdat
+  defp emsg_to_metadata(%{
+         presentation_time_delta: delta,
+         timescale: timescale,
+         message_data: data
+       }) do
+    %{emsg_pts: {:delta, delta, timescale}, emsg_message_data: data}
   end
 
-  defp parse_emsg(<<1::8, _flags::24, rest::binary>>) do
-    with [_scheme_id_uri, after_scheme] <- :binary.split(rest, <<0>>),
-         [_value, after_value] <- :binary.split(after_scheme, <<0>>),
-         <<timescale::32, pts::64, _duration::32, _id::32, message_data::binary>> <- after_value do
-      pts_ms = div(pts * 1000, timescale)
-      %{emsg_pts_ms: pts_ms, emsg_message_data: message_data}
-    else
-      _ -> nil
-    end
+  # version 1: pts is absolute
+  defp emsg_to_metadata(%{presentation_time: pts, timescale: timescale, message_data: data}) do
+    %{emsg_pts: {:absolute, div(pts * 1000, timescale)}, emsg_message_data: data}
   end
 
-  defp parse_emsg(_content), do: nil
+  defp resolve_emsg_metadata(nil, _samples, _timescales), do: %{}
+
+  defp resolve_emsg_metadata(
+         %{emsg_pts: {:absolute, pts_ms}, emsg_message_data: data},
+         _samples,
+         _timescales
+       ) do
+    %{emsg_pts_ms: pts_ms, emsg_message_data: data}
+  end
+
+  defp resolve_emsg_metadata(
+         %{emsg_pts: {:delta, delta, emsg_timescale}, emsg_message_data: data},
+         [first | _rest],
+         timescales
+       ) do
+    {:ok, track_timescale} = Map.fetch(timescales, first.track_id)
+    base_dts_ms = div(first.ts * 1000, track_timescale)
+    %{emsg_pts_ms: base_dts_ms + div(delta * 1000, emsg_timescale), emsg_message_data: data}
+  end
 end

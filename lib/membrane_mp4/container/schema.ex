@@ -473,6 +473,21 @@ defmodule Membrane.MP4.Container.Schema do
                   ]
                 ]
               ],
+              emsg: [
+                version: 0,
+                fields:
+                  @full_box ++
+                    [
+                      scheme_id_uri: :str,
+                      value: :str,
+                      timescale: :uint32,
+                      presentation_time_delta: {:uint32, when: {:version, value: 0}},
+                      presentation_time: {:uint64, when: {:version, value: 1}},
+                      event_duration: :uint32,
+                      id: :uint32,
+                      message_data: :bin
+                    ]
+              ],
               mdat: [
                 black_box?: true
               ]
