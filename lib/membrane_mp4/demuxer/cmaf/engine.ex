@@ -48,10 +48,6 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   @spec feed!(t(), binary()) :: t()
   def feed!(%__MODULE__{} = engine, data) do
     {parsed_boxes, rest} = Container.parse!(engine.unprocessed_binary <> data)
-    # {:moov, moov} = parsed_boxes |> Enum.at(2)
-    # moov.children |> Enum.filter(fn {:trak, _} -> true
-    # _other -> false
-    # end)
     engine = %{engine | unprocessed_binary: rest}
 
     {new_samples, engine} =
