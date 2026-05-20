@@ -48,6 +48,10 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   @spec feed!(t(), binary()) :: t()
   def feed!(%__MODULE__{} = engine, data) do
     {parsed_boxes, rest} = Container.parse!(engine.unprocessed_binary <> data)
+    # {:moov, moov} = parsed_boxes |> Enum.at(2)
+    # moov.children |> Enum.filter(fn {:trak, _} -> true
+    # _other -> false
+    # end)
     engine = %{engine | unprocessed_binary: rest}
 
     {new_samples, engine} =
@@ -193,39 +197,33 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
       resolve_emsg_metadata(engine.pending_emsg, this_mdat_samples, engine.last_timescales)
 
     samples =
-      Enum.flat_map(this_mdat_samples, fn sample ->
-        case Map.fetch(engine.last_timescales, sample.track_id) do
-          {:ok, timescale} ->
-            payload =
-              mdat_box.content
-              |> :erlang.binary_part(
-                sample.offset - engine.how_many_segment_bytes_read,
-                sample.size
-              )
+      Enum.map(this_mdat_samples, fn sample ->
+        timescale = engine.last_timescales[sample.track_id]
 
-            dts =
-              Ratio.new(sample.ts, timescale)
-              |> Ratio.mult(1000)
-              |> Ratio.floor()
+        payload =
+          mdat_box.content
+          |> :erlang.binary_part(
+            sample.offset - engine.how_many_segment_bytes_read,
+            sample.size
+          )
 
-            pts =
-              Ratio.new(sample.ts + sample.composition_offset, timescale)
-              |> Ratio.mult(1000)
-              |> Ratio.floor()
+        dts =
+          Ratio.new(sample.ts, timescale)
+          |> Ratio.mult(1000)
+          |> Ratio.floor()
 
-            [
-              %Sample{
-                track_id: sample.track_id,
-                payload: payload,
-                pts: pts,
-                dts: dts,
-                metadata: emsg_metadata
-              }
-            ]
+        pts =
+          Ratio.new(sample.ts + sample.composition_offset, timescale)
+          |> Ratio.mult(1000)
+          |> Ratio.floor()
 
-          :error ->
-            []
-        end
+        %Sample{
+          track_id: sample.track_id,
+          payload: payload,
+          pts: pts,
+          dts: dts,
+          metadata: emsg_metadata
+        }
       end)
 
     {samples, %{engine | samples_info: rest_of_samples_info}}

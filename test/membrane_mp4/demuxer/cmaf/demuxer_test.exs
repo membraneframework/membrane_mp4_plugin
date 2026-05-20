@@ -21,10 +21,10 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
 
       emsg_samples = Enum.filter(samples, &Map.has_key?(&1.metadata, :emsg_pts_ms))
 
-      assert length(emsg_samples) == 25
+      assert length(emsg_samples) == 8
 
       first_sample = Enum.at(emsg_samples, 0)
-      assert first_sample.metadata.emsg_pts_ms == 92_852
+      assert first_sample.metadata.emsg_pts_ms == 210_058
 
       Enum.each(emsg_samples, fn sample ->
         assert binary_part(sample.metadata.emsg_message_data, 0, 3) == "ID3"
