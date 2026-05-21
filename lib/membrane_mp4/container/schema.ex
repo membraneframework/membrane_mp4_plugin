@@ -418,6 +418,7 @@ defmodule Membrane.MP4.Container.Schema do
                         [
                           track_id: :uint32,
                           base_data_offset: {:uint64, when: {:fo_flags, mask: 0x00001}},
+                          sample_description_index: {:uint32, when: {:fo_flags, mask: 0x00002}},
                           default_sample_duration: {:uint32, when: {:fo_flags, mask: 0x000008}},
                           default_sample_size: {:uint32, when: {:fo_flags, mask: 0x000010}},
                           default_sample_flags: {:uint32, when: {:fo_flags, mask: 0x000020}}
