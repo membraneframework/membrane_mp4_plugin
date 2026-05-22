@@ -7,12 +7,13 @@ defmodule Membrane.MP4.Demuxer.Sample do
   and `Membrane.MP4.Demuxer.ISOM.Engine` are Membrane-agnostic.
   """
   @enforce_keys [:track_id, :payload, :pts, :dts]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [metadata: %{}]
 
   @type t :: %__MODULE__{
           track_id: integer(),
           payload: binary(),
           pts: integer(),
-          dts: integer()
+          dts: integer(),
+          metadata: map()
         }
 end

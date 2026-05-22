@@ -12,7 +12,8 @@ defmodule Membrane.MP4.Demuxer.CMAF.SamplesInfo do
           track_id: non_neg_integer()
         }
 
-  @spec read_moov(moov_box :: map()) :: %{non_neg_integer() => struct()}
+  @spec read_moov(moov_box :: map()) ::
+          {%{non_neg_integer() => struct()}, %{non_neg_integer() => pos_integer()}}
   def read_moov(%{children: boxes}) do
     tracks =
       boxes
@@ -21,15 +22,23 @@ defmodule Membrane.MP4.Demuxer.CMAF.SamplesInfo do
         {boxes[:tkhd].fields.track_id, boxes}
       end)
 
-    Map.new(tracks, fn {track_id, boxes} ->
-      sample_table =
-        SampleTableBox.unpack(
-          boxes[:mdia].children[:minf].children[:stbl],
-          boxes[:mdia].children[:mdhd].fields.timescale
-        )
+    tracks_info =
+      Map.new(tracks, fn {track_id, boxes} ->
+        sample_table =
+          SampleTableBox.unpack(
+            boxes[:mdia].children[:minf].children[:stbl],
+            boxes[:mdia].children[:mdhd].fields.timescale
+          )
 
-      {track_id, sample_table.sample_description}
-    end)
+        {track_id, sample_table.sample_description}
+      end)
+
+    timescales =
+      Map.new(tracks, fn {track_id, boxes} ->
+        {track_id, boxes[:mdia].children[:mdhd].fields.timescale}
+      end)
+
+    {tracks_info, timescales}
   end
 
   @spec get_samples_info(moof_box :: map()) :: [sample_description()]
