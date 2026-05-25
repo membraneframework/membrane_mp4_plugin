@@ -166,6 +166,44 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
     end
   end
 
+  for mp4 <- [
+        "bun33s_frag.mp4"
+        # "bframes_frag.mp4"
+      ] do
+    @tag :tmp_dir
+    test "demuxes fragmented mp4 #{mp4} produced with ffmpeg's +frag_every_frame", %{tmp_dir: dir} do
+      video_output_path = Path.join(dir, "out.h264")
+      audio_output_path = Path.join(dir, "out.aac")
+
+      spec = [
+        child(:source, %Membrane.File.Source{
+          location: Path.join(["test/fixtures/cmaf/fragmented_frames", unquote(mp4)])
+        })
+        |> child(:demuxer, Membrane.MP4.Demuxer.CMAF),
+        get_child(:demuxer)
+        |> via_out(Pad.ref(:output), options: [kind: :audio])
+        |> child(:audio_sink, %Membrane.File.Sink{location: audio_output_path}),
+        get_child(:demuxer)
+        |> via_out(Pad.ref(:output), options: [kind: :video])
+        |> child(:video_sink, %Membrane.File.Sink{location: video_output_path})
+      ]
+
+      pipeline = Pipeline.start_link_supervised!(spec: spec)
+
+      assert_end_of_stream(pipeline, :video_sink)
+      assert_end_of_stream(pipeline, :audio_sink)
+      assert :ok == Pipeline.terminate(pipeline)
+
+      # assert_files_equal(video_output_path, "test/fixtures/in_video.h264")
+      # assert_files_equal(audio_output_path, "test/fixtures/in_audio.aac")
+      video_output_path
+      |> File.read!()
+      |> byte_size()
+      |> (fn size -> size != 0 end).()
+      |> assert("output file must be non-empty")
+    end
+  end
+
   defp start_testing_pipeline!(opts) do
     input_spec = [
       child(:file, %MultiFileSource{paths: opts[:input_paths]})

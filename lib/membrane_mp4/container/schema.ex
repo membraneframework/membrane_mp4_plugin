@@ -438,18 +438,18 @@ defmodule Membrane.MP4.Container.Schema do
                     fields:
                       @full_box ++
                         [
-                          sample_count: :uint32,
+                          sample_count: {:uint32, store: :sample_count},
                           data_offset: {:int32, when: {:fo_flags, mask: 0x000001}},
                           first_sample_flags: {:bin32, when: {:fo_flags, mask: 0x000004}},
                           samples:
-                            {:list,
-                             [
-                               sample_duration: {:uint32, when: {:fo_flags, mask: 0x000100}},
-                               sample_size: {:uint32, when: {:fo_flags, mask: 0x000200}},
-                               sample_flags: {:bin32, when: {:fo_flags, mask: 0x000400}},
-                               sample_composition_offset:
-                                 {:uint32, when: {:fo_flags, mask: 0x000800}}
-                             ]}
+                            {{:list,
+                              [
+                                sample_duration: {:uint32, when: {:fo_flags, mask: 0x000100}},
+                                sample_size: {:uint32, when: {:fo_flags, mask: 0x000200}},
+                                sample_flags: {:bin32, when: {:fo_flags, mask: 0x000400}},
+                                sample_composition_offset:
+                                  {:uint32, when: {:fo_flags, mask: 0x000800}}
+                              ]}, count: :sample_count}
                         ]
                   ],
                   trun: [
@@ -457,18 +457,18 @@ defmodule Membrane.MP4.Container.Schema do
                     fields:
                       @full_box ++
                         [
-                          sample_count: :uint32,
+                          sample_count: {:uint32, store: :sample_count},
                           data_offset: {:int32, when: {:fo_flags, mask: 0x000001}},
                           first_sample_flags: {:bin32, when: {:fo_flags, mask: 0x000004}},
                           samples:
-                            {:list,
-                             [
-                               sample_duration: {:uint32, when: {:fo_flags, mask: 0x000100}},
-                               sample_size: {:uint32, when: {:fo_flags, mask: 0x000200}},
-                               sample_flags: {:bin32, when: {:fo_flags, mask: 0x000400}},
-                               sample_composition_offset:
-                                 {:int32, when: {:fo_flags, mask: 0x000800}}
-                             ]}
+                            {{:list,
+                              [
+                                sample_duration: {:uint32, when: {:fo_flags, mask: 0x000100}},
+                                sample_size: {:uint32, when: {:fo_flags, mask: 0x000200}},
+                                sample_flags: {:bin32, when: {:fo_flags, mask: 0x000400}},
+                                sample_composition_offset:
+                                  {:int32, when: {:fo_flags, mask: 0x000800}}
+                              ]}, count: :sample_count}
                         ]
                   ]
                 ]

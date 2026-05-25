@@ -170,6 +170,26 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
+  defp parse_field(data, {name, {{:list, type}, count: count_key}}, context) do
+    count = Map.fetch!(context, count_key)
+    parse_counted_list(data, name, type, count, context, [])
+  end
+
+  # __jm__ I would change this to an unfold
+  defp parse_counted_list(data, _name, _type, 0, context, acc) do
+    {:ok, {Enum.reverse(acc), data}, context}
+  end
+
+  defp parse_counted_list(data, name, type, remaining, context, acc) do
+    case parse_field(data, {name, type}, context) do
+      {:ok, {term, rest}, context} ->
+        parse_counted_list(rest, name, type, remaining - 1, context, [term | acc])
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
   defp parse_field(data, {name, _type}, _context), do: parse_field_error(data, name)
 
   defp parse_field_error(data, name, context \\ [])
