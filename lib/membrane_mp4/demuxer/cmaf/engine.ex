@@ -99,7 +99,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
       :ftyp ->
         {[], engine}
 
-      :free ->
+      box_type when box_type in [:free, :skip] ->
         {[], engine}
 
       :moov ->
@@ -126,6 +126,9 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
 
   defp handle_box(box_name, box, %{fsm_state: :reading_fragment_header} = engine) do
     case box_name do
+      box_type when box_type in [:free, :skip] ->
+        {[], engine}
+
       :sidx ->
         engine =
           engine
@@ -159,6 +162,9 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
 
   defp handle_box(box_name, box, %{fsm_state: :reading_fragment_data} = engine) do
     case box_name do
+      box_type when box_type in [:free, :skip] ->
+        {[], engine}
+
       :mdat ->
         engine =
           engine
