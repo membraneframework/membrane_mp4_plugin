@@ -86,17 +86,8 @@ defmodule Membrane.MP4.Container.Schema.Parser do
     {name, {:list, type}}
   end
 
-  # {:samples,
-  #  {{:list,
-  #    [
-  #      sample_duration: {:uint32, [when: {:fo_flags, [mask: 256]}]},
-  #      sample_size: {:uint32, [when: {:fo_flags, [mask: 512]}]},
-  #      sample_flags: {:bin32, [when: {:fo_flags, [mask: 1024]}]},
-  #      sample_composition_offset: {:uint32, [when: {:fo_flags, [mask: 2048]}]}
-  #    ]}, [count: :sample_count]}}
-
-  defp parse_field({name, {{:list, type}, count: count}}) when is_atom(count) do
+  defp parse_field({name, {:list, type, count: count}}) when is_atom(count) do
     {name, type} = parse_field({name, type})
-    {name, {{:list, type}, count: count}}
+    {name, {:list, type, count: count}}
   end
 end

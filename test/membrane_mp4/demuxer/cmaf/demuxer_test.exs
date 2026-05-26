@@ -166,42 +166,69 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
     end
   end
 
-  for mp4 <- [
-        "bun33s_frag.mp4"
-        # "bframes_frag.mp4"
-      ] do
-    @tag :tmp_dir
-    test "demuxes fragmented mp4 #{mp4} produced with ffmpeg's +frag_every_frame", %{tmp_dir: dir} do
-      video_output_path = Path.join(dir, "out.h264")
-      audio_output_path = Path.join(dir, "out.aac")
+  @tag :tmp_dir
+  test "CMAF demuxer accepts trun with all optional sample fields off", %{tmp_dir: dir} do
+    fixture_path = "test/fixtures/cmaf"
+    stem = "bun33s_frag"
+    input_path = Path.join([fixture_path, "#{stem}.mp4"])
+    # Input fixture taken from https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/big-buck-bunny/bun33s.mp4 |
+    # ffmpeg -i bun33s.mp4 -f mp4 -c copy -movflags cmaf+separate_moof+delay_moov+skip_trailer+frag_every_frame #{input}
 
-      spec = [
-        child(:source, %Membrane.File.Source{
-          location: Path.join(["test/fixtures/cmaf/fragmented_frames", unquote(mp4)])
-        })
-        |> child(:demuxer, Membrane.MP4.Demuxer.CMAF),
-        get_child(:demuxer)
-        |> via_out(Pad.ref(:output), options: [kind: :audio])
-        |> child(:audio_sink, %Membrane.File.Sink{location: audio_output_path}),
-        get_child(:demuxer)
-        |> via_out(Pad.ref(:output), options: [kind: :video])
-        |> child(:video_sink, %Membrane.File.Sink{location: video_output_path})
-      ]
+    video_output_path = Path.join(dir, "out.h264")
+    audio_output_path = Path.join(dir, "out.aac")
 
-      pipeline = Pipeline.start_link_supervised!(spec: spec)
+    spec = [
+      child(:source, %Membrane.File.Source{
+        location: input_path
+      })
+      |> child(:demuxer, Membrane.MP4.Demuxer.CMAF),
+      get_child(:demuxer)
+      |> via_out(Pad.ref(:output), options: [kind: :audio])
+      |> child(:audio_sink, %Membrane.File.Sink{location: audio_output_path}),
+      get_child(:demuxer)
+      |> via_out(Pad.ref(:output), options: [kind: :video])
+      |> child(:video_sink, %Membrane.File.Sink{location: video_output_path})
+    ]
 
-      assert_end_of_stream(pipeline, :video_sink)
-      assert_end_of_stream(pipeline, :audio_sink)
-      assert :ok == Pipeline.terminate(pipeline)
+    pipeline = Pipeline.start_link_supervised!(spec: spec)
 
-      # assert_files_equal(video_output_path, "test/fixtures/in_video.h264")
-      # assert_files_equal(audio_output_path, "test/fixtures/in_audio.aac")
-      video_output_path
-      |> File.read!()
-      |> byte_size()
-      |> (fn size -> size != 0 end).()
-      |> assert("output file must be non-empty")
-    end
+    assert_end_of_stream(pipeline, :video_sink)
+    assert_end_of_stream(pipeline, :audio_sink)
+    assert :ok == Pipeline.terminate(pipeline)
+
+    assert_files_equal(video_output_path, Path.join([fixture_path, "#{stem}.h264"]))
+    assert_files_equal(audio_output_path, Path.join([fixture_path, "#{stem}.aac"]))
+  end
+
+  test "the PTS and DTS are properly read" do
+    fixture_path = "test/fixtures/cmaf"
+    input_path = Path.join([fixture_path, "bframes.mp4"])
+    # Input fixture taken from https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/big-buck-bunny/bun33s.mp4
+    # ffmpeg -i bun33s.mp4 -f mp4 -an -c:v libx264 -bf 2 -movflags frag_keyframe+default_base_moof+empty_moov+skip_trailer #{input_path}
+
+    ref_path = Path.join([fixture_path, "bframes_ref.ms"])
+
+    demuxing_spec =
+      child(:file, %Membrane.File.Source{location: input_path})
+      |> child(:demuxer, Membrane.MP4.Demuxer.CMAF)
+      |> via_out(Pad.ref(:output), options: [kind: :video])
+      |> child(:parser_video, %Membrane.H264.Parser{output_stream_structure: :annexb})
+      |> child(:sink, Membrane.Testing.Sink)
+
+    pipeline = Pipeline.start_link_supervised!(spec: demuxing_spec)
+    assert_end_of_stream(pipeline, :sink, :input)
+    demuxing_buffers = flush_buffers()
+
+    ref_spec =
+      child(:file, %Membrane.File.Source{location: ref_path})
+      |> child(:deserializer, Membrane.Stream.Deserializer)
+      |> child(:sink, Membrane.Testing.Sink)
+
+    pipeline = Pipeline.start_link_supervised!(spec: ref_spec)
+    assert_end_of_stream(pipeline, :sink, :input)
+
+    ref_buffers = flush_buffers()
+    assert demuxing_buffers == ref_buffers
   end
 
   defp start_testing_pipeline!(opts) do
@@ -236,6 +263,18 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
 
     spec = input_spec ++ video_spec ++ audio_spec
     Pipeline.start_link_supervised!(spec: spec)
+  end
+
+  defp flush_buffers(acc \\ []) do
+    receive do
+      {Membrane.Testing.Pipeline, _pid, {:handle_child_notification, {{:buffer, buffer}, :sink}}} ->
+        flush_buffers(acc ++ [buffer])
+
+      _other_msg ->
+        flush_buffers(acc)
+    after
+      0 -> acc
+    end
   end
 
   defp assert_files_equal(file_a, file_b) do
