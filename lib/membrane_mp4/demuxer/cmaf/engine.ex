@@ -21,6 +21,8 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
     :pending_emsg
   ]
 
+  @ignored_boxes [:free, :skip]
+
   @opaque t() :: %__MODULE__{}
 
   @spec new() :: t()
@@ -99,7 +101,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
       :ftyp ->
         {[], engine}
 
-      :free ->
+      box_type when box_type in @ignored_boxes ->
         {[], engine}
 
       :moov ->
@@ -126,6 +128,9 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
 
   defp handle_box(box_name, box, %{fsm_state: :reading_fragment_header} = engine) do
     case box_name do
+      box_type when box_type in @ignored_boxes ->
+        {[], engine}
+
       :sidx ->
         engine =
           engine
@@ -159,6 +164,9 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
 
   defp handle_box(box_name, box, %{fsm_state: :reading_fragment_data} = engine) do
     case box_name do
+      box_type when box_type in @ignored_boxes ->
+        {[], engine}
+
       :mdat ->
         engine =
           engine

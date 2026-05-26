@@ -45,6 +45,13 @@ defmodule Membrane.MP4.ContainerTest do
     test_partial("ref_aac_fast_start.mp4", [:ftyp, :moov])
   end
 
+  test "skip box" do
+    {boxes, <<>>} =
+      @cmaf_fixtures |> Path.join("with_skip.m4s") |> File.read!() |> Container.parse!()
+
+    assert Keyword.has_key?(boxes, :skip)
+  end
+
   test "unknown box" do
     <<size::4-binary, "styp", rest::binary>> =
       @cmaf_fixtures |> Path.join("ref_audio_segment1.m4s") |> File.read!()

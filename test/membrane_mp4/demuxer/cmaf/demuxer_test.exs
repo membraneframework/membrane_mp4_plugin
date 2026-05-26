@@ -12,6 +12,17 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
   alias Membrane.RCMessage
   alias Membrane.Testing.Pipeline
 
+  describe "handling skip box" do
+    test "produces samples from a segment containing a skip box" do
+      header = File.read!("test/fixtures/cmaf/ref_video_header.mp4")
+      segment = File.read!("test/fixtures/cmaf/with_skip.m4s")
+
+      engine = Engine.new() |> Engine.feed!(header) |> Engine.feed!(segment)
+      {:ok, samples, _engine} = Engine.pop_samples(engine)
+      assert samples != []
+    end
+  end
+
   describe "emsg metadata" do
     test "attaches emsg_pts_ms and emsg_message_data to samples from fragments with emsg box" do
       fixture = File.read!("test/fixtures/cmaf/emsg.mp4")
