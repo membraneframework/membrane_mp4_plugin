@@ -171,6 +171,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
     fixture_path = "test/fixtures/cmaf"
     stem = "bun33s_frag"
     input_path = Path.join([fixture_path, "#{stem}.mp4"])
+
     # Input fixture taken from https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/big-buck-bunny/bun33s.mp4 |
     # ffmpeg -i bun33s.mp4 -f mp4 -c copy -movflags cmaf+separate_moof+delay_moov+skip_trailer+frag_every_frame #{input}
 
@@ -203,6 +204,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
   test "the PTS and DTS are properly read" do
     fixture_path = "test/fixtures/cmaf"
     input_path = Path.join([fixture_path, "bframes.mp4"])
+
     # Input fixture taken from https://raw.githubusercontent.com/membraneframework/static/gh-pages/samples/big-buck-bunny/bun33s.mp4
     # ffmpeg -i bun33s.mp4 -f mp4 -an -c:v libx264 -bf 2 -movflags frag_keyframe+default_base_moof+empty_moov+skip_trailer #{input_path}
 
