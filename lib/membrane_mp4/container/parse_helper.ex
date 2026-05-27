@@ -172,22 +172,30 @@ defmodule Membrane.MP4.Container.ParseHelper do
 
   defp parse_field(data, {name, {:list, type, count: count_key}}, context) do
     count = Map.fetch!(context, count_key)
-    parse_counted_list(data, name, type, count, context, [])
+    parse_counted_list(data, name, type, count, context)
   end
 
   defp parse_field(data, {name, _type}, _context), do: parse_field_error(data, name)
 
-  defp parse_counted_list(data, _name, _type, 0, context, acc) do
-    {:ok, {Enum.reverse(acc), data}, context}
-  end
+  defp parse_counted_list(data, name, type, count, context) do
+    result =
+      1..count//1
+      |> Enum.reduce_while({[], data, context}, fn _i, {parsed_terms, data, context} ->
+        case parse_field(data, {name, type}, context) do
+          {:ok, {term, rest}, new_context} ->
+            {:cont, {[term | parsed_terms], rest, new_context}}
 
-  defp parse_counted_list(data, name, type, remaining, context, acc) do
-    case parse_field(data, {name, type}, context) do
-      {:ok, {term, rest}, context} ->
-        parse_counted_list(rest, name, type, remaining - 1, context, [term | acc])
+          {:error, _reason} = error ->
+            {:halt, error}
+        end
+      end)
 
+    case result do
       {:error, _reason} = error ->
         error
+
+      {terms, data, context} when is_list(terms) ->
+        {:ok, {Enum.reverse(terms), data}, context}
     end
   end
 
