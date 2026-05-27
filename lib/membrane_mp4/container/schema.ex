@@ -449,7 +449,7 @@ defmodule Membrane.MP4.Container.Schema do
                                sample_flags: {:bin32, when: {:fo_flags, mask: 0x000400}},
                                sample_composition_time_offset:
                                  {:uint32, when: {:fo_flags, mask: 0x000800}}
-                             ], count: :sample_count}
+                             ], length: :sample_count}
                         ]
                   ],
                   trun: [
@@ -468,7 +468,7 @@ defmodule Membrane.MP4.Container.Schema do
                                sample_flags: {:bin32, when: {:fo_flags, mask: 0x000400}},
                                sample_composition_time_offset:
                                  {:int32, when: {:fo_flags, mask: 0x000800}}
-                             ], count: :sample_count}
+                             ], length: :sample_count}
                         ]
                   ]
                 ]

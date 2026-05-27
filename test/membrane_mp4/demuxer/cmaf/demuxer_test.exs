@@ -271,9 +271,6 @@ defmodule Membrane.MP4.Demuxer.CMAF.DemuxerTest do
     receive do
       {Membrane.Testing.Pipeline, _pid, {:handle_child_notification, {{:buffer, buffer}, :sink}}} ->
         flush_buffers(acc ++ [buffer])
-
-      _other_msg ->
-        flush_buffers(acc)
     after
       0 -> acc
     end

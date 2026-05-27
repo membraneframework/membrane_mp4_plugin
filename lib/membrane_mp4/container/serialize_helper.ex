@@ -160,7 +160,7 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     end)
   end
 
-  defp serialize_field(term, {:list, type, count: _count_key}, context)
+  defp serialize_field(term, {:list, type, length: _length_key}, context)
        when is_list(term) do
     serialize_field(term, {:list, type}, context)
   end
