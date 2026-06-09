@@ -31,10 +31,12 @@ defmodule Membrane.MP4.Container.ParseHelper do
       box = %{fields: fields, children: children, size: content_size, header_size: header_size}
       parse_boxes(data, schema, context, [{name, box} | acc])
     else
-      header_content: {:error, {:unknown_box_name, total_size}} ->
+      header_content: {:error, {:unknown_box_name, name, header_size, content_size}} ->
         case data do
-          <<_this_box::binary-size(total_size), remaining::binary>> ->
-            parse_boxes(remaining, schema, context, acc)
+          <<_header::binary-size(header_size), content::binary-size(content_size),
+            remaining::binary>> ->
+            box = %{name: name, content: content, size: content_size, header_size: header_size}
+            parse_boxes(remaining, schema, context, [{:unknown, box} | acc])
 
           _not_enough ->
             {:ok, Enum.reverse(acc), data, context}
