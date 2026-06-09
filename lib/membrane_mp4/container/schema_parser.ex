@@ -85,4 +85,9 @@ defmodule Membrane.MP4.Container.Schema.Parser do
     {name, type} = parse_field({name, type})
     {name, {:list, type}}
   end
+
+  defp parse_field({name, {:list, type, length: length}}) when is_atom(length) do
+    {name, type} = parse_field({name, type})
+    {name, {:list, type, length: length}}
+  end
 end

@@ -92,7 +92,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.SamplesInfo do
            duration: duration,
            ts: ts_acc,
            size: size,
-           composition_offset: sample[:composition_offset] || 0,
+           composition_offset: sample[:sample_composition_time_offset] || 0,
            offset: size_acc,
            track_id: track_description.track_id
          }, {size_acc + size, ts_acc + duration}}
