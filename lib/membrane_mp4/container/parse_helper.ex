@@ -20,7 +20,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
     withl header_content:
             {:ok, %{name: name, content_size: content_size, header_size: header_size}, rest} <-
               Header.parse(data),
-          header_content: <<content::binary-size(content_size), data::binary>> <- rest,
+          content: <<content::binary-size(content_size), data::binary>> <- rest,
           do: box_schema = schema[name],
           known?: true <- box_schema && not box_schema.black_box?,
           try:
@@ -31,7 +31,20 @@ defmodule Membrane.MP4.Container.ParseHelper do
       box = %{fields: fields, children: children, size: content_size, header_size: header_size}
       parse_boxes(data, schema, context, [{name, box} | acc])
     else
+      header_content: {:error, {:unknown_box_name, total_size}} ->
+        case data do
+          <<_this_box::binary-size(total_size), remaining::binary>> ->
+            parse_boxes(remaining, schema, context, acc)
+
+          _not_enough ->
+            {:ok, Enum.reverse(acc), data, context}
+        end
+
       header_content: _error ->
+        # more data needed
+        {:ok, Enum.reverse(acc), data, context}
+
+      content: _error ->
         # more data needed
         {:ok, Enum.reverse(acc), data, context}
 

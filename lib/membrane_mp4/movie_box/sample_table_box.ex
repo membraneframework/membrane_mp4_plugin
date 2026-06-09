@@ -345,4 +345,8 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     Membrane.Logger.warning("Unknown sample type: #{inspect(sample_type)}")
     nil
   end
+
+  defp unpack_sample_description(%{children: []}) do
+    nil
+  end
 end

@@ -52,13 +52,37 @@ defmodule Membrane.MP4.ContainerTest do
     assert Keyword.has_key?(boxes, :skip)
   end
 
-  test "unknown box" do
-    <<size::4-binary, "styp", rest::binary>> =
+  test "unknown box is skipped" do
+    <<compact_size::32, "styp", box_rest::binary>> =
       @cmaf_fixtures |> Path.join("ref_audio_segment1.m4s") |> File.read!()
 
-    data = <<size::4-binary, "abcd", rest::binary>>
-    assert {boxes, <<>>} = data |> Container.parse!()
-    assert boxes |> Container.serialize!() == data
+    styp_content_size = compact_size - 8
+    <<_styp_content::binary-size(styp_content_size), remaining::binary>> = box_rest
+
+    # Replace styp with a name that is not a known atom — box should be silently skipped
+    data = <<compact_size::32, "abcd", box_rest::binary>>
+    {boxes, <<>>} = Container.parse!(data)
+
+    {expected_boxes, <<>>} = Container.parse!(remaining)
+    assert boxes == expected_boxes
+  end
+
+  test "box with unknown name does not create new atoms" do
+    unknown_name = "zz9z"
+    unknown_content = <<0, 1, 2, 3>>
+
+    unknown_box =
+      <<8 + byte_size(unknown_content)::32, unknown_name::binary, unknown_content::binary>>
+
+    known_data = @cmaf_fixtures |> Path.join("ref_audio_segment1.m4s") |> File.read!()
+    {expected_boxes, <<>>} = Container.parse!(known_data)
+
+    atom_count_before = :erlang.system_info(:atom_count)
+    {boxes, <<>>} = Container.parse!(unknown_box <> known_data)
+    atom_count_after = :erlang.system_info(:atom_count)
+
+    assert boxes == expected_boxes
+    assert atom_count_after == atom_count_before
   end
 
   test "parse error" do
