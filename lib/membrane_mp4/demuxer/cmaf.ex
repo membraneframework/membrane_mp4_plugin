@@ -270,6 +270,7 @@ defmodule Membrane.MP4.Demuxer.CMAF do
 
   defp get_buffers(state) do
     {:ok, samples, engine} = __MODULE__.Engine.pop_samples(state.engine)
+
     buffers =
       Enum.map(samples, fn sample ->
         pad_ref = state.track_to_pad_map |> Map.fetch!(sample.track_id)
