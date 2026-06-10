@@ -28,7 +28,7 @@ defmodule Membrane.MP4.Container.Header do
   @spec parse(binary()) ::
           {:ok, t, leftover :: binary()}
           | {:error, :not_enough_data}
-          | {:error, {:unknown_box_name, binary(), non_neg_integer(), non_neg_integer()}}
+          | {:error, {:unknown_box, binary(), non_neg_integer(), non_neg_integer()}}
   def parse(
         <<compact_size::integer-size(@compact_size_size)-unit(8), name::binary-size(@name_size),
           rest::binary>>
@@ -59,15 +59,19 @@ defmodule Membrane.MP4.Container.Header do
          }, rest}
 
       :error ->
-        {:error, {:unknown_box_name, name, header_size, content_size}}
+        {:error, {:unknown_box, name, header_size, content_size}}
     end
   end
 
   def parse(_data), do: {:error, :not_enough_data}
 
   defp parse_box_name(name) do
-    {:ok, name |> String.trim_trailing(" ") |> String.to_existing_atom()}
-  rescue
-    ArgumentError -> :error
+    trimmed_name = String.trim_trailing(name)
+
+    try do
+      {:ok, String.to_existing_atom(trimmed_name)}
+    rescue
+      ArgumentError -> :error
+    end
   end
 end

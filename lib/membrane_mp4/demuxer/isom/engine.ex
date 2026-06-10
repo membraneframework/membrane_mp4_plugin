@@ -154,7 +154,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         update_in(state.cursor, &(&1 + header.header_size + header.content_size))
         |> find_box(box_name)
 
-      {:error, {:unknown_box_name, _name, header_size, content_size}} ->
+      {:error, {:unknown_box, _name, header_size, content_size}} ->
         update_in(state.cursor, &(&1 + header_size + content_size))
         |> find_box(box_name)
     end
