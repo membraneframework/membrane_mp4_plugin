@@ -82,7 +82,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   end
 
   @doc """
-  Pops samples that have been demuxed from the CMAF stream privided in `feed!/2`.
+  Pops samples that have been demuxed from the CMAF stream provided in `feed!/2`.
 
   Returns a tuple with `:ok` and a list of samples, and the updated demuxer engine
   state.
