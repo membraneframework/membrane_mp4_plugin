@@ -31,7 +31,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
       box = %{fields: fields, children: children, size: content_size, header_size: header_size}
       parse_boxes(data, schema, context, [{name, box} | acc])
     else
-      header: {:error, {:unknown_box_name, name, header_size, content_size}} ->
+      header: {:error, {:unknown_box, name, header_size, content_size}} ->
         case data do
           <<_header::binary-size(header_size), content::binary-size(content_size),
             remaining::binary>> ->
