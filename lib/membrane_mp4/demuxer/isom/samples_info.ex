@@ -72,7 +72,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
     to_skip = sample_offset - samples_info.mdat_iterator
 
     case data do
-      <<_to_skip::binary-size(to_skip), payload::binary-size(size), rest::binary>> ->
+      <<_to_skip::binary-size(^to_skip), payload::binary-size(^size), rest::binary>> ->
         {dts, pts, samples_info} = get_dts_and_pts(samples_info, sample)
 
         buffer =
