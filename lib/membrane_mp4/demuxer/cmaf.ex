@@ -269,24 +269,21 @@ defmodule Membrane.MP4.Demuxer.CMAF do
   end
 
   defp get_buffers(state) do
-    with {:ok, samples, engine} <- __MODULE__.Engine.pop_samples(state.engine) do
-      buffers =
-        Enum.map(samples, fn sample ->
-          pad_ref = state.track_to_pad_map |> Map.fetch!(sample.track_id)
+    {:ok, samples, engine} = __MODULE__.Engine.pop_samples(state.engine)
+    buffers =
+      Enum.map(samples, fn sample ->
+        pad_ref = state.track_to_pad_map |> Map.fetch!(sample.track_id)
 
-          buffer = %Membrane.Buffer{
-            payload: sample.payload,
-            pts: sample.pts |> Membrane.Time.milliseconds(),
-            dts: sample.dts |> Membrane.Time.milliseconds()
-          }
+        buffer = %Membrane.Buffer{
+          payload: sample.payload,
+          pts: sample.pts |> Membrane.Time.milliseconds(),
+          dts: sample.dts |> Membrane.Time.milliseconds()
+        }
 
-          {:buffer, {pad_ref, buffer}}
-        end)
+        {:buffer, {pad_ref, buffer}}
+      end)
 
-      {buffers, %{state | engine: engine}}
-    else
-      {:error, :not_available_yet} -> {[], state}
-    end
+    {buffers, %{state | engine: engine}}
   end
 
   defp get_end_of_streams(ctx) do
