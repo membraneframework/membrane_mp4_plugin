@@ -373,7 +373,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
       if Keyword.has_key?(state.boxes, :mdat) do
         state.boxes[:mdat].content
       else
-        <<_header::binary-size(mdat_header_size), content::binary>> = state.partial
+        <<_header::binary-size(^mdat_header_size), content::binary>> = state.partial
         content
       end
 

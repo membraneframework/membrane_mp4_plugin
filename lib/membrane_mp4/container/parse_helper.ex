@@ -20,7 +20,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
     withl header:
             {:ok, %{name: name, content_size: content_size, header_size: header_size}, rest} <-
               Header.parse(data),
-          content: <<content::binary-size(content_size), data::binary>> <- rest,
+          content: <<content::binary-size(^content_size), data::binary>> <- rest,
           do: box_schema = schema[name],
           known?: true <- box_schema && not box_schema.black_box?,
           try:
@@ -33,7 +33,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
     else
       header: {:error, {:unknown_box, name, header_size, content_size}} ->
         case data do
-          <<_header::binary-size(header_size), content::binary-size(content_size),
+          <<_header::binary-size(^header_size), content::binary-size(^content_size),
             remaining::binary>> ->
             box = %{name: name, content: content, size: content_size, header_size: header_size}
             parse_boxes(remaining, schema, context, [{:unknown, box} | acc])
@@ -88,7 +88,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
     size = bit_size(reserved)
 
     case data do
-      <<^reserved::bitstring-size(size), rest::bitstring>> -> {:ok, {[], rest}, context}
+      <<^reserved::bitstring-size(^size), rest::bitstring>> -> {:ok, {[], rest}, context}
       data -> parse_field_error(data, :reserved, expected: reserved)
     end
   end
@@ -125,7 +125,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
 
   defp parse_field(data, {name, {:int, size}}, context) do
     case data do
-      <<int::signed-integer-size(size), rest::bitstring>> ->
+      <<int::signed-integer-size(^size), rest::bitstring>> ->
         {:ok, {int, rest}, context}
 
       _unknown_format ->
@@ -135,7 +135,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
 
   defp parse_field(data, {name, {:uint, size}}, context) do
     case data do
-      <<uint::integer-size(size), rest::bitstring>> ->
+      <<uint::integer-size(^size), rest::bitstring>> ->
         {:ok, {uint, rest}, context}
 
       _unknown_format ->
@@ -145,7 +145,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
 
   defp parse_field(data, {name, {:fp, int_size, frac_size}}, context) do
     case data do
-      <<int::integer-size(int_size), frac::integer-size(frac_size), rest::bitstring>> ->
+      <<int::integer-size(^int_size), frac::integer-size(^frac_size), rest::bitstring>> ->
         {:ok, {{int, frac}, rest}, context}
 
       _unknown_format ->
@@ -159,7 +159,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
 
   defp parse_field(data, {name, {type, size}}, context) when type in [:bin, :str] do
     case data do
-      <<bin::bitstring-size(size), rest::bitstring>> -> {:ok, {bin, rest}, context}
+      <<bin::bitstring-size(^size), rest::bitstring>> -> {:ok, {bin, rest}, context}
       _unknown_format -> parse_field_error(data, name)
     end
   end
