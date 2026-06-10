@@ -25,6 +25,14 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     end
   end
 
+  defp serialize_box(:unknown, %{name: name, content: content}, _schema, context) do
+    header =
+      <<@box_header_size + byte_size(content)::integer-size(@box_size_size)-unit(8),
+        name::binary>>
+
+    {{:ok, [header, content]}, context}
+  end
+
   defp serialize_box(box_name, %{content: content}, _schema, context) do
     header = serialize_header(box_name, byte_size(content))
     {{:ok, [header, content]}, context}

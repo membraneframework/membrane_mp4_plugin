@@ -52,13 +52,21 @@ defmodule Membrane.MP4.ContainerTest do
     assert Keyword.has_key?(boxes, :skip)
   end
 
-  test "unknown box" do
-    <<size::4-binary, "styp", rest::binary>> =
-      @cmaf_fixtures |> Path.join("ref_audio_segment1.m4s") |> File.read!()
+  test "box with unknown name is stored as :unknown and round-trips through serialization" do
+    unknown_name = "zz9z"
+    unknown_content = <<0, 1, 2, 3>>
 
-    data = <<size::4-binary, "abcd", rest::binary>>
-    assert {boxes, <<>>} = data |> Container.parse!()
-    assert boxes |> Container.serialize!() == data
+    unknown_box =
+      <<8 + byte_size(unknown_content)::32, unknown_name::binary, unknown_content::binary>>
+
+    known_data = @cmaf_fixtures |> Path.join("ref_audio_segment1.m4s") |> File.read!()
+    data = unknown_box <> known_data
+
+    {boxes, <<>>} = Container.parse!(data)
+
+    assert_raise ArgumentError, fn -> String.to_existing_atom(unknown_name) end
+    assert [{:unknown, %{name: ^unknown_name, content: ^unknown_content}} | _rest] = boxes
+    assert Container.serialize!(boxes) == data
   end
 
   test "parse error" do

@@ -25,7 +25,10 @@ defmodule Membrane.MP4.Container.Header do
 
   Returns the `t:t/0` and the leftover data.
   """
-  @spec parse(binary()) :: {:ok, t, leftover :: binary()} | {:error, :not_enough_data}
+  @spec parse(binary()) ::
+          {:ok, t, leftover :: binary()}
+          | {:error, :not_enough_data}
+          | {:error, {:unknown_box, binary(), non_neg_integer(), non_neg_integer()}}
   def parse(
         <<compact_size::integer-size(@compact_size_size)-unit(8), name::binary-size(@name_size),
           rest::binary>>
@@ -46,17 +49,29 @@ defmodule Membrane.MP4.Container.Header do
           {header_size, size - header_size, rest}
       end
 
-    {:ok,
-     %__MODULE__{
-       name: parse_box_name(name),
-       content_size: content_size,
-       header_size: header_size
-     }, rest}
+    case parse_box_name(name) do
+      {:ok, atom_name} ->
+        {:ok,
+         %__MODULE__{
+           name: atom_name,
+           content_size: content_size,
+           header_size: header_size
+         }, rest}
+
+      :error ->
+        {:error, {:unknown_box, name, header_size, content_size}}
+    end
   end
 
   def parse(_data), do: {:error, :not_enough_data}
 
   defp parse_box_name(name) do
-    name |> String.trim_trailing(" ") |> String.to_atom()
+    trimmed_name = String.trim_trailing(name)
+
+    try do
+      {:ok, String.to_existing_atom(trimmed_name)}
+    rescue
+      ArgumentError -> :error
+    end
   end
 end

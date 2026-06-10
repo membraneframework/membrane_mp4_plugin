@@ -21,7 +21,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
     :pending_emsg
   ]
 
-  @ignored_boxes [:free, :skip]
+  @ignored_boxes [:free, :skip, :unknown]
 
   @opaque t() :: %__MODULE__{}
 

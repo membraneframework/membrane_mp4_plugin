@@ -139,19 +139,24 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
       state.provide_data_cb.(state.cursor, @max_header_size, state.provider_state)
 
     state = put_in(state.provider_state, provider_state)
-    {:ok, header, _rest} = Container.Header.parse(data)
 
-    if header.name == box_name do
-      state =
-        update_in(
-          state.box_positions,
-          &Map.put(&1, box_name, {state.cursor, header.header_size, header.content_size})
-        )
+    case Container.Header.parse(data) do
+      {:ok, %{name: ^box_name} = header, _rest} ->
+        state =
+          update_in(
+            state.box_positions,
+            &Map.put(&1, box_name, {state.cursor, header.header_size, header.content_size})
+          )
 
-      %{state | cursor: 0}
-    else
-      update_in(state.cursor, &(&1 + header.header_size + header.content_size))
-      |> find_box(box_name)
+        %{state | cursor: 0}
+
+      {:ok, header, _rest} ->
+        update_in(state.cursor, &(&1 + header.header_size + header.content_size))
+        |> find_box(box_name)
+
+      {:error, {:unknown_box, _name, header_size, content_size}} ->
+        update_in(state.cursor, &(&1 + header_size + content_size))
+        |> find_box(box_name)
     end
   end
 
