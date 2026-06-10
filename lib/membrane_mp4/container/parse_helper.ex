@@ -17,7 +17,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
   end
 
   def parse_boxes(data, schema, context, acc) do
-    withl header_content:
+    withl header:
             {:ok, %{name: name, content_size: content_size, header_size: header_size}, rest} <-
               Header.parse(data),
           content: <<content::binary-size(content_size), data::binary>> <- rest,
