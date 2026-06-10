@@ -185,7 +185,32 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
+  defp parse_field(data, {name, {:list, type, length: length_key}}, context) do
+    length = Map.fetch!(context, length_key)
+    parse_sized_list(data, name, type, length, context)
+  end
+
   defp parse_field(data, {name, _type}, _context), do: parse_field_error(data, name)
+
+  defp parse_sized_list(data, name, type, length, context) do
+    1..length//1
+    |> Enum.reduce_while({[], data, context}, fn _i, {parsed_terms, data, context} ->
+      case parse_field(data, {name, type}, context) do
+        {:ok, {term, rest}, new_context} ->
+          {:cont, {[term | parsed_terms], rest, new_context}}
+
+        {:error, _reason} = error ->
+          {:halt, error}
+      end
+    end)
+    |> case do
+      {:error, _reason} = error ->
+        error
+
+      {terms, rest, context} ->
+        {:ok, {Enum.reverse(terms), rest}, context}
+    end
+  end
 
   defp parse_field_error(data, name, context \\ [])
 

@@ -438,7 +438,7 @@ defmodule Membrane.MP4.Container.Schema do
                     fields:
                       @full_box ++
                         [
-                          sample_count: :uint32,
+                          sample_count: {:uint32, store: :sample_count},
                           data_offset: {:int32, when: {:fo_flags, mask: 0x000001}},
                           first_sample_flags: {:bin32, when: {:fo_flags, mask: 0x000004}},
                           samples:
@@ -447,9 +447,9 @@ defmodule Membrane.MP4.Container.Schema do
                                sample_duration: {:uint32, when: {:fo_flags, mask: 0x000100}},
                                sample_size: {:uint32, when: {:fo_flags, mask: 0x000200}},
                                sample_flags: {:bin32, when: {:fo_flags, mask: 0x000400}},
-                               sample_composition_offset:
+                               sample_composition_time_offset:
                                  {:uint32, when: {:fo_flags, mask: 0x000800}}
-                             ]}
+                             ], length: :sample_count}
                         ]
                   ],
                   trun: [
@@ -457,7 +457,7 @@ defmodule Membrane.MP4.Container.Schema do
                     fields:
                       @full_box ++
                         [
-                          sample_count: :uint32,
+                          sample_count: {:uint32, store: :sample_count},
                           data_offset: {:int32, when: {:fo_flags, mask: 0x000001}},
                           first_sample_flags: {:bin32, when: {:fo_flags, mask: 0x000004}},
                           samples:
@@ -466,9 +466,9 @@ defmodule Membrane.MP4.Container.Schema do
                                sample_duration: {:uint32, when: {:fo_flags, mask: 0x000100}},
                                sample_size: {:uint32, when: {:fo_flags, mask: 0x000200}},
                                sample_flags: {:bin32, when: {:fo_flags, mask: 0x000400}},
-                               sample_composition_offset:
+                               sample_composition_time_offset:
                                  {:int32, when: {:fo_flags, mask: 0x000800}}
-                             ]}
+                             ], length: :sample_count}
                         ]
                   ]
                 ]
