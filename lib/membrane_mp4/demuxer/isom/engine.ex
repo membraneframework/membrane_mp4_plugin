@@ -140,7 +140,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
 
     state = put_in(state.provider_state, provider_state)
 
-    case Container.Header.parse(data) do
+    case Container.Header.parse(data, Container.Schema.schema().atom_whitelist) do
       {:ok, %{name: ^box_name} = header, _rest} ->
         state =
           update_in(

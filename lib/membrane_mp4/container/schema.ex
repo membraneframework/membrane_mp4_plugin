@@ -565,10 +565,7 @@ defmodule Membrane.MP4.Container.Schema do
           | {field_name :: atom, primitive_t | {:list, any} | [field_t]}
 
   @typedoc """
-  The schema of MP4 structure.
-
-  An MP4 file consists of boxes, that all have the same header and different internal
-  structures. Boxes can be nested with one another.
+  The inner map of parsed box schemas, keyed by box name atom.
 
   Each box has at most 4-letter name and may have the following parameters:
   - `black_box?` - if true, the box content is unspecified and is treated as an opaque
@@ -577,36 +574,34 @@ defmodule Membrane.MP4.Container.Schema do
   - `fields` - a list of key-value parameters
   - `children` - the nested boxes
   """
-  @type t :: %{
+  @type boxes_t :: %{
           (box_name :: atom) =>
             %{black_box?: true}
             | %{
                 black_box?: false,
                 version: non_neg_integer,
                 fields: [field_t],
-                children: map
+                children: boxes_t()
               }
         }
 
-  @schema __MODULE__.Parser.parse(@schema_def)
+  @typedoc """
+  The schema of MP4 structure.
+  """
+  @type t :: %__MODULE__{
+          atom_whitelist: MapSet.t(String.t()),
+          boxes: boxes_t()
+        }
+
+  defstruct [:atom_whitelist, :boxes]
+
+  {schema_whitelist, schema_boxes} = __MODULE__.Parser.parse(@schema_def)
+  @schema_whitelist schema_whitelist
+  @schema_boxes schema_boxes
 
   @doc """
   Returns `t:#{inspect(__MODULE__)}.t/0`
   """
   @spec schema() :: t
-  def schema(), do: @schema
-
-  @doc """
-  Returns a `MapSet` of all known box name strings derived from the schema.
-  """
-  @spec known_box_names() :: MapSet.t(String.t())
-  def known_box_names(), do: collect_box_names(@schema)
-
-  defp collect_box_names(schema) do
-    Enum.flat_map(schema, fn {name, box_schema} ->
-      children = Map.get(box_schema, :children, %{})
-      [Atom.to_string(name) | Enum.to_list(collect_box_names(children))]
-    end)
-    |> MapSet.new()
-  end
+  def schema(), do: %__MODULE__{atom_whitelist: @schema_whitelist, boxes: @schema_boxes}
 end

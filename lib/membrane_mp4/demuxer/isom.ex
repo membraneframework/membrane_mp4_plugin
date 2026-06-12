@@ -423,7 +423,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp parse_header(data) do
-    case Container.Header.parse(data) do
+    case Container.Header.parse(data, Container.Schema.schema().atom_whitelist) do
       {:ok, header, _rest} -> header
       {:error, :not_enough_data} -> nil
     end
