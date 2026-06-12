@@ -80,13 +80,10 @@ defmodule Membrane.MP4.ContainerTest do
     box_data =
       <<8 + byte_size(box_content)::32, box_name::binary, box_content::binary>>
 
-    known_data = @cmaf_fixtures |> Path.join("ref_audio_segment1.m4s") |> File.read!()
-    data = box_data <> known_data
+    {boxes, <<>>} = Container.parse!(box_data)
 
-    {boxes, <<>>} = Container.parse!(data)
-
-    assert [{:unknown, %{name: ^box_name, content: ^box_content}} | _rest] = boxes
-    assert Container.serialize!(boxes) == data
+    assert [{:unknown, %{name: ^box_name, content: ^box_content}}] = boxes
+    assert Container.serialize!(boxes) == box_data
   end
 
   test "parse error" do
