@@ -69,7 +69,7 @@ defmodule Membrane.MP4.Container.Header do
   defp parse_box_name(name, known_box_names) do
     trimmed_name = String.trim_trailing(name)
 
-    if MapSet.member?(known_box_names, trimmed_name) do
+    if trimmed_name in known_box_names do
       {:ok, String.to_existing_atom(trimmed_name)}
     else
       :error

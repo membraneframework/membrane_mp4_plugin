@@ -507,6 +507,8 @@ defmodule Membrane.MP4.Container.Schema.Default do
   """
   @schema Schema.parse(@schema_def)
 
+  # MapSet.t/1 incorrectly exposes MapSet.internal/1 as opaque in specs; fixed in Elixir v1.20
+  @dialyzer {:no_contracts, schema: 0}
   @spec schema() :: Schema.t()
   def schema(), do: @schema
 
