@@ -79,7 +79,7 @@ defmodule Membrane.MP4.ContainerTest do
     custom_schema =
       Container.Schema.Parser.parse(atom: [black_box?: true])
       |> then(fn {wl, boxes} ->
-        %Container.Schema{atom_whitelist: wl, boxes: boxes}
+        %Container.Schema{box_names_whitelist: wl, boxes: boxes}
       end)
 
     assert {:ok, [{:atom, %{content: ^box_content}}], <<>>} =

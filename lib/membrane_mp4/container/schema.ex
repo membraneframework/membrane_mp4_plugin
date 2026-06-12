@@ -589,11 +589,11 @@ defmodule Membrane.MP4.Container.Schema do
   The schema of MP4 structure.
   """
   @type t :: %__MODULE__{
-          atom_whitelist: MapSet.t(String.t()),
+          box_names_whitelist: MapSet.t(String.t()),
           boxes: boxes_t()
         }
 
-  defstruct [:atom_whitelist, :boxes]
+  defstruct [:box_names_whitelist, :boxes]
 
   {schema_whitelist, schema_boxes} = __MODULE__.Parser.parse(@schema_def)
   @schema_whitelist schema_whitelist
@@ -603,5 +603,5 @@ defmodule Membrane.MP4.Container.Schema do
   Returns `t:#{inspect(__MODULE__)}.t/0`
   """
   @spec schema() :: t
-  def schema(), do: %__MODULE__{atom_whitelist: @schema_whitelist, boxes: @schema_boxes}
+  def schema(), do: %__MODULE__{box_names_whitelist: @schema_whitelist, boxes: @schema_boxes}
 end
