@@ -490,6 +490,12 @@ defmodule Membrane.MP4.Container.Schema do
               ],
               mdat: [
                 black_box?: true
+              ],
+              free: [
+                black_box?: true
+              ],
+              skip: [
+                black_box?: true
               ]
 
   @type schema_def_primitive_t :: atom
@@ -589,4 +595,18 @@ defmodule Membrane.MP4.Container.Schema do
   """
   @spec schema() :: t
   def schema(), do: @schema
+
+  @doc """
+  Returns a `MapSet` of all known box name strings derived from the schema.
+  """
+  @spec known_box_names() :: MapSet.t(String.t())
+  def known_box_names(), do: collect_box_names(@schema)
+
+  defp collect_box_names(schema) do
+    Enum.flat_map(schema, fn {name, box_schema} ->
+      children = Map.get(box_schema, :children, %{})
+      [Atom.to_string(name) | Enum.to_list(collect_box_names(children))]
+    end)
+    |> MapSet.new()
+  end
 end

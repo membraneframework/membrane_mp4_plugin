@@ -69,6 +69,26 @@ defmodule Membrane.MP4.ContainerTest do
     assert Container.serialize!(boxes) == data
   end
 
+  test "box name not in schema is stored as :unknown even if its atom already exists in the VM" do
+    # :atom is a valid Elixir atom, but "atom" is not a known MP4 box name
+    _ensure_atom_exists = :atom
+    assert String.to_existing_atom("atom") == :atom
+
+    box_name = "atom"
+    box_content = <<0, 1, 2, 3>>
+
+    box_data =
+      <<8 + byte_size(box_content)::32, box_name::binary, box_content::binary>>
+
+    known_data = @cmaf_fixtures |> Path.join("ref_audio_segment1.m4s") |> File.read!()
+    data = box_data <> known_data
+
+    {boxes, <<>>} = Container.parse!(data)
+
+    assert [{:unknown, %{name: ^box_name, content: ^box_content}} | _rest] = boxes
+    assert Container.serialize!(boxes) == data
+  end
+
   test "parse error" do
     <<0, 0, 0, 24, pre_cut::18-binary, _cut::2-binary, post_cut::binary>> =
       @cmaf_fixtures |> Path.join("ref_video_header.mp4") |> File.read!()

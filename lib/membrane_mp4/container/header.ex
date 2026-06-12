@@ -20,6 +20,8 @@ defmodule Membrane.MP4.Container.Header do
   @compact_size_size 4
   @large_size_size 8
 
+  @known_box_names Membrane.MP4.Container.Schema.known_box_names()
+
   @doc """
   Parses the header of a box.
 
@@ -68,10 +70,10 @@ defmodule Membrane.MP4.Container.Header do
   defp parse_box_name(name) do
     trimmed_name = String.trim_trailing(name)
 
-    try do
+    if MapSet.member?(@known_box_names, trimmed_name) do
       {:ok, String.to_existing_atom(trimmed_name)}
-    rescue
-      ArgumentError -> :error
+    else
+      :error
     end
   end
 end
