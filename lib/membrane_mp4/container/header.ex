@@ -21,7 +21,7 @@ defmodule Membrane.MP4.Container.Header do
   @large_size_size 8
 
   @doc """
-  Parses the header of a box, accepting only names present in `whitelist`.
+  Parses the header of a box, accepting only names present in `known_box_names`.
 
   Returns the `t:t/0` and the leftover data.
   """
@@ -32,7 +32,7 @@ defmodule Membrane.MP4.Container.Header do
   def parse(
         <<compact_size::integer-size(@compact_size_size)-unit(8), name::binary-size(@name_size),
           rest::binary>>,
-        whitelist
+        known_box_names
       ) do
     {header_size, content_size, rest} =
       case compact_size do
@@ -50,7 +50,7 @@ defmodule Membrane.MP4.Container.Header do
           {header_size, size - header_size, rest}
       end
 
-    case parse_box_name(name, whitelist) do
+    case parse_box_name(name, known_box_names) do
       {:ok, atom_name} ->
         {:ok,
          %__MODULE__{
@@ -64,12 +64,12 @@ defmodule Membrane.MP4.Container.Header do
     end
   end
 
-  def parse(_data, _whitelist), do: {:error, :not_enough_data}
+  def parse(_data, _known_box_names), do: {:error, :not_enough_data}
 
-  defp parse_box_name(name, whitelist) do
+  defp parse_box_name(name, known_box_names) do
     trimmed_name = String.trim_trailing(name)
 
-    if MapSet.member?(whitelist, trimmed_name) do
+    if MapSet.member?(known_box_names, trimmed_name) do
       {:ok, String.to_existing_atom(trimmed_name)}
     else
       :error
