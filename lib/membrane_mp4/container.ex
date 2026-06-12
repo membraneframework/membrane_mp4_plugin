@@ -7,7 +7,7 @@ defmodule Membrane.MP4.Container do
   use Bunch
   alias __MODULE__.{ParseHelper, Schema, SerializeHelper}
 
-  @schema Schema.schema()
+  @schema Schema.Default.schema()
 
   @type box_name_t :: atom
   @type field_name_t :: atom
