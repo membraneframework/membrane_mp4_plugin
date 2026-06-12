@@ -30,7 +30,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   alias Membrane.MP4.Container.Schema
   alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
 
-  @schema Schema.schema()
+  @schema Schema.Default.schema()
 
   def_input_pad :input,
     accepted_format:
@@ -426,7 +426,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp parse_header(data) do
-    case Container.Header.parse(data, @schema.box_names_whitelist) do
+    case Container.Header.parse(data, @schema.know_box_names) do
       {:ok, header, _rest} -> header
       {:error, :not_enough_data} -> nil
     end

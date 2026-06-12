@@ -12,7 +12,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
   @spec parse_boxes(binary, Schema.t(), context_t(), Container.t()) ::
           {:ok, Container.t(), binary(), context_t()}
           | {:error, Container.parse_error_context_t()}
-  def parse_boxes(data, %Schema{box_names_whitelist: whitelist, boxes: boxes}, context, acc) do
+  def parse_boxes(data, %Schema{know_box_names: whitelist, schema: boxes}, context, acc) do
     do_parse_boxes(data, boxes, whitelist, context, acc)
   end
 

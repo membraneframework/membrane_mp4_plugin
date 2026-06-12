@@ -16,7 +16,7 @@ defmodule Membrane.MP4.Container.SerializeHelper do
   @spec serialize_boxes(Container.t(), Schema.t(), context_t()) ::
           {{:error, Container.serialize_error_context_t()}, context_t()}
           | {{:ok, binary}, context_t()}
-  def serialize_boxes(mp4, %Schema{boxes: boxes}, context) do
+  def serialize_boxes(mp4, %Schema{schema: boxes}, context) do
     do_serialize_boxes(mp4, boxes, context)
   end
 
