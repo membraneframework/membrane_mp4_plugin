@@ -7,7 +7,7 @@ defmodule Membrane.MP4.Container do
   use Bunch
   alias __MODULE__.{ParseHelper, Schema, SerializeHelper}
 
-  @schema Schema.schema()
+  @schema Schema.Default.schema()
 
   @type box_name_t :: atom
   @type field_name_t :: atom
@@ -27,7 +27,7 @@ defmodule Membrane.MP4.Container do
   @type serialize_error_context_t :: [{:box, box_name_t} | {:field, field_name_t}]
 
   @doc """
-  Parses binary data to MP4 according to `#{inspect(Schema)}.schema/0`.
+  Parses binary data to MP4 according to `#{inspect(Schema.Default)}.schema/0`.
 
   Returns boxes that have been correctly parsed, and the leftover data that
   is insufficient to constitute a complete box.
@@ -81,7 +81,7 @@ defmodule Membrane.MP4.Container do
   end
 
   @doc """
-  Serializes MP4 to a binary according to `#{inspect(Schema)}.schema/0`.
+  Serializes MP4 to a binary according to `#{inspect(Schema.Default)}.schema/0`.
   """
   @spec serialize(t) :: {:ok, binary} | {:error, serialize_error_context_t}
   def serialize(mp4) do

@@ -69,6 +69,36 @@ defmodule Membrane.MP4.ContainerTest do
     assert Container.serialize!(boxes) == data
   end
 
+  test "box defined in a custom schema is parsed as its atom, not :unknown" do
+    _ensure_atom_exists = :atom
+    assert String.to_existing_atom("atom") == :atom
+
+    box_content = <<0, 1, 2, 3>>
+    box_data = <<8 + byte_size(box_content)::32, "atom", box_content::binary>>
+
+    custom_schema = Container.Schema.parse(atom: [black_box?: true])
+
+    assert {:ok, [{:atom, %{content: ^box_content}}], <<>>} =
+             Container.parse(box_data, custom_schema)
+  end
+
+  test "box name not in schema is stored as :unknown even if its atom already exists in the VM" do
+    # :atom is a valid Elixir atom, but "atom" is not a known MP4 box name
+    _ensure_atom_exists = :atom
+    assert String.to_existing_atom("atom") == :atom
+
+    box_name = "atom"
+    box_content = <<0, 1, 2, 3>>
+
+    box_data =
+      <<8 + byte_size(box_content)::32, box_name::binary, box_content::binary>>
+
+    {boxes, <<>>} = Container.parse!(box_data)
+
+    assert [{:unknown, %{name: ^box_name, content: ^box_content}}] = boxes
+    assert Container.serialize!(boxes) == box_data
+  end
+
   test "parse error" do
     <<0, 0, 0, 24, pre_cut::18-binary, _cut::2-binary, post_cut::binary>> =
       @cmaf_fixtures |> Path.join("ref_video_header.mp4") |> File.read!()

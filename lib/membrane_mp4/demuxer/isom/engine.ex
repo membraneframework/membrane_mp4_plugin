@@ -6,7 +6,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   """
 
   alias Membrane.MP4.Container
+  alias Membrane.MP4.Container.Schema
   alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
+
   alias Membrane.MP4.Demuxer.Sample
   alias Membrane.MP4.Track.SampleTable
 
@@ -55,6 +57,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
               ]
 
   @max_header_size 16
+  @schema Schema.Default.schema()
 
   @doc """
   Returns new instance of the `#{inspect(__MODULE__)}`.
@@ -140,7 +143,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
 
     state = put_in(state.provider_state, provider_state)
 
-    case Container.Header.parse(data) do
+    case Container.Header.parse(data, @schema) do
       {:ok, %{name: ^box_name} = header, _rest} ->
         state =
           update_in(
@@ -168,7 +171,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
 
     state = put_in(state.provider_state, provider_state)
 
-    {[box], _rest} = Container.parse!(data)
+    {[box], _rest} = Container.parse!(data, @schema)
 
     update_in(state.boxes, &[box | &1])
   end

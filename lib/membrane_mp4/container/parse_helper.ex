@@ -12,31 +12,41 @@ defmodule Membrane.MP4.Container.ParseHelper do
   @spec parse_boxes(binary, Schema.t(), context_t(), Container.t()) ::
           {:ok, Container.t(), binary(), context_t()}
           | {:error, Container.parse_error_context_t()}
-  def parse_boxes(<<>>, _schema, context, acc) do
+  def parse_boxes(data, schema, context, acc) do
+    do_parse_boxes(data, schema, context, acc)
+  end
+
+  defp do_parse_boxes(<<>>, _schema, context, acc) do
     {:ok, Enum.reverse(acc), <<>>, context}
   end
 
-  def parse_boxes(data, schema, context, acc) do
+  defp do_parse_boxes(data, %Schema{boxes_layout: boxes_layout} = schema, context, acc) do
     withl header:
             {:ok, %{name: name, content_size: content_size, header_size: header_size}, rest} <-
-              Header.parse(data),
+              Header.parse(data, schema),
           content: <<content::binary-size(^content_size), data::binary>> <- rest,
-          do: box_schema = schema[name],
-          known?: true <- box_schema && not box_schema.black_box?,
+          do: box_schema = Map.fetch!(boxes_layout, name),
+          black_box?: false <- box_schema.black_box?,
           try:
             {:ok, {fields, rest}, context} <- parse_fields(content, box_schema.fields, context),
           try:
-            {:ok, children, rest, context} <- parse_boxes(rest, box_schema.children, context, []),
+            {:ok, children, rest, context} <-
+              do_parse_boxes(
+                rest,
+                %Schema{schema | boxes_layout: box_schema.children},
+                context,
+                []
+              ),
           leftover: <<>> <- rest do
       box = %{fields: fields, children: children, size: content_size, header_size: header_size}
-      parse_boxes(data, schema, context, [{name, box} | acc])
+      do_parse_boxes(data, schema, context, [{name, box} | acc])
     else
       header: {:error, {:unknown_box, name, header_size, content_size}} ->
         case data do
           <<_header::binary-size(^header_size), content::binary-size(^content_size),
             remaining::binary>> ->
             box = %{name: name, content: content, size: content_size, header_size: header_size}
-            parse_boxes(remaining, schema, context, [{:unknown, box} | acc])
+            do_parse_boxes(remaining, schema, context, [{:unknown, box} | acc])
 
           _not_enough ->
             {:ok, Enum.reverse(acc), data, context}
@@ -50,9 +60,9 @@ defmodule Membrane.MP4.Container.ParseHelper do
         # more data needed
         {:ok, Enum.reverse(acc), data, context}
 
-      known?: _unknown ->
+      black_box?: true ->
         box = %{content: content, size: content_size, header_size: header_size}
-        parse_boxes(data, schema, context, [{name, box} | acc])
+        do_parse_boxes(data, schema, context, [{name, box} | acc])
 
       leftover: leftover ->
         {:error, [box: name, reason: {:non_empty_leftover, leftover}]}

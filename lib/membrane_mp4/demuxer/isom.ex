@@ -27,7 +27,10 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   alias Membrane.File.NewSeekEvent
   alias Membrane.{MP4, RemoteStream}
   alias Membrane.MP4.Container
+  alias Membrane.MP4.Container.Schema
   alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
+
+  @schema Schema.Default.schema()
 
   def_input_pad :input,
     accepted_format:
@@ -197,7 +200,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   def handle_buffer(:input, buffer, ctx, state) do
-    {new_boxes, rest} = Container.parse!(state.partial <> buffer.payload)
+    {new_boxes, rest} = Container.parse!(state.partial <> buffer.payload, @schema)
 
     state = %{
       state
@@ -423,7 +426,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
   end
 
   defp parse_header(data) do
-    case Container.Header.parse(data) do
+    case Container.Header.parse(data, @schema) do
       {:ok, header, _rest} -> header
       {:error, :not_enough_data} -> nil
     end

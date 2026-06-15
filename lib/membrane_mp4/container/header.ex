@@ -5,6 +5,7 @@ defmodule Membrane.MP4.Container.Header do
   The `content_size` field is equal to the box size minus the size of the header (8 bytes).
   """
   use Bunch.Access
+  alias Membrane.MP4.Container.Schema
 
   @enforce_keys [:name, :content_size, :header_size]
 
@@ -21,17 +22,18 @@ defmodule Membrane.MP4.Container.Header do
   @large_size_size 8
 
   @doc """
-  Parses the header of a box.
+  Parses the header of a box, accepting only names used in given `Membrane.MP4.Container.Schema`.
 
   Returns the `t:t/0` and the leftover data.
   """
-  @spec parse(binary()) ::
+  @spec parse(binary(), Schema.t()) ::
           {:ok, t, leftover :: binary()}
           | {:error, :not_enough_data}
           | {:error, {:unknown_box, binary(), non_neg_integer(), non_neg_integer()}}
   def parse(
         <<compact_size::integer-size(@compact_size_size)-unit(8), name::binary-size(@name_size),
-          rest::binary>>
+          rest::binary>>,
+        %Schema{known_box_names: known_box_names}
       ) do
     {header_size, content_size, rest} =
       case compact_size do
@@ -49,7 +51,7 @@ defmodule Membrane.MP4.Container.Header do
           {header_size, size - header_size, rest}
       end
 
-    case parse_box_name(name) do
+    case parse_box_name(name, known_box_names) do
       {:ok, atom_name} ->
         {:ok,
          %__MODULE__{
@@ -63,15 +65,15 @@ defmodule Membrane.MP4.Container.Header do
     end
   end
 
-  def parse(_data), do: {:error, :not_enough_data}
+  def parse(_data, _known_box_names), do: {:error, :not_enough_data}
 
-  defp parse_box_name(name) do
+  defp parse_box_name(name, known_box_names) do
     trimmed_name = String.trim_trailing(name)
 
-    try do
+    if trimmed_name in known_box_names do
       {:ok, String.to_existing_atom(trimmed_name)}
-    rescue
-      ArgumentError -> :error
+    else
+      :error
     end
   end
 end
