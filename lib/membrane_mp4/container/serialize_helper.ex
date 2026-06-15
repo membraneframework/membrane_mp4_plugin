@@ -21,21 +21,22 @@ defmodule Membrane.MP4.Container.SerializeHelper do
   end
 
   defp do_serialize_boxes(mp4, %Schema{} = schema, context) do
-    with {{:ok, data}, context} <-
-           Bunch.Enum.try_map_reduce(mp4, context, fn
-             {:unknown, box}, context ->
-               serialize_box(:unknown, box, schema, context)
+    Bunch.Enum.try_map_reduce(mp4, context, fn
+      {:unknown, box}, context ->
+        serialize_box(:unknown, box, schema, context)
 
-             {box_name, box}, context ->
-               case Map.fetch(schema.boxes_layout, box_name) do
-                 {:ok, subbox_layout} ->
-                   serialize_box(box_name, box, %{schema | boxes_layout: subbox_layout}, context)
+      {box_name, box}, context ->
+        case Map.fetch(schema.boxes_layout, box_name) do
+          {:ok, subbox_layout} ->
+            serialize_box(box_name, box, %{schema | boxes_layout: subbox_layout}, context)
 
-                 :error ->
-                   {{:error, unknown_box: box_name}, context}
-               end
-           end) do
-      {{:ok, IO.iodata_to_binary(data)}, context}
+          :error ->
+            {{:error, unknown_box: box_name}, context}
+        end
+    end)
+    |> case do
+      {{:ok, data}, context} -> {{:ok, IO.iodata_to_binary(data)}, context}
+      error -> error
     end
   end
 
