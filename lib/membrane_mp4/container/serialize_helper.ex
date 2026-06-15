@@ -20,10 +20,20 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     do_serialize_boxes(mp4, schema, context)
   end
 
-  defp do_serialize_boxes(mp4, %Schema{boxes_layout: boxes_layout}, context) do
+  defp do_serialize_boxes(mp4, %Schema{} = schema, context) do
     with {{:ok, data}, context} <-
-           Bunch.Enum.try_map_reduce(mp4, context, fn {box_name, box}, context ->
-             serialize_box(box_name, box, Map.fetch(boxes_layout, box_name), context)
+           Bunch.Enum.try_map_reduce(mp4, context, fn
+             {:unknown, box}, context ->
+               serialize_box(:unknown, box, schema, context)
+
+             {box_name, box}, context ->
+               case Map.fetch(schema.boxes_layout, box_name) do
+                 {:ok, subbox_layout} ->
+                   serialize_box(box_name, box, %{schema | boxes_layout: subbox_layout}, context)
+
+                 :error ->
+                   {{:error, unknown_box: box_name}, context}
+               end
            end) do
       {{:ok, IO.iodata_to_binary(data)}, context}
     end
@@ -42,13 +52,13 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     {{:ok, [header, content]}, context}
   end
 
-  defp serialize_box(box_name, box, {:ok, schema}, context) do
+  defp serialize_box(box_name, box, %Schema{boxes_layout: boxes_layout} = schema, context) do
     with {{:ok, fields}, context} <-
-           serialize_fields(Map.get(box, :fields, %{}), schema.fields, context),
+           serialize_fields(Map.get(box, :fields, %{}), boxes_layout.fields, context),
          {{:ok, children}, context} <-
            do_serialize_boxes(
              Map.get(box, :children, %{}),
-             %Schema{boxes_layout: schema.children},
+             %{schema | boxes_layout: boxes_layout.children},
              context
            ) do
       header = serialize_header(box_name, byte_size(fields) + byte_size(children))
@@ -56,10 +66,6 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     else
       {{:error, error_context}, context} -> {{:error, [box: box_name] ++ error_context}, context}
     end
-  end
-
-  defp serialize_box(box_name, _box, :error, context) do
-    {{:error, unknown_box: box_name}, context}
   end
 
   defp serialize_header(name, content_size) do
