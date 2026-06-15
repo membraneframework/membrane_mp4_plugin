@@ -53,13 +53,13 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     {{:ok, [header, content]}, context}
   end
 
-  defp serialize_box(box_name, box, %Schema{boxes_layout: boxes_layout} = schema, context) do
+  defp serialize_box(box_name, box, %Schema{} = schema, context) do
     with {{:ok, fields}, context} <-
-           serialize_fields(Map.get(box, :fields, %{}), boxes_layout.fields, context),
+           serialize_fields(Map.get(box, :fields, %{}), schema.boxes_layout.fields, context),
          {{:ok, children}, context} <-
            do_serialize_boxes(
              Map.get(box, :children, %{}),
-             %{schema | boxes_layout: boxes_layout.children},
+             %{schema | boxes_layout: schema.boxes_layout.children},
              context
            ) do
       header = serialize_header(box_name, byte_size(fields) + byte_size(children))
