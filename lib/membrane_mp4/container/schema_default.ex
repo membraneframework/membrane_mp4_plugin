@@ -1,4 +1,5 @@
 defmodule Membrane.MP4.Container.Schema.Default do
+  # Moduledoc is below the schema definition
   alias Membrane.MP4.Container.Schema
 
   @full_box [

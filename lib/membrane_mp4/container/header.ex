@@ -5,6 +5,7 @@ defmodule Membrane.MP4.Container.Header do
   The `content_size` field is equal to the box size minus the size of the header (8 bytes).
   """
   use Bunch.Access
+  alias Membrane.MP4.Container.Schema
 
   @enforce_keys [:name, :content_size, :header_size]
 
@@ -21,18 +22,18 @@ defmodule Membrane.MP4.Container.Header do
   @large_size_size 8
 
   @doc """
-  Parses the header of a box, accepting only names present in `known_box_names`.
+  Parses the header of a box, accepting only names used in given `Membrane.MP4.Container.Schema`.
 
   Returns the `t:t/0` and the leftover data.
   """
-  @spec parse(binary(), MapSet.t(String.t())) ::
+  @spec parse(binary(), Schema.t()) ::
           {:ok, t, leftover :: binary()}
           | {:error, :not_enough_data}
           | {:error, {:unknown_box, binary(), non_neg_integer(), non_neg_integer()}}
   def parse(
         <<compact_size::integer-size(@compact_size_size)-unit(8), name::binary-size(@name_size),
           rest::binary>>,
-        known_box_names
+        %Schema{known_box_names: known_box_names}
       ) do
     {header_size, content_size, rest} =
       case compact_size do

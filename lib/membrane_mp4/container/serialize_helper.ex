@@ -16,14 +16,14 @@ defmodule Membrane.MP4.Container.SerializeHelper do
   @spec serialize_boxes(Container.t(), Schema.t(), context_t()) ::
           {{:error, Container.serialize_error_context_t()}, context_t()}
           | {{:ok, binary}, context_t()}
-  def serialize_boxes(mp4, %Schema{schema: boxes}, context) do
-    do_serialize_boxes(mp4, boxes, context)
+  def serialize_boxes(mp4, schema, context) do
+    do_serialize_boxes(mp4, schema, context)
   end
 
-  defp do_serialize_boxes(mp4, boxes, context) do
+  defp do_serialize_boxes(mp4, %Schema{boxes_layout: boxes_layout}, context) do
     with {{:ok, data}, context} <-
            Bunch.Enum.try_map_reduce(mp4, context, fn {box_name, box}, context ->
-             serialize_box(box_name, box, Map.fetch(boxes, box_name), context)
+             serialize_box(box_name, box, Map.fetch(boxes_layout, box_name), context)
            end) do
       {{:ok, IO.iodata_to_binary(data)}, context}
     end
@@ -46,7 +46,11 @@ defmodule Membrane.MP4.Container.SerializeHelper do
     with {{:ok, fields}, context} <-
            serialize_fields(Map.get(box, :fields, %{}), schema.fields, context),
          {{:ok, children}, context} <-
-           do_serialize_boxes(Map.get(box, :children, %{}), schema.children, context) do
+           do_serialize_boxes(
+             Map.get(box, :children, %{}),
+             %Schema{boxes_layout: schema.children},
+             context
+           ) do
       header = serialize_header(box_name, byte_size(fields) + byte_size(children))
       {{:ok, [header, fields, children]}, context}
     else

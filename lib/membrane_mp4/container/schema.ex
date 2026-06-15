@@ -83,7 +83,7 @@ defmodule Membrane.MP4.Container.Schema do
           | {field_name :: atom, primitive_t | {:list, any} | [field_t]}
 
   @type t :: %__MODULE__{
-          schema: %{
+          boxes_layout: %{
             (box_name :: atom) =>
               %{black_box?: true}
               | %{
@@ -93,15 +93,15 @@ defmodule Membrane.MP4.Container.Schema do
                   children: map
                 }
           },
-          know_box_names: MapSet.t(String.t())
+          known_box_names: MapSet.t(String.t())
         }
-  defstruct [:schema, :know_box_names]
+  defstruct [:boxes_layout, :known_box_names]
 
   @spec parse(schema_def_t()) :: t()
   def parse(schema_def) do
     %__MODULE__{
-      schema: do_parse(schema_def),
-      know_box_names: extract_box_names(schema_def) |> MapSet.new()
+      boxes_layout: do_parse(schema_def),
+      known_box_names: extract_box_names(schema_def) |> MapSet.new()
     }
   end
 
@@ -125,7 +125,7 @@ defmodule Membrane.MP4.Container.Schema do
       if schema_def[:black_box?] do
         Map.new(schema_def)
       else
-        {schema, children} = schema_def |> Keyword.split([:version, :fields, :black_box?])
+        {schema, children} = schema_def |> Keyword.split(@non_box_keys)
 
         schema
         |> Map.new()
