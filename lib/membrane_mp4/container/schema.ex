@@ -95,7 +95,8 @@ defmodule Membrane.MP4.Container.Schema do
           },
           known_box_names: MapSet.t(String.t())
         }
-  defstruct [:boxes_layout, :known_box_names]
+  @enforce_keys [:boxes_layout, :known_box_names]
+  defstruct @enforce_keys
 
   @spec parse(schema_def_t()) :: t()
   def parse(schema_def) do
