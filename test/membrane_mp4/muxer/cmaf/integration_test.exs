@@ -227,7 +227,7 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert buffer.metadata.duration <= Membrane.Time.milliseconds(550)
 
     # partial segments for the following 8 seconds without a keyframe
-    for _ <- 1..16 do
+    for _iteration <- 1..16 do
       assert_sink_buffer(pipeline, :sink, buffer)
       refute buffer.metadata.independent?
       assert buffer.metadata.duration <= Membrane.Time.milliseconds(550)

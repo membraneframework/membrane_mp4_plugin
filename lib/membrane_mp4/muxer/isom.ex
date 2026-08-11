@@ -25,7 +25,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
           alignment: :au
         },
         %Membrane.Opus{self_delimiting?: false},
-        %Membrane.AV1{}
+        %Membrane.AV1{alignment: :tu}
       ),
     availability: :on_request
 

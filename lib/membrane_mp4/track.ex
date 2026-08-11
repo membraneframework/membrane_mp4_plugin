@@ -91,7 +91,7 @@ defmodule Membrane.MP4.Track do
           | {:hvc1,
              %{profile: non_neg_integer(), tier: non_neg_integer(), level: non_neg_integer()}}
           | {:av01,
-             %{profile: non_neg_integer(), level: String.t() | nil, tier: non_neg_integer()}}
+             %{profile: non_neg_integer(), level: non_neg_integer(), tier: non_neg_integer()}}
           | nil
 
   def get_encoding_info(%__MODULE__{
@@ -143,9 +143,9 @@ defmodule Membrane.MP4.Track do
 
   def get_encoding_info(%__MODULE__{stream_format: %AV1{} = format}) do
     map = %{
-      profile: format.profile || 0,
-      level: format.level,
-      tier: format.tier || 0
+      profile: AV1.profile_to_seq_profile(format.profile || :main),
+      level: AV1.level_to_seq_level_idx(format.level || :"4.0"),
+      tier: AV1.tier_to_seq_tier(format.tier || :main)
     }
 
     {:av01, map}

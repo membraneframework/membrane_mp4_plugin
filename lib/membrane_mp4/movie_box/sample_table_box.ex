@@ -244,9 +244,9 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
   defp av1c_config(%AV1{} = format) do
     %{
-      profile: format.profile || 0,
-      level_idx: level_string_to_idx(format.level) || 8,
-      tier: format.tier || 0,
+      profile: AV1.profile_to_seq_profile(format.profile || :main),
+      level_idx: AV1.level_to_seq_level_idx(format.level || :"4.0"),
+      tier: AV1.tier_to_seq_tier(format.tier || :main),
       # Defaults for 8-bit, 4:2:0
       high_bitdepth: 0,
       twelve_bit: 0,
@@ -256,24 +256,6 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
       chroma_sample_position: 0
     }
   end
-
-  # Convert AV1 level string to level index
-  defp level_string_to_idx(nil), do: nil
-  defp level_string_to_idx("2.0"), do: 0
-  defp level_string_to_idx("2.1"), do: 1
-  defp level_string_to_idx("3.0"), do: 4
-  defp level_string_to_idx("3.1"), do: 5
-  defp level_string_to_idx("4.0"), do: 8
-  defp level_string_to_idx("4.1"), do: 9
-  defp level_string_to_idx("5.0"), do: 12
-  defp level_string_to_idx("5.1"), do: 13
-  defp level_string_to_idx("5.2"), do: 14
-  defp level_string_to_idx("5.3"), do: 15
-  defp level_string_to_idx("6.0"), do: 16
-  defp level_string_to_idx("6.1"), do: 17
-  defp level_string_to_idx("6.2"), do: 18
-  defp level_string_to_idx("6.3"), do: 19
-  defp level_string_to_idx(_), do: nil
 
   defp assemble_sample_deltas(%{timescale: timescale, decoding_deltas: decoding_deltas}),
     do:
@@ -430,6 +412,20 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
   defp unpack_sample_description(%{children: [{:Opus, %{children: boxes}}]}) do
     %Opus{channels: boxes[:dOps].fields.output_channel_count, self_delimiting?: false}
+  end
+
+  defp unpack_sample_description(%{children: [{:av01, %{children: boxes, fields: fields}}]}) do
+    <<_marker::1, _version::7, seq_profile::3, seq_level_idx::5, seq_tier::1, _rest::bitstring>> =
+      boxes[:av1C].content
+
+    %AV1{
+      alignment: :tu,
+      width: fields.width,
+      height: fields.height,
+      profile: AV1.seq_profile_to_profile(seq_profile),
+      level: AV1.seq_level_idx_to_level(seq_level_idx),
+      tier: AV1.seq_tier_to_tier(seq_tier)
+    }
   end
 
   defp unpack_sample_description(%{children: [{sample_type, _sample_metadata}]}) do
