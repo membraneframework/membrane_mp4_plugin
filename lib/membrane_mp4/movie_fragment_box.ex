@@ -34,11 +34,17 @@ defmodule Membrane.MP4.MovieFragmentBox do
   @mdat_data_offset 8
 
   @spec assemble(%{
-          sequence_number: integer,
-          elapsed_time: integer,
-          timescale: integer,
-          duration: integer,
-          samples_table: [%{sample_size: integer, sample_flags: integer}]
+          id: pos_integer,
+          sequence_number: non_neg_integer,
+          base_timestamp: non_neg_integer,
+          samples_table: [
+            %{
+              sample_size: non_neg_integer,
+              sample_flags: non_neg_integer,
+              sample_duration: non_neg_integer,
+              sample_composition_time_offset: integer
+            }
+          ]
         }) :: Container.t()
   def assemble(config) do
     config =
@@ -94,7 +100,7 @@ defmodule Membrane.MP4.MovieFragmentBox do
                       @trun_flags.sample_composition_time_offsets_present,
                   sample_count: config.sample_count,
                   samples: config.samples_table,
-                  version: 0
+                  version: trun_version(config.samples_table)
                 }
               }
             ],
@@ -104,5 +110,9 @@ defmodule Membrane.MP4.MovieFragmentBox do
         fields: %{}
       }
     ]
+  end
+
+  defp trun_version(samples) do
+    if Enum.any?(samples, &(&1.sample_composition_time_offset < 0)), do: 1, else: 0
   end
 end

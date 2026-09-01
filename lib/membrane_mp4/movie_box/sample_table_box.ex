@@ -201,22 +201,24 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
          timescale: timescale,
          composition_offsets: composition_offsets
        }) do
-    composition_offsets
-    |> Enum.map(fn %{sample_count: count, sample_composition_offset: offset} ->
-      %{sample_count: count, sample_composition_offset: Helper.timescalify(offset, timescale)}
-    end)
-    |> then(
-      &[
-        ctts: %{
-          fields: %{
-            version: 0,
-            flags: 0,
-            entry_count: length(&1),
-            entry_list: &1
-          }
+    composition_offsets =
+      Enum.map(composition_offsets, fn %{sample_count: count, sample_composition_offset: offset} ->
+        %{sample_count: count, sample_composition_offset: Helper.timescalify(offset, timescale)}
+      end)
+
+    version =
+      if Enum.any?(composition_offsets, &(&1.sample_composition_offset < 0)), do: 1, else: 0
+
+    [
+      ctts: %{
+        fields: %{
+          version: version,
+          flags: 0,
+          entry_count: length(composition_offsets),
+          entry_list: composition_offsets
         }
-      ]
-    )
+      }
+    ]
   end
 
   defp maybe_sample_sync(%{sync_samples: []}), do: []
