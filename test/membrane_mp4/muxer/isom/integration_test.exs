@@ -44,6 +44,11 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
   end
 
   describe "Muxer.ISOM should mux" do
+    @tag :tmp_dir
+    test "single AV1 track", %{tmp_dir: dir} do
+      perform_av1_test(false, dir)
+    end
+
     test "single H264 track" do
       prepare_test("video")
 
@@ -161,6 +166,11 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
   end
 
   describe "Muxer.ISOM with fast_start enabled should mux" do
+    @tag :tmp_dir
+    test "single AV1 track", %{tmp_dir: dir} do
+      perform_av1_test(true, dir)
+    end
+
     test "single H264 track" do
       prepare_test("video_fast_start")
 
@@ -254,5 +264,92 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       assert Container.get_box(parsed_out, [:moov, :trak, :mdia, :minf, :stbl, :stts])
       refute Container.get_box(parsed_out, [:moov, :trak, :mdia, :minf, :stbl, :ctts])
     end
+  end
+
+  defp perform_av1_test(fast_start, dir) do
+    output_path = Path.join(dir, "av1.mp4")
+    temporal_delimiter = <<0x12, 0x00>>
+
+    stored_payloads = [
+      <<0xA1, 0xA2>>,
+      <<0xB1, 0x12, 0x00, 0xB2>>,
+      <<0xC1>>
+    ]
+
+    [first_payload, second_payload, third_payload] = stored_payloads
+
+    buffers = [
+      %Membrane.Buffer{
+        payload: temporal_delimiter <> temporal_delimiter <> first_payload,
+        pts: 0,
+        metadata: %{av1: %{key_frame?: true}}
+      },
+      %Membrane.Buffer{
+        payload: temporal_delimiter <> second_payload,
+        pts: Time.milliseconds(33),
+        metadata: %{av1: %{key_frame?: false}}
+      },
+      %Membrane.Buffer{
+        payload: temporal_delimiter <> third_payload,
+        pts: Time.milliseconds(66),
+        metadata: %{av1: %{key_frame?: true}}
+      }
+    ]
+
+    stream_format = %Membrane.AV1{
+      alignment: :tu,
+      width: 1080,
+      height: 720,
+      framerate: {30, 1},
+      profile: :main,
+      level: :"4.1",
+      tier: :high
+    }
+
+    structure =
+      child(:source, %Membrane.Testing.Source{output: buffers, stream_format: stream_format})
+      |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
+        chunk_duration: Time.seconds(1),
+        fast_start: fast_start
+      })
+      |> child(:sink, %Membrane.File.Sink{location: output_path})
+
+    pid = Pipeline.start_link_supervised!(spec: structure)
+
+    assert_end_of_stream(pid, :sink, :input)
+    assert :ok == Pipeline.terminate(pid)
+
+    output = File.read!(output_path)
+    assert {parsed, <<>>} = Container.parse!(output)
+
+    expected_box_order =
+      if fast_start, do: [:ftyp, :moov, :mdat], else: [:ftyp, :mdat, :moov]
+
+    assert Enum.map(parsed, &elem(&1, 0)) == expected_box_order
+
+    expected_mdat = IO.iodata_to_binary(stored_payloads)
+    assert parsed[:mdat].content == expected_mdat
+
+    av01 = Container.get_box(parsed, [:moov, :trak, :mdia, :minf, :stbl, :stsd, :av01])
+    assert av01.fields.width == 1080
+    assert av01.fields.height == 720
+    assert av01.children[:av1C].content == <<0x81, 0x09, 0x8C, 0x00>>
+
+    assert Container.get_box(parsed, [:moov, :trak, :mdia, :hdlr]).fields.handler_type ==
+             "vide"
+
+    assert Container.get_box(parsed, [:moov, :trak, :mdia, :minf, :vmhd])
+
+    stss = Container.get_box(parsed, [:moov, :trak, :mdia, :minf, :stbl, :stss])
+    assert stss.fields.entry_list == [%{sample_number: 1}, %{sample_number: 3}]
+
+    stsz = Container.get_box(parsed, [:moov, :trak, :mdia, :minf, :stbl, :stsz])
+
+    assert stsz.fields.entry_list ==
+             Enum.map(stored_payloads, &%{entry_size: byte_size(&1)})
+
+    stco = Container.get_box(parsed, [:moov, :trak, :mdia, :minf, :stbl, :stco])
+    assert [%{chunk_offset: chunk_offset}] = stco.fields.entry_list
+    assert binary_part(output, chunk_offset, byte_size(expected_mdat)) == expected_mdat
   end
 end

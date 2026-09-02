@@ -3,7 +3,7 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
   require Membrane.H264
   require Membrane.Logger
-  alias Membrane.{AAC, H264, H265, Opus}
+  alias Membrane.{AAC, AV1, H264, H265, Opus}
   alias Membrane.MP4.{Container, Helper, Track.SampleTable}
 
   @spec assemble(SampleTable.t()) :: Container.t()
@@ -184,6 +184,79 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     ]
   end
 
+  defp assemble_sample_description(%AV1{width: width, height: height} = format) do
+    av1c_content = build_av1c(format)
+
+    [
+      {:av01,
+       %{
+         children: [
+           av1C: %{
+             content: av1c_content
+           },
+           pasp: %{
+             children: [],
+             fields: %{h_spacing: 1, v_spacing: 1}
+           }
+         ],
+         fields: %{
+           compressor_name: <<0::size(32)-unit(8)>>,
+           depth: 24,
+           flags: 0,
+           frame_count: 1,
+           height: height || 0,
+           horizresolution: {0, 0},
+           num_of_entries: 1,
+           version: 0,
+           vertresolution: {0, 0},
+           width: width || 0
+         }
+       }}
+    ]
+  end
+
+  # Build av1C (AV1CodecConfigurationRecord) per ISO/IEC 14496-15
+  defp build_av1c(%AV1{} = format) do
+    config = av1c_config(format)
+
+    <<
+      # Byte 0: marker (1) | version (7)
+      1::1,
+      1::7,
+      # Byte 1: seq_profile (3) | seq_level_idx_0 (5)
+      config.profile::3,
+      config.level_idx::5,
+      # Byte 2: seq_tier_0 (1) | high_bitdepth (1) | twelve_bit (1) | monochrome (1) |
+      #         chroma_subsampling_x (1) | chroma_subsampling_y (1) | chroma_sample_position (2)
+      config.tier::1,
+      config.high_bitdepth::1,
+      config.twelve_bit::1,
+      config.monochrome::1,
+      config.chroma_subsampling_x::1,
+      config.chroma_subsampling_y::1,
+      config.chroma_sample_position::2,
+      # Byte 3: reserved (3) | initial_presentation_delay_present (1) | reserved (4)
+      0::3,
+      0::1,
+      0::4
+    >>
+  end
+
+  defp av1c_config(%AV1{} = format) do
+    %{
+      profile: AV1.profile_to_seq_profile(format.profile || :main),
+      level_idx: AV1.level_to_seq_level_idx(format.level || :"4.0"),
+      tier: AV1.tier_to_seq_tier(format.tier || :main),
+      # Defaults for 8-bit, 4:2:0
+      high_bitdepth: 0,
+      twelve_bit: 0,
+      monochrome: 0,
+      chroma_subsampling_x: 1,
+      chroma_subsampling_y: 1,
+      chroma_sample_position: 0
+    }
+  end
+
   defp assemble_sample_deltas(%{timescale: timescale, decoding_deltas: decoding_deltas}),
     do:
       Enum.map(decoding_deltas, fn %{sample_count: count, sample_delta: delta} ->
@@ -339,6 +412,20 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
 
   defp unpack_sample_description(%{children: [{:Opus, %{children: boxes}}]}) do
     %Opus{channels: boxes[:dOps].fields.output_channel_count, self_delimiting?: false}
+  end
+
+  defp unpack_sample_description(%{children: [{:av01, %{children: boxes, fields: fields}}]}) do
+    <<_marker::1, _version::7, seq_profile::3, seq_level_idx::5, seq_tier::1, _rest::bitstring>> =
+      boxes[:av1C].content
+
+    %AV1{
+      alignment: :tu,
+      width: fields.width,
+      height: fields.height,
+      profile: AV1.seq_profile_to_profile(seq_profile),
+      level: AV1.seq_level_idx_to_level(seq_level_idx),
+      tier: AV1.seq_tier_to_tier(seq_tier)
+    }
   end
 
   defp unpack_sample_description(%{children: [{sample_type, _sample_metadata}]}) do

@@ -5,10 +5,12 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
   # generating output buffers using that structure.
   # The samples' description is generated from the the `moov` box, which describes how the data is stored inside the `mdat` box.
 
-  alias Membrane.{Buffer, Time}
+  alias Membrane.{AV1, Buffer, Time}
   alias Membrane.MP4.Container
   alias Membrane.MP4.MovieBox.SampleTableBox
   alias Membrane.MP4.Track.SampleTable
+
+  @av1_temporal_delimiter_obu <<0x12, 0x00>>
 
   @enforce_keys [
     :samples,
@@ -77,7 +79,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
 
         buffer =
           {%Buffer{
-             payload: payload,
+             payload: maybe_prepend_temporal_delimiter(samples_info, track_id, payload),
              dts: dts,
              pts: pts
            }, track_id}
@@ -92,6 +94,16 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
 
       _other ->
         {samples_info, data, Enum.reverse(buffers)}
+    end
+  end
+
+  # The AV1 ISOBMFF binding requires samples to be stored without temporal delimiter OBUs,
+  # while `Membrane.AV1` with `alignment: :tu` requires each buffer to start with one,
+  # so it is restored here.
+  defp maybe_prepend_temporal_delimiter(samples_info, track_id, payload) do
+    case samples_info.sample_tables[track_id].sample_description do
+      %AV1{} -> @av1_temporal_delimiter_obu <> payload
+      _other -> payload
     end
   end
 

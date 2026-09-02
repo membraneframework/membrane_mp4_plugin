@@ -24,7 +24,8 @@ defmodule Membrane.MP4.Muxer.ISOM do
           stream_structure: {_hevc, _dcr},
           alignment: :au
         },
-        %Membrane.Opus{self_delimiting?: false}
+        %Membrane.Opus{self_delimiting?: false},
+        %Membrane.AV1{alignment: :tu}
       ),
     availability: :on_request
 
@@ -188,6 +189,15 @@ defmodule Membrane.MP4.Muxer.ISOM do
     # decoding deltas, and so is the implementation of sample table in this plugin.
     buffer = %{buffer | dts: Buffer.get_dts_or_pts(buffer)}
 
+    # For AV1 tracks, strip temporal delimiter OBUs from the payload
+    track = get_in(state, [:pad_to_track, pad_ref])
+
+    buffer =
+      case track.stream_format do
+        %Membrane.AV1{} -> %Buffer{buffer | payload: strip_av1_temporal_delimiter_obu(buffer.payload)}
+        _other -> buffer
+      end
+
     state
     |> update_in([:pad_to_track, pad_ref], &Track.store_sample(&1, buffer))
     |> maybe_flush_chunk(pad_ref)
@@ -286,4 +296,9 @@ defmodule Membrane.MP4.Muxer.ISOM do
   defp shift_left([]), do: []
 
   defp shift_left([first | rest]), do: rest ++ [first]
+
+  # Strip temporal delimiter OBUs from AV1 payload
+  # Temporal delimiter OBU: header=0x12 (type=2, has_size=1), size=0x00
+  defp strip_av1_temporal_delimiter_obu(<<0x12, 0x00, rest::binary>>), do: strip_av1_temporal_delimiter_obu(rest)
+  defp strip_av1_temporal_delimiter_obu(payload), do: payload
 end
