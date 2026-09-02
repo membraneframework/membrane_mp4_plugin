@@ -10,7 +10,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
   alias Membrane.MP4.MovieBox.SampleTableBox
   alias Membrane.MP4.Track.SampleTable
 
-  @temporal_delimiter <<0x12, 0x00>>
+  @av1_temporal_delimiter_obu <<0x12, 0x00>>
 
   @enforce_keys [
     :samples,
@@ -102,7 +102,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
   # so it is restored here.
   defp maybe_prepend_temporal_delimiter(samples_info, track_id, payload) do
     case samples_info.sample_tables[track_id].sample_description do
-      %AV1{} -> @temporal_delimiter <> payload
+      %AV1{} -> @av1_temporal_delimiter_obu <> payload
       _other -> payload
     end
   end

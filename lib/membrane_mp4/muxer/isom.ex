@@ -194,7 +194,7 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
     buffer =
       case track.stream_format do
-        %Membrane.AV1{} -> %Buffer{buffer | payload: strip_temporal_delimiter(buffer.payload)}
+        %Membrane.AV1{} -> %Buffer{buffer | payload: strip_av1_temporal_delimiter_obu(buffer.payload)}
         _other -> buffer
       end
 
@@ -299,6 +299,6 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   # Strip temporal delimiter OBUs from AV1 payload
   # Temporal delimiter OBU: header=0x12 (type=2, has_size=1), size=0x00
-  defp strip_temporal_delimiter(<<0x12, 0x00, rest::binary>>), do: strip_temporal_delimiter(rest)
-  defp strip_temporal_delimiter(payload), do: payload
+  defp strip_av1_temporal_delimiter_obu(<<0x12, 0x00, rest::binary>>), do: strip_av1_temporal_delimiter_obu(rest)
+  defp strip_av1_temporal_delimiter_obu(payload), do: payload
 end
