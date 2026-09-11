@@ -52,9 +52,9 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
       )
 
     truns =
-      for _segment <- 1..2 do
+      for expected_version <- [0, 1] do
         assert_sink_buffer(pipeline, :sink, buffer)
-        assert_composition_offset_version(buffer.payload)
+        assert_composition_offset_version(buffer.payload, expected_version)
       end
 
     assert Enum.any?(truns, fn trun ->
@@ -493,14 +493,9 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     pipeline
   end
 
-  defp assert_composition_offset_version(segment) do
+  defp assert_composition_offset_version(segment, expected_version) do
     assert {parsed_segment, <<>>} = Container.parse!(segment)
     trun = Container.get_box(parsed_segment, [:moof, :traf, :trun])
-
-    expected_version =
-      if Enum.any?(trun.fields.samples, &(&1.sample_composition_time_offset < 0)),
-        do: 1,
-        else: 0
 
     assert trun.fields.version == expected_version
     trun
