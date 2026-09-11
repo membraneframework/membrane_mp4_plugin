@@ -44,6 +44,29 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     :ok = Testing.Pipeline.terminate(pipeline)
   end
 
+  test "video hevc with negative composition offsets" do
+    pipeline =
+      prepare_pipeline(:video_hevc,
+        add_dts_offset: false,
+        header_file: "ref_video_hevc_header.mp4"
+      )
+
+    truns =
+      for expected_version <- [0, 1] do
+        assert_sink_buffer(pipeline, :sink, buffer)
+        assert_composition_offset_version(buffer.payload, expected_version)
+      end
+
+    assert Enum.any?(truns, fn trun ->
+             Enum.any?(trun.fields.samples, &(&1.sample_composition_time_offset < 0))
+           end)
+
+    assert_end_of_stream(pipeline, :sink)
+    refute_sink_buffer(pipeline, :sink, _buffer, 0)
+
+    :ok = Testing.Pipeline.terminate(pipeline)
+  end
+
   test "audio" do
     pipeline = prepare_pipeline(:audio)
 
@@ -437,7 +460,10 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
 
         :video_hevc ->
           %Membrane.H265.Parser{
-            generate_best_effort_timestamps: %{framerate: {30, 1}},
+            generate_best_effort_timestamps: %{
+              framerate: {30, 1},
+              add_dts_offset: Keyword.get(opts, :add_dts_offset, true)
+            },
             output_stream_structure: :hvc1
           }
       end
@@ -465,6 +491,14 @@ defmodule Membrane.MP4.Muxer.CMAF.IntegrationTest do
     assert_mp4_equal(header, Keyword.get(opts, :header_file, "ref_#{type}_header.mp4"))
 
     pipeline
+  end
+
+  defp assert_composition_offset_version(segment, expected_version) do
+    assert {parsed_segment, <<>>} = Container.parse!(segment)
+    trun = Container.get_box(parsed_segment, [:moof, :traf, :trun])
+
+    assert trun.fields.version == expected_version
+    trun
   end
 
   @fixtures_dir "test/fixtures/cmaf"

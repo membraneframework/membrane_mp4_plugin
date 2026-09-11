@@ -254,5 +254,44 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
       assert Container.get_box(parsed_out, [:moov, :trak, :mdia, :minf, :stbl, :stts])
       refute Container.get_box(parsed_out, [:moov, :trak, :mdia, :minf, :stbl, :ctts])
     end
+
+    test "uses version 0 for non-negative composition offsets" do
+      ctts = mux_h265_and_get_ctts("video_hevc_ctts_v0", true)
+
+      assert ctts.fields.version == 0
+      assert Enum.all?(ctts.fields.entry_list, &(&1.sample_composition_offset >= 0))
+    end
+
+    test "uses version 1 for negative composition offsets" do
+      ctts = mux_h265_and_get_ctts("video_hevc_ctts_v1", false)
+
+      assert ctts.fields.version == 1
+      assert Enum.any?(ctts.fields.entry_list, &(&1.sample_composition_offset < 0))
+    end
+  end
+
+  defp mux_h265_and_get_ctts(filename, add_dts_offset) do
+    prepare_test(filename)
+
+    structure =
+      child(:file, %Membrane.File.Source{location: "test/fixtures/in_video_hevc.h265"})
+      |> child(:parser, %Membrane.H265.Parser{
+        generate_best_effort_timestamps: %{
+          framerate: {30, 1},
+          add_dts_offset: add_dts_offset
+        },
+        output_stream_structure: :hvc1
+      })
+      |> child(:muxer, %Membrane.MP4.Muxer.ISOM{chunk_duration: Time.seconds(1)})
+      |> child(:sink, %Membrane.File.Sink{location: out_path_for(filename)})
+
+    pid = Pipeline.start_link_supervised!(spec: structure)
+
+    assert_end_of_stream(pid, :sink, :input)
+    refute_sink_buffer(pid, :sink, _buffer, 0)
+    assert :ok == Pipeline.terminate(pid)
+
+    assert {parsed_out, <<>>} = out_path_for(filename) |> File.read!() |> Container.parse!()
+    Container.get_box(parsed_out, [:moov, :trak, :mdia, :minf, :stbl, :ctts])
   end
 end
