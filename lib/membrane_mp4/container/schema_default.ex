@@ -282,7 +282,10 @@ defmodule Membrane.MP4.Container.Schema.Default do
                                   {:list,
                                    [
                                      sample_count: :uint32,
-                                     sample_composition_offset: :uint32
+                                     sample_composition_offset:
+                                       {:uint32, when: {:version, value: 0}},
+                                     sample_composition_offset:
+                                       {:int32, when: {:version, value: 1}}
                                    ]}
                               ]
                         ],

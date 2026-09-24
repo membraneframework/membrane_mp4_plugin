@@ -26,6 +26,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.TransmuxingTest do
              in_mp4[:moov].children[:trak].children[:thkd]
 
     assert out_mp4[:mdat] == in_mp4[:mdat]
+
+    {in_mp4, out_mp4}
   end
 
   @tag :tmp_dir
@@ -54,6 +56,33 @@ defmodule Membrane.MP4.Demuxer.ISOM.TransmuxingTest do
       )
 
     perform_test(pipeline, in_path, out_path)
+  end
+
+  @tag :tmp_dir
+  test "single H265 track with B-frames", %{tmp_dir: dir} do
+    # Generated with:
+    # ffmpeg -f lavfi -i testsrc2=size=320x180:rate=30 -t 1 -an -c:v libx265
+    #   -preset ultrafast -pix_fmt yuv420p
+    #   -x265-params bframes=2:b-adapt=0:open-gop=0:keyint=30:min-keyint=30
+    #   -movflags +negative_cts_offsets ref_video_hevc_bframes.mp4
+    in_path = "test/fixtures/isom/ref_video_hevc_bframes.mp4"
+    out_path = Path.join(dir, "out")
+
+    pipeline =
+      start_testing_pipeline!(
+        input_file: in_path,
+        output_file: out_path
+      )
+
+    {in_mp4, out_mp4} = perform_test(pipeline, in_path, out_path)
+
+    input_ctts = Container.get_box(in_mp4, [:moov, :trak, :mdia, :minf, :stbl, :ctts])
+    output_ctts = Container.get_box(out_mp4, [:moov, :trak, :mdia, :minf, :stbl, :ctts])
+
+    assert input_ctts.fields.version == 1
+    assert Enum.any?(input_ctts.fields.entry_list, &(&1.sample_composition_offset < 0))
+    assert output_ctts.fields.version == 1
+    assert Enum.any?(output_ctts.fields.entry_list, &(&1.sample_composition_offset < 0))
   end
 
   defp start_testing_pipeline!(opts) do
