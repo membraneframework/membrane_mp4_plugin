@@ -183,19 +183,22 @@ defmodule Membrane.MP4.Muxer.ISOM do
     {[event: {:output, event}], state}
   end
 
-  defp handle_queue_item({Pad.ref(:input, pad_ref), {:buffer, buffer}}, state) do
+  defp handle_queue_item({Pad.ref(:input, pad_ref), {:buffer, %Buffer{} = buffer}}, state) do
     # In case DTS is not set, use PTS. This is the case for audio tracks or H264 originated
     # from an RTP stream. ISO base media file format specification uses DTS for calculating
     # decoding deltas, and so is the implementation of sample table in this plugin.
-    buffer = %{buffer | dts: Buffer.get_dts_or_pts(buffer)}
+    buffer = %Buffer{buffer | dts: Buffer.get_dts_or_pts(buffer)}
 
     # For AV1 tracks, strip temporal delimiter OBUs from the payload
     track = get_in(state, [:pad_to_track, pad_ref])
 
     buffer =
       case track.stream_format do
-        %Membrane.AV1{} -> %Buffer{buffer | payload: strip_av1_temporal_delimiter_obu(buffer.payload)}
-        _other -> buffer
+        %Membrane.AV1{} ->
+          %Buffer{buffer | payload: strip_av1_temporal_delimiter_obu(buffer.payload)}
+
+        _other ->
+          buffer
       end
 
     state
@@ -299,6 +302,8 @@ defmodule Membrane.MP4.Muxer.ISOM do
 
   # Strip temporal delimiter OBUs from AV1 payload
   # Temporal delimiter OBU: header=0x12 (type=2, has_size=1), size=0x00
-  defp strip_av1_temporal_delimiter_obu(<<0x12, 0x00, rest::binary>>), do: strip_av1_temporal_delimiter_obu(rest)
+  defp strip_av1_temporal_delimiter_obu(<<0x12, 0x00, rest::binary>>),
+    do: strip_av1_temporal_delimiter_obu(rest)
+
   defp strip_av1_temporal_delimiter_obu(payload), do: payload
 end

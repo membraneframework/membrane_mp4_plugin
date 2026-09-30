@@ -25,7 +25,7 @@ defmodule Membrane.MP4.Demuxer.MultiFileSource do
   @impl true
   def handle_demand(:output, demand_size, :bytes, ctx, state) do
     case state.binary do
-      <<first::binary-size(demand_size), rest::binary>> ->
+      <<first::binary-size(^demand_size), rest::binary>> ->
         {[buffer: {:output, %Membrane.Buffer{payload: first}}], %{state | binary: rest}}
 
       other ->
