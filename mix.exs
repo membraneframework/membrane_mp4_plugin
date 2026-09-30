@@ -45,6 +45,7 @@ defmodule Membrane.MP4.Plugin.MixProject do
       {:membrane_h264_format, "~> 0.6.1"},
       {:membrane_h265_format, "~> 0.2.0"},
       {:membrane_opus_format, "~> 0.3.0"},
+      {:membrane_av1_format, "~> 0.3.1"},
       {:membrane_file_plugin, "~> 0.17.0"},
       {:membrane_timestamp_queue, "~> 0.2.1"},
       {:bunch, "~> 1.5"},
@@ -53,6 +54,7 @@ defmodule Membrane.MP4.Plugin.MixProject do
       {:membrane_opus_plugin, "~> 0.19.0", only: :test},
       {:membrane_stream_plugin, "~> 0.4.0", only: :test},
       {:membrane_fake_plugin, "~> 0.11.0", only: :test},
+      {:membrane_ivf_plugin, "~> 0.9.2", only: :test},
       {:ex_doc, ">= 0.40.0", only: :dev, runtime: false},
       {:dialyxir, ">= 0.0.0", only: :dev, runtime: false},
       {:credo, ">= 0.0.0", only: :dev, runtime: false}

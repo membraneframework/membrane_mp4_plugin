@@ -17,5 +17,6 @@ defmodule Membrane.MP4.Helper do
   @spec key_frame?(Membrane.Buffer.metadata()) :: boolean()
   def key_frame?(%{h264: %{key_frame?: false}}), do: false
   def key_frame?(%{h265: %{key_frame?: false}}), do: false
+  def key_frame?(%{av1: %{key_frame?: false}}), do: false
   def key_frame?(_metadata), do: true
 end

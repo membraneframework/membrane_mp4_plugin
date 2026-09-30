@@ -50,7 +50,8 @@ defmodule Membrane.MP4.Demuxer.ISOM do
           stream_structure: {_hevc, _dcr},
           alignment: :au
         },
-        %Membrane.Opus{self_delimiting?: false}
+        %Membrane.Opus{self_delimiting?: false},
+        %Membrane.AV1{alignment: :tu}
       ),
     availability: :on_request,
     options: [
@@ -517,6 +518,7 @@ defmodule Membrane.MP4.Demuxer.ISOM do
 
   defp sample_description_to_kind(%Membrane.H264{}), do: :video
   defp sample_description_to_kind(%Membrane.H265{}), do: :video
+  defp sample_description_to_kind(%Membrane.AV1{}), do: :video
   defp sample_description_to_kind(%Membrane.AAC{}), do: :audio
   defp sample_description_to_kind(%Membrane.Opus{}), do: :audio
 

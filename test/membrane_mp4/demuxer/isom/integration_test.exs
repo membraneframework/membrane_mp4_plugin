@@ -39,6 +39,16 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
     test "non-fast-start H264 and AAC tracks", %{tmp_dir: dir} do
       perform_test([:H264, :AAC], false, dir)
     end
+
+    @tag :tmp_dir
+    test "a single fast start AV1 track", %{tmp_dir: dir} do
+      perform_test([:AV1], true, dir)
+    end
+
+    @tag :tmp_dir
+    test "a single non-fast-start AV1 track", %{tmp_dir: dir} do
+      perform_test([:AV1], false, dir)
+    end
   end
 
   test "the PTS and DTS are properly read" do
@@ -184,6 +194,52 @@ defmodule Membrane.MP4.Demuxer.ISOM.IntegrationTest do
 
     assert_files_equal(out_video_path, in_video_path)
     assert_files_equal(out_audio_path, in_audio_path)
+  end
+
+  defp perform_test([:AV1], fast_start, dir) do
+    in_path = "test/fixtures/in_video.ivf"
+    mp4_path = Path.join(dir, "out.mp4")
+
+    muxing_spec = [
+      child(:file, %Membrane.File.Source{location: in_path})
+      |> child(:deserializer, Membrane.IVF.Deserializer)
+      |> child(:muxer, %Membrane.MP4.Muxer.ISOM{
+        chunk_duration: Membrane.Time.seconds(1),
+        fast_start: fast_start
+      })
+      |> child(:sink, %Membrane.File.Sink{location: mp4_path})
+    ]
+
+    Pipeline.start_link_supervised!(spec: muxing_spec) |> wait_for_pipeline_termination()
+
+    ref_spec = [
+      child(:file, %Membrane.File.Source{location: in_path})
+      |> child(:deserializer, Membrane.IVF.Deserializer)
+      |> child(:sink, Membrane.Testing.Sink)
+    ]
+
+    Pipeline.start_link_supervised!(spec: ref_spec) |> wait_for_pipeline_termination()
+    ref_payloads = flush_buffers() |> Enum.map(& &1.payload)
+
+    demuxing_spec = [
+      child(:file, %Membrane.File.Source{location: mp4_path})
+      |> child(:demuxer, Membrane.MP4.Demuxer.ISOM)
+      |> via_out(Pad.ref(:output, 1))
+      |> child(:sink, Membrane.Testing.Sink)
+    ]
+
+    pipeline = Pipeline.start_link_supervised!(spec: demuxing_spec)
+
+    assert_sink_stream_format(pipeline, :sink, %Membrane.AV1{
+      alignment: :tu,
+      width: 1080,
+      height: 720
+    })
+
+    wait_for_pipeline_termination(pipeline)
+    demuxed_payloads = flush_buffers() |> Enum.map(& &1.payload)
+
+    assert demuxed_payloads == ref_payloads
   end
 
   defp flush_buffers(acc \\ []) do

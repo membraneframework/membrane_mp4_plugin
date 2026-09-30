@@ -8,7 +8,7 @@ defmodule Membrane.MP4.Track do
   """
   require Membrane.{H264, H265}
   alias __MODULE__.SampleTable
-  alias Membrane.{AAC, H264, H265}
+  alias Membrane.{AAC, AV1, H264, H265}
   alias Membrane.MP4.Helper
 
   @type t :: %__MODULE__{
@@ -90,6 +90,8 @@ defmodule Membrane.MP4.Track do
           | {:avc1, %{profile: binary(), compatibility: binary(), level: binary()}}
           | {:hvc1,
              %{profile: non_neg_integer(), tier: non_neg_integer(), level: non_neg_integer()}}
+          | {:av01,
+             %{profile: non_neg_integer(), level: non_neg_integer(), tier: non_neg_integer()}}
           | nil
 
   def get_encoding_info(%__MODULE__{
@@ -139,6 +141,16 @@ defmodule Membrane.MP4.Track do
     {hevc, map}
   end
 
+  def get_encoding_info(%__MODULE__{stream_format: %AV1{} = format}) do
+    map = %{
+      profile: AV1.profile_to_seq_profile(format.profile || :main),
+      level: AV1.level_to_seq_level_idx(format.level || :"4.0"),
+      tier: AV1.tier_to_seq_tier(format.tier || :main)
+    }
+
+    {:av01, map}
+  end
+
   def get_encoding_info(_unknown), do: nil
 
   defp get_timescale(stream_format) do
@@ -149,13 +161,13 @@ defmodule Membrane.MP4.Track do
       %Membrane.AAC{sample_rate: sample_rate} ->
         sample_rate
 
-      %module{framerate: nil} when module in [H264, H265] ->
+      %module{framerate: nil} when module in [AV1, H264, H265] ->
         30 * 1024
 
-      %module{framerate: {0, _denominator}} when module in [H264, H265] ->
+      %module{framerate: {0, _denominator}} when module in [AV1, H264, H265] ->
         30 * 1024
 
-      %module{framerate: {nominator, _denominator}} when module in [H264, H265] ->
+      %module{framerate: {nominator, _denominator}} when module in [AV1, H264, H265] ->
         nominator * 1024
     end
   end

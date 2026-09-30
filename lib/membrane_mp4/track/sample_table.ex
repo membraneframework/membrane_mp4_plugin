@@ -177,6 +177,11 @@ defmodule Membrane.MP4.Track.SampleTable do
     Map.update!(sample_table, :sync_samples, &[sample_table.sample_count | &1])
   end
 
+  defp maybe_store_sync_sample(sample_table, %Buffer{metadata: %{av1: av1}})
+       when av1.key_frame? do
+    Map.update!(sample_table, :sync_samples, &[sample_table.sample_count | &1])
+  end
+
   defp maybe_store_sync_sample(sample_table, _buffer), do: sample_table
 
   defp store_last_dts(sample_table, %Buffer{dts: dts}),
