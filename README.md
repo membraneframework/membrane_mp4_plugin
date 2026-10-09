@@ -1,8 +1,9 @@
 # MPEG-4 container plugin for Membrane Framework
 
+[![Star Membrane on GitHub ★](https://img.shields.io/github/stars/membraneframework/membrane_core?style=flat&logo=github&label=Star%20Membrane%20on%20GitHub%20%E2%98%85&color=blue)](https://github.com/membraneframework/membrane_core)
 [![Hex.pm](https://img.shields.io/hexpm/v/membrane_mp4_plugin.svg)](https://hex.pm/packages/membrane_mp4_plugin)
 [![API Docs](https://img.shields.io/badge/api-docs-yellow.svg?style=flat)](https://hexdocs.pm/membrane_mp4_plugin/)
-[![CircleCI](https://circleci.com/gh/membraneframework/membrane_mp4_plugin.svg?style=svg)](https://circleci.com/gh/membraneframework/membrane_mp4_plugin)
+[![CI](https://github.com/membraneframework/membrane_mp4_plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/membraneframework/membrane_mp4_plugin/actions/workflows/ci.yml)
 
 This plugin provides utilities for MP4 container parsing and serialization along with elements for muxing the stream to MP4 or [CMAF](https://www.wowza.com/blog/what-is-cmaf).
 
