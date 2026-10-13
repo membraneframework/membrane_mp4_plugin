@@ -301,9 +301,10 @@ defmodule Membrane.MP4.Muxer.CMAF.TrackSamplesQueue do
   end
 
   def collectable_end_timestamp(%__MODULE__{collectable?: true, target_samples: target_samples}) do
-    sample = List.last(target_samples)
-
-    sample.dts + sample.metadata.duration
+    case List.last(target_samples) do
+      nil -> -1
+      sample -> sample.dts + sample.metadata.duration
+    end
   end
 
   @doc """
