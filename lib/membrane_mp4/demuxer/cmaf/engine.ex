@@ -164,8 +164,11 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
 
   defp handle_box(box_name, box, %{fsm_state: :reading_fragment_data} = engine) do
     case box_name do
+      # a trun's data_offset counts from the start of the moof, so every byte consumed after
+      # it has to be counted too, whether or not it is read here
       box_type when box_type in @ignored_boxes ->
-        {[], engine}
+        {[],
+         Map.update!(engine, :how_many_segment_bytes_read, &(&1 + box.size + box.header_size))}
 
       :mdat ->
         engine =
@@ -191,11 +194,14 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
   end
 
   defp read_mdat(mdat_box, engine) do
-    {this_mdat_samples, rest_of_samples_info} =
-      Enum.split_while(
-        engine.samples_info,
-        &(&1.offset - engine.how_many_segment_bytes_read < byte_size(mdat_box.content))
-      )
+    mdat_start = engine.how_many_segment_bytes_read
+    mdat_end = mdat_start + byte_size(mdat_box.content)
+
+    {this_mdat_runs, rest_of_samples_info} =
+      Enum.split_while(engine.samples_info, &(&1.offset < mdat_end))
+
+    {this_mdat_samples, _cursor} =
+      Enum.flat_map_reduce(this_mdat_runs, mdat_start, &expand_run(&1, &2, mdat_end))
 
     emsg_metadata =
       resolve_emsg_metadata(engine.pending_emsg, this_mdat_samples, engine.last_timescales)
@@ -207,7 +213,7 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
         payload =
           mdat_box.content
           |> :erlang.binary_part(
-            sample.offset - engine.how_many_segment_bytes_read,
+            sample.offset - mdat_start,
             sample.size
           )
 
@@ -231,6 +237,25 @@ defmodule Membrane.MP4.Demuxer.CMAF.Engine do
       end)
 
     {samples, %{engine | samples_info: rest_of_samples_info}}
+  end
+
+  defp expand_run(%{count: count} = run, cursor, mdat_end)
+       when run.offset < cursor or run.offset + count * run.size > mdat_end do
+    raise """
+    Malformed fragment: trun declares #{count} samples of #{run.size} B at offset \
+    #{run.offset}, outside the available mdat content (#{cursor}..#{mdat_end})
+    """
+  end
+
+  defp expand_run(%{count: count} = run, _cursor, _mdat_end) do
+    sample = Map.delete(run, :count)
+
+    samples =
+      Enum.map(0..(count - 1)//1, fn n ->
+        %{sample | offset: sample.offset + n * sample.size, ts: sample.ts + n * sample.duration}
+      end)
+
+    {samples, run.offset + count * run.size}
   end
 
   defp reject_unsupported_tracks_info(tracks_info) do

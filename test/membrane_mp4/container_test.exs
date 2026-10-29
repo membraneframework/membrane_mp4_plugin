@@ -11,6 +11,21 @@ defmodule Membrane.MP4.ContainerTest do
     assert boxes |> Container.serialize!() == data
   end
 
+  defp gated_off_moof(sample_count) do
+    trun = <<20::32, "trun", 0::8, 0x1::24, sample_count::32, 0::signed-32>>
+    traf = <<8 + byte_size(trun)::32, "traf", trun::binary>>
+    <<8 + byte_size(traf)::32, "moof", traf::binary>>
+  end
+
+  defp sized_list_schema(entry) do
+    [
+      test: [
+        version: 0,
+        fields: [count: {:uint32, store: :count}, table: {:list, entry, length: :count}]
+      ]
+    ]
+  end
+
   defp test_partial(file, boxes_expected) do
     data = @isom_fixtures |> Path.join(file) |> File.read!()
     data_size = byte_size(data) - 1
@@ -118,5 +133,35 @@ defmodule Membrane.MP4.ContainerTest do
     mp4 = Container.update_box(mp4, :ftyp, [:fields, :major_brand], fn _brand -> 123 end)
     assert Container.serialize(mp4) == {:error, box: :ftyp, field: :major_brand}
     assert_raise RuntimeError, ~r/Error serializing MP4/, fn -> Container.serialize!(mp4) end
+  end
+
+  test "trun with no per-sample fields parses to no samples and round-trips" do
+    data = gated_off_moof(5)
+    {boxes, <<>>} = Container.parse!(data)
+    [{:moof, moof}] = boxes
+    fields = moof.children[:traf].children[:trun].fields
+
+    assert fields.samples == []
+    assert fields.sample_count == 5
+    assert Container.serialize!(boxes) == data
+  end
+
+  test "a malformed entry in a sized list is an error, not a raise" do
+    schema = Container.Schema.parse(sized_list_schema([{:reserved, <<0>>}, v: :uint8]))
+    body = <<2::32, 0, 1, 0xFF, 2>>
+    data = <<8 + byte_size(body)::32, "test", body::binary>>
+
+    assert Container.parse(data, schema) ==
+             {:error, box: :test, field: :table, field: :reserved, expected: <<0>>}
+  end
+
+  test "sized list whose entries could differ in width is rejected by the schema" do
+    assert_raise RuntimeError, ~r/must not store/, fn ->
+      {:uint32, store: :whatever} |> sized_list_schema() |> Container.Schema.parse()
+    end
+
+    assert_raise RuntimeError, ~r/is not of a fixed width/, fn ->
+      :bin |> sized_list_schema() |> Container.Schema.parse()
+    end
   end
 end

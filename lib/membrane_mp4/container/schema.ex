@@ -202,6 +202,32 @@ defmodule Membrane.MP4.Container.Schema do
 
   defp parse_field({name, {:list, type, length: length}}) when is_atom(length) do
     {name, type} = parse_field({name, type})
+    validate_entry!(name, type)
     {name, {:list, type, length: length}}
+  end
+
+  defp validate_entry!(name, fields) when is_list(fields) do
+    Enum.each(fields, fn
+      {:reserved, _reserved} -> :ok
+      {_field, type} -> validate_entry!(name, type)
+    end)
+  end
+
+  defp validate_entry!(name, {type, opts}) when is_list(opts) do
+    if Keyword.has_key?(opts, :store) do
+      raise "MP4 schema: sized list #{inspect(name)} must not store, it would let entries differ in width"
+    end
+
+    validate_entry!(name, type)
+  end
+
+  defp validate_entry!(_name, {type, size})
+       when type in [:int, :uint, :bin, :str] and is_integer(size),
+       do: :ok
+
+  defp validate_entry!(_name, {:fp, _int_size, _frac_size}), do: :ok
+
+  defp validate_entry!(name, type) do
+    raise "MP4 schema: sized list #{inspect(name)} entry #{inspect(type)} is not of a fixed width"
   end
 end
