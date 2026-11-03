@@ -43,14 +43,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   # Samples are expanded one chunk at a time from the compact sample tables, so the memory
   # footprint does not grow with the number of samples in the file.
   @typedoc false
-  @type track :: %{
-          track_id: pos_integer(),
-          track_data: map(),
-          chunk_offsets: [non_neg_integer()],
-          next_chunk_no: pos_integer(),
-          samples: [map()],
-          next_dts: non_neg_integer()
-        }
+  @type track :: %{samples: Enumerable.t(), next_dts: non_neg_integer()}
 
   @enforce_keys [:provide_data_cb]
   defstruct @enforce_keys ++
@@ -140,24 +133,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
 
   defp skip_samples(track, _timestamp), do: track
 
-  defp next_sample(%{samples: [sample | samples]} = track),
-    do: {sample, %{track | samples: samples}}
-
-  defp next_sample(%{samples: [], chunk_offsets: []}), do: :end_of_stream
-
-  defp next_sample(%{samples: [], chunk_offsets: [chunk_offset | chunk_offsets]} = track) do
-    chunk = %{chunk_no: track.next_chunk_no, track_id: track.track_id, chunk_offset: chunk_offset}
-
-    {samples, {track_data, _next_sample_offset}} =
-      SamplesInfo.get_chunk_samples(chunk, track.track_data)
-
-    next_sample(%{
-      track
-      | samples: samples,
-        chunk_offsets: chunk_offsets,
-        next_chunk_no: track.next_chunk_no + 1,
-        track_data: track_data
-    })
+  defp next_sample(track) do
+    case StreamSplit.take_and_drop(track.samples, 1) do
+      {[sample], samples} -> {sample, %{track | samples: samples}}
+      {[], _samples} -> :end_of_stream
+    end
   end
 
   defp find_box(state, box_name) do
@@ -208,23 +188,25 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   defp initialize_tracks(state) do
     tracks =
       Map.new(state.samples_info.sample_tables, fn {track_id, table} ->
-        {track_id,
-         %{
-           track_id: track_id,
-           track_data:
-             Map.take(table, [
-               :decoding_deltas,
-               :sample_sizes,
-               :samples_per_chunk,
-               :composition_offsets
-             ]),
-           chunk_offsets: table.chunk_offsets,
-           next_chunk_no: 1,
-           samples: [],
-           next_dts: 0
-         }}
+        {track_id, %{samples: samples_stream(track_id, table), next_dts: 0}}
       end)
 
     %{state | tracks: tracks}
+  end
+
+  defp samples_stream(track_id, table) do
+    track_data =
+      Map.take(table, [:decoding_deltas, :sample_sizes, :samples_per_chunk, :composition_offsets])
+
+    table.chunk_offsets
+    |> Stream.with_index(1)
+    |> Stream.transform(track_data, fn {chunk_offset, chunk_no}, track_data ->
+      chunk = %{chunk_no: chunk_no, track_id: track_id, chunk_offset: chunk_offset}
+
+      {samples, {track_data, _next_sample_offset}} =
+        SamplesInfo.get_chunk_samples(chunk, track_data)
+
+      {samples, track_data}
+    end)
   end
 end
