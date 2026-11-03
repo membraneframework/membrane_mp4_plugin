@@ -32,18 +32,25 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
                  content_size :: pos_integer()}
             },
             boxes: Container.t(),
-            tracks: %{
-              samples: [
-                %{
-                  size: pos_integer(),
-                  sample_delta: pos_integer(),
-                  track_id: pos_integer()
-                }
-              ]
+            tracks: %{(track_id :: pos_integer()) => track()},
+            samples_info: %{
+              sample_tables: %{(track_id :: pos_integer()) => SampleTable.t()},
+              timescales: %{(track_id :: pos_integer()) => pos_integer()}
             },
-            samples_info: SamplesInfo.t(),
             provider_state: any()
           }
+
+  # Samples are expanded one chunk at a time from the compact sample tables, so the memory
+  # footprint does not grow with the number of samples in the file.
+  @typedoc false
+  @type track :: %{
+          track_id: pos_integer(),
+          track_data: map(),
+          chunk_offsets: [non_neg_integer()],
+          next_chunk_no: pos_integer(),
+          samples: [map()],
+          next_dts: non_neg_integer()
+        }
 
   @enforce_keys [:provide_data_cb]
   defstruct @enforce_keys ++
@@ -85,26 +92,27 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   """
   @spec read_sample(t(), track_id :: pos_integer()) :: {:ok, Sample.t(), t()} | :end_of_stream
   def read_sample(state, track_id) do
-    next_dts = state.tracks[track_id].next_dts
-
-    case state.tracks[track_id].samples do
-      [] ->
+    case next_sample(state.tracks[track_id]) do
+      :end_of_stream ->
         :end_of_stream
 
-      [sample | rest] ->
+      {sample, track} ->
         {data, provider_state} =
           state.provide_data_cb.(sample.sample_offset, sample.size, state.provider_state)
 
-        state = put_in(state.provider_state, provider_state)
-
-        dts = next_dts
+        timescale = state.samples_info.timescales[track_id]
+        dts = track.next_dts
         pts = dts + sample.sample_composition_offset
+        pts_ms = (pts / timescale * 1000) |> round()
+        dts_ms = (dts / timescale * 1000) |> round()
 
-        state = put_in(state.tracks[track_id].next_dts, dts + sample.sample_delta)
-        pts_ms = (pts / state.samples_info.timescales[track_id] * 1000) |> round()
-        dts_ms = (dts / state.samples_info.timescales[track_id] * 1000) |> round()
+        state = %{
+          state
+          | provider_state: provider_state,
+            tracks:
+              Map.put(state.tracks, track_id, %{track | next_dts: dts + sample.sample_delta})
+        }
 
-        state = put_in(state.tracks[track_id].samples, rest)
         {:ok, %Sample{payload: data, pts: pts_ms, dts: dts_ms, track_id: track_id}, state}
     end
   end
@@ -116,25 +124,40 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   @spec seek_in_samples(t(), track_id :: pos_integer(), timestamp_ms :: non_neg_integer()) :: t()
   def seek_in_samples(state, track_id, timestamp_ms) do
     timestamp_in_native_unit = timestamp_ms / 1000 * state.samples_info.timescales[track_id]
+    track = skip_samples(state.tracks[track_id], timestamp_in_native_unit)
+    put_in(state.tracks[track_id], track)
+  end
 
-    {to_drop, samples} =
-      state.tracks[track_id].samples
-      |> Enum.map_reduce(0, &{{&1, &2}, &1.sample_delta + &2})
-      |> elem(0)
-      |> Enum.split_while(fn {_sample, cumulative_duration} ->
-        cumulative_duration < timestamp_in_native_unit
-      end)
+  defp skip_samples(%{next_dts: next_dts} = track, timestamp) when next_dts < timestamp do
+    case next_sample(track) do
+      {sample, track} ->
+        skip_samples(%{track | next_dts: next_dts + sample.sample_delta}, timestamp)
 
-    new_next_dts =
-      case List.last(to_drop) do
-        {_sample, cumulative_duration} -> cumulative_duration
-        nil -> 0
-      end
+      :end_of_stream ->
+        track
+    end
+  end
 
-    samples = Enum.map(samples, &elem(&1, 0))
+  defp skip_samples(track, _timestamp), do: track
 
-    state = put_in(state.tracks[track_id].samples, samples)
-    put_in(state.tracks[track_id].next_dts, new_next_dts)
+  defp next_sample(%{samples: [sample | samples]} = track),
+    do: {sample, %{track | samples: samples}}
+
+  defp next_sample(%{samples: [], chunk_offsets: []}), do: :end_of_stream
+
+  defp next_sample(%{samples: [], chunk_offsets: [chunk_offset | chunk_offsets]} = track) do
+    chunk = %{chunk_no: track.next_chunk_no, track_id: track.track_id, chunk_offset: chunk_offset}
+
+    {samples, {track_data, _next_sample_offset}} =
+      SamplesInfo.get_chunk_samples(chunk, track.track_data)
+
+    next_sample(%{
+      track
+      | samples: samples,
+        chunk_offsets: chunk_offsets,
+        next_chunk_no: track.next_chunk_no + 1,
+        track_data: track_data
+    })
   end
 
   defp find_box(state, box_name) do
@@ -177,28 +200,30 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   end
 
   defp resolve_samples(state) do
-    {mdat_start, mdat_header_size, _mdat_content_size} = Map.get(state.box_positions, :mdat)
-
-    samples_info =
-      SamplesInfo.get_samples_info(
-        state.boxes[:moov],
-        mdat_start + mdat_header_size
-      )
-
-    %{state | samples_info: samples_info}
+    sample_tables = SamplesInfo.get_sample_tables(state.boxes[:moov])
+    timescales = Map.new(sample_tables, fn {track_id, table} -> {track_id, table.timescale} end)
+    %{state | samples_info: %{sample_tables: sample_tables, timescales: timescales}}
   end
 
   defp initialize_tracks(state) do
     tracks =
-      Map.keys(state.samples_info.sample_tables)
-      |> Enum.map(fn id ->
-        # let's keep the list of samples corresponding to given track_id 
-        # in the `:tracks` field so that we don't need to filter it out
-        # every time we work with samples
-        samples = Enum.filter(state.samples_info.samples, &(&1.track_id == id))
-        {id, %{samples: samples, next_dts: 0}}
+      Map.new(state.samples_info.sample_tables, fn {track_id, table} ->
+        {track_id,
+         %{
+           track_id: track_id,
+           track_data:
+             Map.take(table, [
+               :decoding_deltas,
+               :sample_sizes,
+               :samples_per_chunk,
+               :composition_offsets
+             ]),
+           chunk_offsets: table.chunk_offsets,
+           next_chunk_no: 1,
+           samples: [],
+           next_dts: 0
+         }}
       end)
-      |> Enum.into(%{})
 
     %{state | tracks: tracks}
   end

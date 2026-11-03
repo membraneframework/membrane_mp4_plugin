@@ -142,7 +142,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
   The list of samples in the returned struct is used to extract data from the `mdat` box and get output buffers.
   """
   @spec get_samples_info(%{children: boxes :: Container.t()}, non_neg_integer()) :: t
-  def get_samples_info(%{children: boxes}, mdat_beginning) do
+  def get_samples_info(%{children: boxes} = moov, mdat_beginning) do
     tracks =
       boxes
       |> Enum.filter(fn {type, _content} -> type == :trak end)
@@ -150,14 +150,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
         {boxes[:tkhd].fields.track_id, boxes}
       end)
 
-    sample_tables =
-      Map.new(tracks, fn {track_id, boxes} ->
-        {track_id,
-         SampleTableBox.unpack(
-           boxes[:mdia].children[:minf].children[:stbl],
-           boxes[:mdia].children[:mdhd].fields.timescale
-         )}
-      end)
+    sample_tables = get_sample_tables(moov)
 
     # Create a list of chunks in the order in which they are stored in the `mdat` box
     chunk_offsets =
@@ -214,7 +207,27 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
     }
   end
 
-  defp get_chunk_samples(chunk, track_data) do
+  @doc false
+  @spec get_sample_tables(%{children: boxes :: Container.t()}) ::
+          %{(track_id :: pos_integer()) => SampleTable.t()}
+  def get_sample_tables(%{children: boxes}) do
+    boxes
+    |> Enum.filter(fn {type, _content} -> type == :trak end)
+    |> Map.new(fn {:trak, %{children: boxes}} ->
+      {boxes[:tkhd].fields.track_id,
+       SampleTableBox.unpack(
+         boxes[:mdia].children[:minf].children[:stbl],
+         boxes[:mdia].children[:mdhd].fields.timescale
+       )}
+    end)
+  end
+
+  @doc false
+  @spec get_chunk_samples(
+          %{chunk_no: pos_integer(), track_id: pos_integer(), chunk_offset: non_neg_integer()},
+          track_data :: map()
+        ) :: {[map()], {track_data :: map(), next_sample_offset :: non_neg_integer()}}
+  def get_chunk_samples(chunk, track_data) do
     %{chunk_no: chunk_no, track_id: track_id, chunk_offset: chunk_offset} = chunk
 
     {track_data, samples_no} = get_samples_no(chunk_no, track_data)
