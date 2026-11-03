@@ -40,7 +40,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
             provider_state: any()
           }
 
-  # Samples are expanded one chunk at a time from the compact sample tables, so the memory
+  # Samples are decoded on demand from the packed sample tables, so the memory
   # footprint does not grow with the number of samples in the file.
   @typedoc false
   @type track :: %{samples: Enumerable.t(), next_dts: non_neg_integer()}
@@ -188,25 +188,60 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   defp initialize_tracks(state) do
     tracks =
       Map.new(state.samples_info.sample_tables, fn {track_id, table} ->
-        {track_id, %{samples: samples_stream(track_id, table), next_dts: 0}}
+        {track_id, %{samples: samples_stream(table), next_dts: 0}}
       end)
 
     %{state | tracks: tracks}
   end
 
-  defp samples_stream(track_id, table) do
-    track_data =
-      Map.take(table, [:decoding_deltas, :sample_sizes, :samples_per_chunk, :composition_offsets])
+  defp samples_stream(table) do
+    chunks =
+      Stream.zip(table.chunk_offsets, chunk_sizes(table.samples_per_chunk))
+      |> Stream.reject(fn {_offset, size} -> size == 0 end)
 
-    table.chunk_offsets
-    |> Stream.with_index(1)
-    |> Stream.transform(track_data, fn {chunk_offset, chunk_no}, track_data ->
-      chunk = %{chunk_no: chunk_no, track_id: track_id, chunk_offset: chunk_offset}
+    [table.sample_sizes, runs(table.decoding_deltas), runs(table.composition_offsets)]
+    |> Stream.zip()
+    |> Stream.transform({chunks, 0, 0}, fn {size, delta, offset}, {chunks, left, position} ->
+      {chunks, left, position} =
+        if left == 0 do
+          {[{chunk_offset, chunk_size}], chunks} = StreamSplit.take_and_drop(chunks, 1)
+          {chunks, chunk_size, chunk_offset}
+        else
+          {chunks, left, position}
+        end
 
-      {samples, {track_data, _next_sample_offset}} =
-        SamplesInfo.get_chunk_samples(chunk, track_data)
+      sample = %{
+        size: size,
+        sample_delta: delta,
+        sample_composition_offset: offset,
+        sample_offset: position
+      }
 
-      {samples, track_data}
+      {[sample], {chunks, left - 1, position + size}}
+    end)
+  end
+
+  # stts and ctts entries are run-length encoded: `sample_count` samples share one value
+  defp runs(entries) do
+    Stream.flat_map(entries, fn %{sample_count: count} = entry ->
+      value = Map.get(entry, :sample_delta) || Map.get(entry, :sample_composition_offset)
+      Stream.repeatedly(fn -> value end) |> Stream.take(count)
+    end)
+  end
+
+  # stsc entries describe runs of chunks: an entry applies from its `first_chunk` up to the
+  # chunk preceding the next entry's `first_chunk`, the last entry applies to the end
+  defp chunk_sizes(entries) do
+    entries
+    |> Stream.concat([nil])
+    |> Stream.chunk_every(2, 1, :discard)
+    |> Stream.flat_map(fn
+      [entry, nil] ->
+        Stream.repeatedly(fn -> entry.samples_per_chunk end)
+
+      [entry, next] ->
+        Stream.repeatedly(fn -> entry.samples_per_chunk end)
+        |> Stream.take(next.first_chunk - entry.first_chunk)
     end)
   end
 end

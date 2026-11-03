@@ -28,8 +28,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.EngineTest do
 
     for {track_id, table} <- Engine.get_tracks_info(engine) do
       samples = read_all(engine, track_id)
-      assert length(samples) == length(table.sample_sizes)
-      assert Enum.map(samples, &byte_size(&1.payload)) == table.sample_sizes
+      assert length(samples) == Enum.count(table.sample_sizes)
+      assert Enum.map(samples, &byte_size(&1.payload)) == Enum.to_list(table.sample_sizes)
       dts = Enum.map(samples, & &1.dts)
       assert dts == Enum.sort(dts)
       assert Enum.all?(samples, &(&1.pts >= &1.dts))

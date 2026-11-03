@@ -206,6 +206,25 @@ defmodule Membrane.MP4.Container.Schema do
     {name, {:list, type, length: length}}
   end
 
+  @doc false
+  @spec fixed_width_entry?(term()) :: boolean()
+  def fixed_width_entry?(fields) when is_list(fields) do
+    Enum.all?(fields, fn
+      {:reserved, _reserved} -> true
+      {_field, type} -> fixed_width_entry?(type)
+    end)
+  end
+
+  def fixed_width_entry?({type, opts}) when is_list(opts),
+    do: not Keyword.has_key?(opts, :store) and fixed_width_entry?(type)
+
+  def fixed_width_entry?({type, size})
+      when type in [:int, :uint, :bin, :str] and is_integer(size),
+      do: true
+
+  def fixed_width_entry?({:fp, _int_size, _frac_size}), do: true
+  def fixed_width_entry?(_type), do: false
+
   defp validate_entry!(name, fields) when is_list(fields) do
     Enum.each(fields, fn
       {:reserved, _reserved} -> :ok

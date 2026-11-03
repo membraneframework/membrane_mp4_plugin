@@ -5,7 +5,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
   import Bitwise
 
   alias Membrane.MP4.Container
-  alias Membrane.MP4.Container.{Header, Schema}
+  alias Membrane.MP4.Container.{Header, PackedList, Schema}
 
   @type context_t() :: %{atom() => integer()}
 
@@ -189,9 +189,13 @@ defmodule Membrane.MP4.Container.ParseHelper do
   end
 
   defp parse_field(data, {name, {:list, type}} = field, context) do
-    with {:ok, {term, rest}, context} <- parse_field(data, {name, type}, context),
-         {:ok, {terms, rest}, context} <- parse_field(rest, field, context) do
-      {:ok, {[term | terms], rest}, context}
+    if Schema.fixed_width_entry?(type) do
+      parse_packed_list(data, name, type, entry_bit_width(type, context), context)
+    else
+      with {:ok, {term, rest}, context} <- parse_field(data, {name, type}, context),
+           {:ok, {terms, rest}, context} <- parse_field(rest, field, context) do
+        {:ok, {[term | terms], rest}, context}
+      end
     end
   end
 
@@ -201,6 +205,25 @@ defmodule Membrane.MP4.Container.ParseHelper do
   end
 
   defp parse_field(data, {name, _type}, _context), do: parse_field_error(data, name)
+
+  @doc false
+  @spec parse_entry(bitstring(), term(), context_t()) ::
+          {:ok, {term(), bitstring()}, context_t()} | {:error, term()}
+  def parse_entry(data, type, context), do: parse_field(data, {:entry, type}, context)
+
+  defp parse_packed_list(data, name, type, width, context) do
+    case rem(bit_size(data), width) do
+      0 ->
+        {:ok, {%PackedList{data: data, type: type, width: width, context: context}, <<>>},
+         context}
+
+      leftover ->
+        parse_field_error(
+          binary_part(data, byte_size(data) - div(leftover, 8), div(leftover, 8)),
+          name
+        )
+    end
+  end
 
   # a 0-bit-wide entry has no bytes behind it, so the declared count must not allocate
   defp parse_sized_list(data, _name, _type, 0, _count, context), do: {:ok, {[], data}, context}

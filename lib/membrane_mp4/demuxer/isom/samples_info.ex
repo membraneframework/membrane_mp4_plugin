@@ -171,13 +171,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
     tracks_data =
       Map.new(sample_tables, fn {track_id, sample_table} ->
         {track_id,
-         Map.take(sample_table, [
-           :decoding_deltas,
-           :sample_sizes,
-           :samples_per_chunk,
-           :composition_offsets,
-           :chunk_offset
-         ])}
+         sample_table
+         |> Map.take([:decoding_deltas, :sample_sizes, :samples_per_chunk, :composition_offsets])
+         |> Map.new(fn {key, entries} -> {key, Enum.to_list(entries)} end)}
       end)
 
     # Create a samples' description list for each chunk and flatten it
@@ -222,12 +218,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
     end)
   end
 
-  @doc false
-  @spec get_chunk_samples(
-          %{chunk_no: pos_integer(), track_id: pos_integer(), chunk_offset: non_neg_integer()},
-          track_data :: map()
-        ) :: {[map()], {track_data :: map(), next_sample_offset :: non_neg_integer()}}
-  def get_chunk_samples(chunk, track_data) do
+  defp get_chunk_samples(chunk, track_data) do
     %{chunk_no: chunk_no, track_id: track_id, chunk_offset: chunk_offset} = chunk
 
     {track_data, samples_no} = get_samples_no(chunk_no, track_data)
