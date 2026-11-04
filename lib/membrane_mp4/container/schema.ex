@@ -206,7 +206,7 @@ defmodule Membrane.MP4.Container.Schema do
     {name, {:list, type, length: length}}
   end
 
-  @doc false
+  @doc "Tells whether every list entry of this type takes the same number of bits when serialized."
   @spec fixed_width_entry?(term()) :: boolean()
   def fixed_width_entry?(fields) when is_list(fields) do
     Enum.all?(fields, fn

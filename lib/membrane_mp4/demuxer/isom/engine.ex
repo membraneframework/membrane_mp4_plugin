@@ -20,6 +20,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   @type provide_data_cb :: (start :: non_neg_integer(), size :: pos_integer(), state :: any() ->
                               {data :: binary(), state :: any()})
 
+  @typedoc "Track identifier, as found in the `tkhd` box."
   @type track_id :: pos_integer()
 
   @typedoc """
@@ -38,7 +39,10 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
             provider_state: any()
           }
 
-  @typedoc false
+  @typedoc """
+  Per-track reading state: the unpacked sample table, a lazy stream of samples
+  still to be read and the decoding timestamp of the next one.
+  """
   @type track :: %{
           sample_table: SampleTable.t(),
           samples: Enumerable.t(),

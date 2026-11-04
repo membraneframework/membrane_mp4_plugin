@@ -203,7 +203,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
 
   defp parse_field(data, {name, _type}, _context), do: parse_field_error(data, name)
 
-  @doc false
+  @doc "Parses a single list entry of the given schema type, used by `PackedList` on enumeration."
   @spec parse_entry(bitstring(), term(), context_t()) ::
           {:ok, {term(), bitstring()}, context_t()} | {:error, term()}
   def parse_entry(data, type, context), do: parse_field(data, {:entry, type}, context)
