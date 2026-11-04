@@ -114,6 +114,19 @@ defmodule Membrane.MP4.ContainerTest do
     assert Container.serialize!(boxes) == box_data
   end
 
+  test "fixed-width lists are kept packed and decode on enumeration" do
+    {boxes, <<>>} =
+      @isom_fixtures |> Path.join("ref_two_tracks.mp4") |> File.read!() |> Container.parse!()
+
+    stsz = Container.get_box(boxes, [:moov, :trak, :mdia, :minf, :stbl, :stsz])
+
+    assert %Container.PackedList{} = stsz.fields.entry_list
+    assert Enum.count(stsz.fields.entry_list) == stsz.fields.sample_count
+    <<first::32, second::32, _rest::binary>> = stsz.fields.entry_list.data
+    assert Enum.take(stsz.fields.entry_list, 2) == [%{entry_size: first}, %{entry_size: second}]
+    assert boxes |> Container.serialize!() |> Container.parse!() == {boxes, <<>>}
+  end
+
   test "parse error" do
     <<0, 0, 0, 24, pre_cut::18-binary, _cut::2-binary, post_cut::binary>> =
       @cmaf_fixtures |> Path.join("ref_video_header.mp4") |> File.read!()

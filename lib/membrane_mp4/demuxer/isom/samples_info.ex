@@ -142,28 +142,14 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
   The list of samples in the returned struct is used to extract data from the `mdat` box and get output buffers.
   """
   @spec get_samples_info(%{children: boxes :: Container.t()}, non_neg_integer()) :: t
-  def get_samples_info(%{children: boxes}, mdat_beginning) do
-    tracks =
-      boxes
-      |> Enum.filter(fn {type, _content} -> type == :trak end)
-      |> Enum.into(%{}, fn {:trak, %{children: boxes}} ->
-        {boxes[:tkhd].fields.track_id, boxes}
-      end)
-
-    sample_tables =
-      Map.new(tracks, fn {track_id, boxes} ->
-        {track_id,
-         SampleTableBox.unpack(
-           boxes[:mdia].children[:minf].children[:stbl],
-           boxes[:mdia].children[:mdhd].fields.timescale
-         )}
-      end)
+  def get_samples_info(moov, mdat_beginning) do
+    sample_tables = get_sample_tables(moov)
 
     # Create a list of chunks in the order in which they are stored in the `mdat` box
     chunk_offsets =
-      Enum.flat_map(tracks, fn {track_id, _boxes} ->
+      Enum.flat_map(sample_tables, fn {track_id, sample_table} ->
         chunks_with_no =
-          sample_tables[track_id].chunk_offsets
+          sample_table.chunk_offsets
           |> Enum.with_index(1)
 
         Enum.map(
@@ -178,13 +164,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
     tracks_data =
       Map.new(sample_tables, fn {track_id, sample_table} ->
         {track_id,
-         Map.take(sample_table, [
-           :decoding_deltas,
-           :sample_sizes,
-           :samples_per_chunk,
-           :composition_offsets,
-           :chunk_offset
-         ])}
+         sample_table
+         |> Map.take([:decoding_deltas, :sample_sizes, :samples_per_chunk, :composition_offsets])
+         |> Map.new(fn {key, entries} -> {key, Enum.to_list(entries)} end)}
       end)
 
     # Create a samples' description list for each chunk and flatten it
@@ -202,16 +184,31 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
         {track_id, sample_table.timescale}
       end)
 
-    last_dts = Map.new(tracks, fn {track_id, _boxes} -> {track_id, nil} end)
+    last_dts = Map.new(sample_tables, fn {track_id, _table} -> {track_id, nil} end)
 
     %__MODULE__{
       samples: samples,
-      tracks_number: map_size(tracks),
+      tracks_number: map_size(sample_tables),
       timescales: timescales,
       last_dts: last_dts,
       sample_tables: sample_tables,
       mdat_iterator: mdat_beginning
     }
+  end
+
+  @doc "Unpacks the sample table of every track in the `moov` box, keyed by track id."
+  @spec get_sample_tables(%{children: boxes :: Container.t()}) ::
+          %{(track_id :: pos_integer()) => SampleTable.t()}
+  def get_sample_tables(%{children: boxes}) do
+    boxes
+    |> Enum.filter(fn {type, _content} -> type == :trak end)
+    |> Map.new(fn {:trak, %{children: boxes}} ->
+      {boxes[:tkhd].fields.track_id,
+       SampleTableBox.unpack(
+         boxes[:mdia].children[:minf].children[:stbl],
+         boxes[:mdia].children[:mdhd].fields.timescale
+       )}
+    end)
   end
 
   defp get_chunk_samples(chunk, track_data) do

@@ -366,22 +366,22 @@ defmodule Membrane.MP4.MovieBox.SampleTableBox do
     else
       # if no :ctts box is available, assume that the offset between
       # composition time and the decoding time is equal to 0
-      Enum.map(boxes[:stts].fields.entry_list, fn entry ->
+      Stream.map(boxes[:stts].fields.entry_list, fn entry ->
         %{sample_count: entry.sample_count, sample_composition_offset: 0}
       end)
     end
   end
 
   defp unpack_chunk_offsets(%{fields: %{entry_list: offsets}}) do
-    offsets |> Enum.map(fn %{chunk_offset: offset} -> offset end)
+    Stream.map(offsets, fn %{chunk_offset: offset} -> offset end)
   end
 
   defp unpack_sample_sizes(%{fields: %{sample_size: 0, entry_list: sizes}}) do
-    Enum.map(sizes, fn %{entry_size: size} -> size end)
+    Stream.map(sizes, fn %{entry_size: size} -> size end)
   end
 
   defp unpack_sample_sizes(%{fields: %{sample_size: sample_size, sample_count: sample_count}}) do
-    Bunch.Enum.repeated(sample_size, sample_count)
+    Stream.repeatedly(fn -> sample_size end) |> Stream.take(sample_count)
   end
 
   defp unpack_sample_description(%{children: [{avc, %{children: boxes, fields: fields}}]})

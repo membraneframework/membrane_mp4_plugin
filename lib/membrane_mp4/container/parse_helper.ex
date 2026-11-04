@@ -5,7 +5,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
   import Bitwise
 
   alias Membrane.MP4.Container
-  alias Membrane.MP4.Container.{Header, Schema}
+  alias Membrane.MP4.Container.{Header, PackedList, Schema}
 
   @type context_t() :: %{atom() => integer()}
 
@@ -188,10 +188,10 @@ defmodule Membrane.MP4.Container.ParseHelper do
     {:ok, {[], <<>>}, context}
   end
 
-  defp parse_field(data, {name, {:list, type}} = field, context) do
-    with {:ok, {term, rest}, context} <- parse_field(data, {name, type}, context),
-         {:ok, {terms, rest}, context} <- parse_field(rest, field, context) do
-      {:ok, {[term | terms], rest}, context}
+  defp parse_field(data, {name, {:list, type}}, context) do
+    case entry_bit_width(type, context) do
+      :variable -> parse_to_list(data, name, type, context)
+      width -> parse_to_packed_list(data, name, type, width, context)
     end
   end
 
@@ -201,6 +201,35 @@ defmodule Membrane.MP4.Container.ParseHelper do
   end
 
   defp parse_field(data, {name, _type}, _context), do: parse_field_error(data, name)
+
+  defp parse_to_list(<<>>, _name, _type, context) do
+    {:ok, {[], <<>>}, context}
+  end
+
+  defp parse_to_list(data, name, type, context) do
+    with {:ok, {term, rest}, context} <- parse_field(data, {name, type}, context),
+         {:ok, {terms, rest}, context} <- parse_to_list(rest, name, type, context) do
+      {:ok, {[term | terms], rest}, context}
+    end
+  end
+
+  defp parse_to_packed_list(data, name, type, width, context) do
+    case rem(bit_size(data), width) do
+      0 ->
+        expand = fn entry ->
+          {:ok, {term, <<>>}, _context} = parse_field(entry, {name, type}, context)
+          term
+        end
+
+        {:ok, {%PackedList{data: data, width: width, expand: expand}, <<>>}, context}
+
+      leftover ->
+        parse_field_error(
+          binary_part(data, byte_size(data) - div(leftover, 8), div(leftover, 8)),
+          name
+        )
+    end
+  end
 
   # a 0-bit-wide entry has no bytes behind it, so the declared count must not allocate
   defp parse_sized_list(data, _name, _type, 0, _count, context), do: {:ok, {[], data}, context}
@@ -229,22 +258,42 @@ defmodule Membrane.MP4.Container.ParseHelper do
   end
 
   defp entry_bit_width(fields, context) when is_list(fields) do
-    fields
-    |> Enum.map(&entry_bit_width(&1, context))
-    |> Enum.sum()
+    widths = Enum.map(fields, &entry_bit_width(&1, context))
+    if :variable in widths, do: :variable, else: Enum.sum(widths)
   end
 
-  defp entry_bit_width({:reserved, reserved}, _context), do: bit_size(reserved)
+  defp entry_bit_width({:reserved, reserved}, _context) do
+    bit_size(reserved)
+  end
 
   defp entry_bit_width({type, when: when_clause}, context) do
     if handle_when(when_clause, context), do: entry_bit_width(type, context), else: 0
   end
 
-  defp entry_bit_width({type, size}, _context) when type in [:int, :uint, :bin, :str], do: size
+  defp entry_bit_width({type, size}, _context)
+       when type in [:int, :uint, :bin, :str] and is_integer(size) do
+    size
+  end
 
-  defp entry_bit_width({:fp, int_size, frac_size}, _context), do: int_size + frac_size
+  defp entry_bit_width({:fp, int_size, frac_size}, _context) do
+    int_size + frac_size
+  end
 
-  defp entry_bit_width({_name, type}, context), do: entry_bit_width(type, context)
+  defp entry_bit_width({_type, [{:store, _context_name} | _opts]}, _context) do
+    :variable
+  end
+
+  defp entry_bit_width({:list, _type}, _context) do
+    :variable
+  end
+
+  defp entry_bit_width({name, type}, context) when is_atom(name) do
+    entry_bit_width(type, context)
+  end
+
+  defp entry_bit_width(_type, _context) do
+    :variable
+  end
 
   defp parse_field_error(data, name, context \\ [])
 
