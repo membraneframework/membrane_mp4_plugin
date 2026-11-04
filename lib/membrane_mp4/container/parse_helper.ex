@@ -189,10 +189,9 @@ defmodule Membrane.MP4.Container.ParseHelper do
   end
 
   defp parse_field(data, {name, {:list, type}}, context) do
-    if Schema.fixed_width_entry?(type) do
-      parse_to_packed_list(data, name, type, entry_bit_width(type, context), context)
-    else
-      parse_to_list(data, name, type, context)
+    case entry_bit_width(type, context) do
+      :variable -> parse_to_list(data, name, type, context)
+      width -> parse_to_packed_list(data, name, type, width, context)
     end
   end
 
@@ -260,9 +259,8 @@ defmodule Membrane.MP4.Container.ParseHelper do
   end
 
   defp entry_bit_width(fields, context) when is_list(fields) do
-    fields
-    |> Enum.map(&entry_bit_width(&1, context))
-    |> Enum.sum()
+    widths = Enum.map(fields, &entry_bit_width(&1, context))
+    if :variable in widths, do: :variable, else: Enum.sum(widths)
   end
 
   defp entry_bit_width({:reserved, reserved}, _context), do: bit_size(reserved)
@@ -271,11 +269,18 @@ defmodule Membrane.MP4.Container.ParseHelper do
     if handle_when(when_clause, context), do: entry_bit_width(type, context), else: 0
   end
 
-  defp entry_bit_width({type, size}, _context) when type in [:int, :uint, :bin, :str], do: size
+  defp entry_bit_width({type, size}, _context)
+       when type in [:int, :uint, :bin, :str] and is_integer(size),
+       do: size
 
   defp entry_bit_width({:fp, int_size, frac_size}, _context), do: int_size + frac_size
+  defp entry_bit_width({_type, [{:store, _context_name} | _opts]}, _context), do: :variable
+  defp entry_bit_width({:list, _type}, _context), do: :variable
 
-  defp entry_bit_width({_name, type}, context), do: entry_bit_width(type, context)
+  defp entry_bit_width({name, type}, context) when is_atom(name),
+    do: entry_bit_width(type, context)
+
+  defp entry_bit_width(_type, _context), do: :variable
 
   defp parse_field_error(data, name, context \\ [])
 
