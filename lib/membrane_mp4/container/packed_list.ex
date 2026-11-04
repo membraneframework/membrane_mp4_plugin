@@ -6,16 +6,13 @@ defmodule Membrane.MP4.Container.PackedList do
   them eagerly into maps costs an order of magnitude more memory than the box itself.
   """
 
-  alias Membrane.MP4.Container.ParseHelper
-
-  @enforce_keys [:data, :type, :width, :context]
+  @enforce_keys [:data, :width, :decode]
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
           data: bitstring(),
-          type: term(),
           width: pos_integer(),
-          context: %{atom() => integer()}
+          decode: (bitstring() -> term())
         }
 
   defimpl Enumerable do
@@ -43,8 +40,7 @@ defmodule Membrane.MP4.Container.PackedList do
 
     def reduce(%{data: data, width: width} = list, {:cont, acc}, fun) do
       <<entry::bitstring-size(^width), rest::bitstring>> = data
-      {:ok, {term, <<>>}, _context} = ParseHelper.parse_entry(entry, list.type, list.context)
-      reduce(%{list | data: rest}, fun.(term, acc), fun)
+      reduce(%{list | data: rest}, fun.(list.decode.(entry), acc), fun)
     end
   end
 
