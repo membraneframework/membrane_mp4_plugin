@@ -20,6 +20,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   @type provide_data_cb :: (start :: non_neg_integer(), size :: pos_integer(), state :: any() ->
                               {data :: binary(), state :: any()})
 
+  @type track_id()
+
   @typedoc """
   A type representing the `#{inspect(__MODULE__)}`.
   """
@@ -32,7 +34,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
                  content_size :: pos_integer()}
             },
             boxes: Container.t(),
-            tracks: %{(track_id :: pos_integer()) => track()},
+            tracks: %{track_id() => track()},
             provider_state: any()
           }
 
@@ -71,7 +73,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   @doc """
   Returns a map describing tracks found in the MP4 file.
   """
-  @spec get_tracks_info(t()) :: %{(track_id :: pos_integer()) => SampleTable.t()}
+  @spec get_tracks_info(t()) :: %{track_id() => SampleTable.t()}
   def get_tracks_info(state) do
     Map.new(state.tracks, fn {track_id, track} -> {track_id, track.sample_table} end)
   end
@@ -79,7 +81,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   @doc """
   Reads the sample from given track.
   """
-  @spec read_sample(t(), track_id :: pos_integer()) :: {:ok, Sample.t(), t()} | :end_of_stream
+  @spec read_sample(t(), track_id()) :: {:ok, Sample.t(), t()} | :end_of_stream
   def read_sample(state, track_id) do
     case next_sample(state.tracks[track_id]) do
       :end_of_stream ->
@@ -110,7 +112,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   Moves the track cursor so that it points at the first sample with DTS 
   equal or greater than provided `timestamp_ms`.
   """
-  @spec seek_in_samples(t(), track_id :: pos_integer(), timestamp_ms :: non_neg_integer()) :: t()
+  @spec seek_in_samples(t(), track_id(), timestamp_ms :: non_neg_integer()) :: t()
   def seek_in_samples(state, track_id, timestamp_ms) do
     track = state.tracks[track_id]
     timestamp_in_native_unit = timestamp_ms / 1000 * track.sample_table.timescale
