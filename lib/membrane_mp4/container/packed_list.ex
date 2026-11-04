@@ -29,11 +29,17 @@ defmodule Membrane.MP4.Container.PackedList do
     def slice(_list), do: {:error, __MODULE__}
 
     @impl true
-    def reduce(_list, {:halt, acc}, _fun), do: {:halted, acc}
+    def reduce(_list, {:halt, acc}, _fun) do
+      {:halted, acc}
+    end
 
-    def reduce(list, {:suspend, acc}, fun), do: {:suspended, acc, &reduce(list, &1, fun)}
+    def reduce(list, {:suspend, acc}, fun) do
+      {:suspended, acc, &reduce(list, &1, fun)}
+    end
 
-    def reduce(%{data: <<>>}, {:cont, acc}, _fun), do: {:done, acc}
+    def reduce(%{data: <<>>}, {:cont, acc}, _fun) do
+      {:done, acc}
+    end
 
     def reduce(%{data: data, width: width} = list, {:cont, acc}, fun) do
       <<entry::bitstring-size(^width), rest::bitstring>> = data

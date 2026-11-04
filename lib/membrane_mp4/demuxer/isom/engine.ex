@@ -131,7 +131,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
     end
   end
 
-  defp skip_samples(track, _timestamp), do: track
+  defp skip_samples(track, _timestamp) do
+    track
+  end
 
   defp next_sample(track) do
     case StreamSplit.take_and_drop(track.samples, 1) do
