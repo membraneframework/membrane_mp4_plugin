@@ -142,21 +142,14 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
   The list of samples in the returned struct is used to extract data from the `mdat` box and get output buffers.
   """
   @spec get_samples_info(%{children: boxes :: Container.t()}, non_neg_integer()) :: t
-  def get_samples_info(%{children: boxes} = moov, mdat_beginning) do
-    tracks =
-      boxes
-      |> Enum.filter(fn {type, _content} -> type == :trak end)
-      |> Enum.into(%{}, fn {:trak, %{children: boxes}} ->
-        {boxes[:tkhd].fields.track_id, boxes}
-      end)
-
+  def get_samples_info(moov, mdat_beginning) do
     sample_tables = get_sample_tables(moov)
 
     # Create a list of chunks in the order in which they are stored in the `mdat` box
     chunk_offsets =
-      Enum.flat_map(tracks, fn {track_id, _boxes} ->
+      Enum.flat_map(sample_tables, fn {track_id, sample_table} ->
         chunks_with_no =
-          sample_tables[track_id].chunk_offsets
+          sample_table.chunk_offsets
           |> Enum.with_index(1)
 
         Enum.map(
@@ -191,11 +184,11 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
         {track_id, sample_table.timescale}
       end)
 
-    last_dts = Map.new(tracks, fn {track_id, _boxes} -> {track_id, nil} end)
+    last_dts = Map.new(sample_tables, fn {track_id, _table} -> {track_id, nil} end)
 
     %__MODULE__{
       samples: samples,
-      tracks_number: map_size(tracks),
+      tracks_number: map_size(sample_tables),
       timescales: timescales,
       last_dts: last_dts,
       sample_tables: sample_tables,
