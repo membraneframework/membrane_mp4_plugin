@@ -188,14 +188,11 @@ defmodule Membrane.MP4.Container.ParseHelper do
     {:ok, {[], <<>>}, context}
   end
 
-  defp parse_field(data, {name, {:list, type}} = field, context) do
+  defp parse_field(data, {name, {:list, type}}, context) do
     if Schema.fixed_width_entry?(type) do
       parse_to_packed_list(data, name, type, entry_bit_width(type, context), context)
     else
-      with {:ok, {term, rest}, context} <- parse_field(data, {name, type}, context),
-           {:ok, {terms, rest}, context} <- parse_field(rest, field, context) do
-        {:ok, {[term | terms], rest}, context}
-      end
+      parse_to_list(data, name, type, context)
     end
   end
 
@@ -210,6 +207,17 @@ defmodule Membrane.MP4.Container.ParseHelper do
   @spec parse_entry(bitstring(), term(), context_t()) ::
           {:ok, {term(), bitstring()}, context_t()} | {:error, term()}
   def parse_entry(data, type, context), do: parse_field(data, {:entry, type}, context)
+
+  defp parse_to_list(<<>>, _name, _type, context) do
+    {:ok, {[], <<>>}, context}
+  end
+
+  defp parse_to_list(data, name, type, context) do
+    with {:ok, {term, rest}, context} <- parse_field(data, {name, type}, context),
+         {:ok, {terms, rest}, context} <- parse_to_list(rest, name, type, context) do
+      {:ok, {[term | terms], rest}, context}
+    end
+  end
 
   defp parse_to_packed_list(data, name, type, width, context) do
     case rem(bit_size(data), width) do
