@@ -40,8 +40,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
             provider_state: any()
           }
 
-  # Samples are decoded on demand from the packed sample tables, so the memory
-  # footprint does not grow with the number of samples in the file.
   @typedoc false
   @type track :: %{samples: Enumerable.t(), next_dts: non_neg_integer()}
 
@@ -223,7 +221,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
     end)
   end
 
-  # stts and ctts entries are run-length encoded: `sample_count` samples share one value
   defp runs(entries) do
     Stream.flat_map(entries, fn %{sample_count: count} = entry ->
       value = Map.get(entry, :sample_delta) || Map.get(entry, :sample_composition_offset)
@@ -231,8 +228,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
     end)
   end
 
-  # stsc entries describe runs of chunks: an entry applies from its `first_chunk` up to the
-  # chunk preceding the next entry's `first_chunk`, the last entry applies to the end
   defp chunk_sizes(entries) do
     entries
     |> Stream.concat([nil])
