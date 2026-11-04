@@ -263,24 +263,38 @@ defmodule Membrane.MP4.Container.ParseHelper do
     if :variable in widths, do: :variable, else: Enum.sum(widths)
   end
 
-  defp entry_bit_width({:reserved, reserved}, _context), do: bit_size(reserved)
+  defp entry_bit_width({:reserved, reserved}, _context) do
+    bit_size(reserved)
+  end
 
   defp entry_bit_width({type, when: when_clause}, context) do
     if handle_when(when_clause, context), do: entry_bit_width(type, context), else: 0
   end
 
   defp entry_bit_width({type, size}, _context)
-       when type in [:int, :uint, :bin, :str] and is_integer(size),
-       do: size
+       when type in [:int, :uint, :bin, :str] and is_integer(size) do
+    size
+  end
 
-  defp entry_bit_width({:fp, int_size, frac_size}, _context), do: int_size + frac_size
-  defp entry_bit_width({_type, [{:store, _context_name} | _opts]}, _context), do: :variable
-  defp entry_bit_width({:list, _type}, _context), do: :variable
+  defp entry_bit_width({:fp, int_size, frac_size}, _context) do
+    int_size + frac_size
+  end
 
-  defp entry_bit_width({name, type}, context) when is_atom(name),
-    do: entry_bit_width(type, context)
+  defp entry_bit_width({_type, [{:store, _context_name} | _opts]}, _context) do
+    :variable
+  end
 
-  defp entry_bit_width(_type, _context), do: :variable
+  defp entry_bit_width({:list, _type}, _context) do
+    :variable
+  end
+
+  defp entry_bit_width({name, type}, context) when is_atom(name) do
+    entry_bit_width(type, context)
+  end
+
+  defp entry_bit_width(_type, _context) do
+    :variable
+  end
 
   defp parse_field_error(data, name, context \\ [])
 
