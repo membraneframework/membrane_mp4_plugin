@@ -20,7 +20,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   @type provide_data_cb :: (start :: non_neg_integer(), size :: pos_integer(), state :: any() ->
                               {data :: binary(), state :: any()})
 
-  @type track_id()
+  @type track_id :: pos_integer()
 
   @typedoc """
   A type representing the `#{inspect(__MODULE__)}`.
