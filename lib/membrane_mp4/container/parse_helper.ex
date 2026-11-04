@@ -216,12 +216,12 @@ defmodule Membrane.MP4.Container.ParseHelper do
   defp parse_to_packed_list(data, name, type, width, context) do
     case rem(bit_size(data), width) do
       0 ->
-        decode = fn entry ->
+        expand = fn entry ->
           {:ok, {term, <<>>}, _context} = parse_field(entry, {name, type}, context)
           term
         end
 
-        {:ok, {%PackedList{data: data, width: width, decode: decode}, <<>>}, context}
+        {:ok, {%PackedList{data: data, width: width, expand: expand}, <<>>}, context}
 
       leftover ->
         parse_field_error(
