@@ -33,15 +33,15 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
             },
             boxes: Container.t(),
             tracks: %{(track_id :: pos_integer()) => track()},
-            samples_info: %{
-              sample_tables: %{(track_id :: pos_integer()) => SampleTable.t()},
-              timescales: %{(track_id :: pos_integer()) => pos_integer()}
-            },
             provider_state: any()
           }
 
   @typedoc false
-  @type track :: %{samples: Enumerable.t(), next_dts: non_neg_integer()}
+  @type track :: %{
+          sample_table: SampleTable.t(),
+          samples: Enumerable.t(),
+          next_dts: non_neg_integer()
+        }
 
   @enforce_keys [:provide_data_cb]
   defstruct @enforce_keys ++
@@ -50,7 +50,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
                 box_positions: %{},
                 boxes: [],
                 tracks: %{},
-                samples_info: %{},
                 provider_state: nil
               ]
 
@@ -66,7 +65,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
     |> find_box(:moov)
     |> read_box(:moov)
     |> find_box(:mdat)
-    |> resolve_samples()
     |> initialize_tracks()
   end
 
@@ -75,7 +73,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   """
   @spec get_tracks_info(t()) :: %{(track_id :: pos_integer()) => SampleTable.t()}
   def get_tracks_info(state) do
-    state.samples_info.sample_tables
+    Map.new(state.tracks, fn {track_id, track} -> {track_id, track.sample_table} end)
   end
 
   @doc """
@@ -91,7 +89,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         {data, provider_state} =
           state.provide_data_cb.(sample.sample_offset, sample.size, state.provider_state)
 
-        timescale = state.samples_info.timescales[track_id]
+        timescale = track.sample_table.timescale
         dts = track.next_dts
         pts = dts + sample.sample_composition_offset
         pts_ms = (pts / timescale * 1000) |> round()
@@ -114,8 +112,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   """
   @spec seek_in_samples(t(), track_id :: pos_integer(), timestamp_ms :: non_neg_integer()) :: t()
   def seek_in_samples(state, track_id, timestamp_ms) do
-    timestamp_in_native_unit = timestamp_ms / 1000 * state.samples_info.timescales[track_id]
-    track = skip_samples(state.tracks[track_id], timestamp_in_native_unit)
+    track = state.tracks[track_id]
+    timestamp_in_native_unit = timestamp_ms / 1000 * track.sample_table.timescale
+    track = skip_samples(track, timestamp_in_native_unit)
     put_in(state.tracks[track_id], track)
   end
 
@@ -179,16 +178,12 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
     update_in(state.boxes, &[box | &1])
   end
 
-  defp resolve_samples(state) do
-    sample_tables = SamplesInfo.get_sample_tables(state.boxes[:moov])
-    timescales = Map.new(sample_tables, fn {track_id, table} -> {track_id, table.timescale} end)
-    %{state | samples_info: %{sample_tables: sample_tables, timescales: timescales}}
-  end
-
   defp initialize_tracks(state) do
     tracks =
-      Map.new(state.samples_info.sample_tables, fn {track_id, table} ->
-        {track_id, %{samples: samples_stream(table), next_dts: 0}}
+      state.boxes[:moov]
+      |> SamplesInfo.get_sample_tables()
+      |> Map.new(fn {track_id, table} ->
+        {track_id, %{sample_table: table, samples: samples_stream(table), next_dts: 0}}
       end)
 
     %{state | tracks: tracks}
