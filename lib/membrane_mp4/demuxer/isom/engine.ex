@@ -101,12 +101,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
         pts_ms = (pts / timescale * 1000) |> round()
         dts_ms = (dts / timescale * 1000) |> round()
 
-        state = %{
-          state
-          | provider_state: provider_state,
-            tracks:
-              Map.put(state.tracks, track_id, %{track | next_dts: dts + sample.sample_delta})
-        }
+        state = %{state | provider_state: provider_state}
+        state = put_in(state.tracks[track_id], %{track | next_dts: dts + sample.sample_delta})
 
         {:ok, %Sample{payload: data, pts: pts_ms, dts: dts_ms, track_id: track_id}, state}
     end
