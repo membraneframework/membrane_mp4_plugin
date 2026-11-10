@@ -3,7 +3,15 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
 
   alias Membrane.MP4.Container.PackedList
 
-  @enforce_keys [:remaining, :sizes, :deltas, :offsets, :chunk_groups, :chunk_offsets]
+  @enforce_keys [
+    :remaining,
+    :sample_size,
+    :sample_sizes,
+    :deltas,
+    :offsets,
+    :chunk_groups,
+    :chunk_offsets
+  ]
   defstruct @enforce_keys ++
               [
                 delta_run: {0, 0},
@@ -16,7 +24,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
 
   @type t :: %__MODULE__{
           remaining: non_neg_integer(),
-          sizes: PackedList.t() | pos_integer(),
+          sample_size: non_neg_integer(),
+          sample_sizes: PackedList.t() | nil,
           deltas: PackedList.t(),
           offsets: PackedList.t() | nil,
           chunk_groups: PackedList.t(),
@@ -40,7 +49,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
   def new(%{children: boxes}) do
     %__MODULE__{
       remaining: boxes[:stsz].fields.sample_count,
-      sizes: sizes(boxes[:stsz].fields),
+      sample_size: boxes[:stsz].fields.sample_size,
+      sample_sizes: boxes[:stsz].fields[:entry_list],
       deltas: boxes[:stts].fields.entry_list,
       offsets: boxes[:ctts] && boxes[:ctts].fields.entry_list,
       chunk_groups: boxes[:stsc].fields.entry_list,
@@ -75,21 +85,13 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
      }}
   end
 
-  defp sizes(%{sample_size: 0, entry_list: sizes}) do
-    sizes
+  defp pop_size(%{sample_size: 0} = cursor) do
+    {%{entry_size: size}, sizes} = PackedList.pop(cursor.sample_sizes)
+    {size, %{cursor | sample_sizes: sizes}}
   end
 
-  defp sizes(%{sample_size: size}) do
-    size
-  end
-
-  defp pop_size(%{sizes: size} = cursor) when is_integer(size) do
+  defp pop_size(%{sample_size: size} = cursor) do
     {size, cursor}
-  end
-
-  defp pop_size(%{sizes: sizes} = cursor) do
-    {%{entry_size: size}, sizes} = PackedList.pop(sizes)
-    {size, %{cursor | sizes: sizes}}
   end
 
   defp enter_chunk(%{left_in_chunk: 0} = cursor) do
