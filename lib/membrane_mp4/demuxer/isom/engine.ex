@@ -7,7 +7,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
 
   alias Membrane.MP4.Container
   alias Membrane.MP4.Container.Schema
-  alias Membrane.MP4.Demuxer.ISOM.SamplesInfo
+  alias Membrane.MP4.Demuxer.ISOM.SampleCursor
+  alias Membrane.MP4.MovieBox.SampleTableBox
 
   alias Membrane.MP4.Demuxer.Sample
   alias Membrane.MP4.Track.SampleTable
@@ -40,12 +41,12 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
           }
 
   @typedoc """
-  Per-track reading state: the unpacked sample table, a lazy stream of samples
+  Per-track reading state: the unpacked sample table, a cursor over the samples
   still to be read and the decoding timestamp of the next one.
   """
   @type track :: %{
           sample_table: SampleTable.t(),
-          samples: Enumerable.t(),
+          cursor: SampleCursor.t(),
           next_dts: non_neg_integer()
         }
 
@@ -135,9 +136,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
   end
 
   defp next_sample(track) do
-    case StreamSplit.take_and_drop(track.samples, 1) do
-      {[sample], samples} -> {sample, %{track | samples: samples}}
-      {[], _samples} -> :end_of_stream
+    case SampleCursor.next(track.cursor) do
+      {sample, cursor} -> {sample, %{track | cursor: cursor}}
+      :end_of_stream -> :end_of_stream
     end
   end
 
@@ -182,60 +183,20 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
 
   defp initialize_tracks(state) do
     tracks =
-      state.boxes[:moov]
-      |> SamplesInfo.get_sample_tables()
-      |> Map.new(fn {track_id, table} ->
-        {track_id, %{sample_table: table, samples: samples_stream(table), next_dts: 0}}
+      state.boxes[:moov].children
+      |> Keyword.get_values(:trak)
+      |> Map.new(fn %{children: boxes} ->
+        stbl = boxes[:mdia].children[:minf].children[:stbl]
+        timescale = boxes[:mdia].children[:mdhd].fields.timescale
+
+        {boxes[:tkhd].fields.track_id,
+         %{
+           sample_table: SampleTableBox.unpack(stbl, timescale),
+           cursor: SampleCursor.new(stbl),
+           next_dts: 0
+         }}
       end)
 
     %{state | tracks: tracks}
-  end
-
-  defp samples_stream(table) do
-    chunks =
-      Stream.zip(table.chunk_offsets, chunk_sizes(table.samples_per_chunk))
-      |> Stream.reject(fn {_offset, size} -> size == 0 end)
-
-    [table.sample_sizes, runs(table.decoding_deltas), runs(table.composition_offsets)]
-    |> Stream.zip()
-    |> Stream.transform({chunks, 0, 0}, fn {size, delta, offset}, {chunks, left, position} ->
-      {chunks, left, position} =
-        if left == 0 do
-          {[{chunk_offset, chunk_size}], chunks} = StreamSplit.take_and_drop(chunks, 1)
-          {chunks, chunk_size, chunk_offset}
-        else
-          {chunks, left, position}
-        end
-
-      sample = %{
-        size: size,
-        sample_delta: delta,
-        sample_composition_offset: offset,
-        sample_offset: position
-      }
-
-      {[sample], {chunks, left - 1, position + size}}
-    end)
-  end
-
-  defp runs(entries) do
-    Stream.flat_map(entries, fn %{sample_count: count} = entry ->
-      value = Map.get(entry, :sample_delta) || Map.get(entry, :sample_composition_offset)
-      Stream.repeatedly(fn -> value end) |> Stream.take(count)
-    end)
-  end
-
-  defp chunk_sizes(entries) do
-    entries
-    |> Stream.concat([nil])
-    |> Stream.chunk_every(2, 1, :discard)
-    |> Stream.flat_map(fn
-      [entry, nil] ->
-        Stream.repeatedly(fn -> entry.samples_per_chunk end)
-
-      [entry, next] ->
-        Stream.repeatedly(fn -> entry.samples_per_chunk end)
-        |> Stream.take(next.first_chunk - entry.first_chunk)
-    end)
   end
 end

@@ -196,10 +196,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SamplesInfo do
     }
   end
 
-  @doc "Unpacks the sample table of every track in the `moov` box, keyed by track id."
-  @spec get_sample_tables(%{children: boxes :: Container.t()}) ::
-          %{(track_id :: pos_integer()) => SampleTable.t()}
-  def get_sample_tables(%{children: boxes}) do
+  defp get_sample_tables(%{children: boxes}) do
     boxes
     |> Enum.filter(fn {type, _content} -> type == :trak end)
     |> Map.new(fn {:trak, %{children: boxes}} ->

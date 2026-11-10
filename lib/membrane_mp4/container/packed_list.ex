@@ -18,6 +18,17 @@ defmodule Membrane.MP4.Container.PackedList do
           context: ParseHelper.context_t()
         }
 
+  @doc "Takes the first entry off the list."
+  @spec pop(t()) :: {term(), t()} | :empty
+  def pop(%{data: <<>>}) do
+    :empty
+  end
+
+  def pop(%{data: data, width: width} = list) do
+    <<entry::bitstring-size(^width), rest::bitstring>> = data
+    {expand(list, entry), %{list | data: rest}}
+  end
+
   @doc false
   @spec expand(t(), bitstring()) :: term()
   def expand(list, entry) do
@@ -59,13 +70,11 @@ defmodule Membrane.MP4.Container.PackedList do
       {:suspended, acc, &reduce(list, &1, fun)}
     end
 
-    def reduce(%{data: <<>>}, {:cont, acc}, _fun) do
-      {:done, acc}
-    end
-
-    def reduce(%{data: data, width: width} = list, {:cont, acc}, fun) do
-      <<entry::bitstring-size(^width), rest::bitstring>> = data
-      reduce(%{list | data: rest}, fun.(@for.expand(list, entry), acc), fun)
+    def reduce(list, {:cont, acc}, fun) do
+      case @for.pop(list) do
+        :empty -> {:done, acc}
+        {entry, rest} -> reduce(rest, fun.(entry, acc), fun)
+      end
     end
   end
 
