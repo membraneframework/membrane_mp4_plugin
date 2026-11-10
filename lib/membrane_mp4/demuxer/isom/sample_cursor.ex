@@ -28,15 +28,13 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
           current_chunk: chunk()
         }
 
-  @typedoc "The unread entries of an stts or ctts table together with the current value and how many more samples share it."
-  @type run :: %{entries: PackedList.t(), value: integer(), left: non_neg_integer()}
+  @typep run :: %{entries: PackedList.t(), value: integer(), left: non_neg_integer()}
 
-  @typedoc "The chunk being read, with how many of its samples are still to come and where the next one starts in the file."
-  @type chunk :: %{
-          no: non_neg_integer(),
-          samples_left: non_neg_integer(),
-          position: non_neg_integer()
-        }
+  @typep chunk :: %{
+           no: non_neg_integer(),
+           samples_left: non_neg_integer(),
+           position: non_neg_integer()
+         }
 
   @typedoc "One sample as the cursor hands it out, with its size and byte offset in the file and its timing."
   @type sample :: %{
