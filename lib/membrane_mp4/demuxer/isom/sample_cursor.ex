@@ -7,6 +7,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
   @enforce_keys [:remaining, :sample_size, :sample_sizes, :deltas, :offsets, :chunk]
   defstruct @enforce_keys
 
+  @typedoc "Where the cursor is in each of the track's sample tables, with the entries it has not read yet."
   @type t :: %__MODULE__{
           remaining: non_neg_integer(),
           sample_size: non_neg_integer(),
@@ -29,6 +30,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
           position: non_neg_integer()
         }
 
+  @typedoc "One sample as the cursor hands it out, with its size and byte offset in the file and its timing."
   @type sample :: %{
           size: non_neg_integer(),
           sample_delta: non_neg_integer(),
