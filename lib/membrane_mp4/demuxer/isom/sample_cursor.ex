@@ -13,8 +13,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
     :chunk_groups,
     :chunk_offsets
   ]
-  defstruct @enforce_keys ++
-              [samples_per_chunk: 0, current_chunk: %{no: 0, samples_left: 0, position: 0}]
+  defstruct @enforce_keys ++ [samples_per_chunk: 0, current_chunk: nil]
 
   @typedoc "Where the cursor is in each of the track's sample tables, with the entries it has not read yet."
   @type t :: %__MODULE__{
@@ -56,7 +55,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
       deltas: run(boxes[:stts].fields.entry_list),
       offsets: boxes[:ctts] && run(boxes[:ctts].fields.entry_list),
       chunk_groups: boxes[:stsc].fields.entry_list,
-      chunk_offsets: (boxes[:stco] || boxes[:co64]).fields.entry_list
+      chunk_offsets: (boxes[:stco] || boxes[:co64]).fields.entry_list,
+      current_chunk: chunk(0, 0, 0)
     }
   end
 
@@ -119,8 +119,16 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
       end
 
     {%{chunk_offset: position}, chunk_offsets} = PackedList.pop(cursor.chunk_offsets)
-    chunk = %{no: no, samples_left: cursor.samples_per_chunk, position: position}
-    %{cursor | chunk_offsets: chunk_offsets, current_chunk: chunk}
+
+    %{
+      cursor
+      | chunk_offsets: chunk_offsets,
+        current_chunk: chunk(no, cursor.samples_per_chunk, position)
+    }
+  end
+
+  defp chunk(no, samples_left, position) do
+    %{no: no, samples_left: samples_left, position: position}
   end
 
   defp run(entries) do
