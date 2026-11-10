@@ -1,5 +1,5 @@
 defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
-  @moduledoc false
+  @moduledoc "Walks the samples of one track, as described by its `stbl` box, one at a time."
 
   alias Membrane.MP4.Container.PackedList
 

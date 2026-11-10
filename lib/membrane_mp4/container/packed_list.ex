@@ -15,7 +15,7 @@ defmodule Membrane.MP4.Container.PackedList do
           data: bitstring(),
           width: pos_integer(),
           type: term(),
-          context: ParseHelper.context_t()
+          context: %{atom() => integer()}
         }
 
   @doc "Takes the first entry off the list."
