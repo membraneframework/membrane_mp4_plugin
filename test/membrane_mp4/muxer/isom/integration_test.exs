@@ -380,15 +380,15 @@ defmodule Membrane.MP4.Muxer.ISOM.IntegrationTest do
     assert Container.get_box(parsed, [:moov, :trak, :mdia, :minf, :vmhd])
 
     stss = Container.get_box(parsed, [:moov, :trak, :mdia, :minf, :stbl, :stss])
-    assert stss.fields.entry_list == [%{sample_number: 1}, %{sample_number: 3}]
+    assert Enum.to_list(stss.fields.entry_list) == [%{sample_number: 1}, %{sample_number: 3}]
 
     stsz = Container.get_box(parsed, [:moov, :trak, :mdia, :minf, :stbl, :stsz])
 
-    assert stsz.fields.entry_list ==
+    assert Enum.to_list(stsz.fields.entry_list) ==
              Enum.map(stored_payloads, &%{entry_size: byte_size(&1)})
 
     stco = Container.get_box(parsed, [:moov, :trak, :mdia, :minf, :stbl, :stco])
-    assert [%{chunk_offset: chunk_offset}] = stco.fields.entry_list
+    assert [%{chunk_offset: chunk_offset}] = Enum.to_list(stco.fields.entry_list)
     assert binary_part(output, chunk_offset, byte_size(expected_mdat)) == expected_mdat
   end
 end
