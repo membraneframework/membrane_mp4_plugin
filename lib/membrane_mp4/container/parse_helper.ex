@@ -96,7 +96,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
 
   @doc false
   @spec parse_field(bitstring(), term(), context_t()) ::
-          {:ok, {term(), bitstring()}, context_t()} | {:error, term()}
+          {:ok, {term(), bitstring()} | :ignore, context_t()} | {:error, term()}
   def parse_field(data, {:reserved, reserved}, context) do
     size = bit_size(reserved)
 

@@ -1,6 +1,7 @@
 defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
   @moduledoc "Walks the samples of one track, as described by its `stbl` box, one at a time."
 
+  alias Membrane.MP4.Container
   alias Membrane.MP4.Container.PackedList
 
   @enforce_keys [
@@ -44,7 +45,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
           sample_offset: non_neg_integer()
         }
 
-  @spec new(stbl :: %{children: keyword()}) :: t()
+  @spec new(stbl :: %{fields: Container.fields_t(), children: Container.t()}) :: t()
   def new(%{children: boxes}) do
     %__MODULE__{
       remaining: boxes[:stsz].fields.sample_count,
