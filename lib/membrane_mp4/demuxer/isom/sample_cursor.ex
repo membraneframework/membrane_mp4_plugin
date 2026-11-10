@@ -46,14 +46,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
       sample_sizes: boxes[:stsz].fields[:entry_list],
       deltas: run(boxes[:stts].fields.entry_list),
       offsets: boxes[:ctts] && run(boxes[:ctts].fields.entry_list),
-      chunk: %{
-        groups: boxes[:stsc].fields.entry_list,
-        offsets: (boxes[:stco] || boxes[:co64]).fields.entry_list,
-        no: 0,
-        samples_per_chunk: 0,
-        left: 0,
-        position: 0
-      }
+      chunk:
+        chunk(boxes[:stsc].fields.entry_list, (boxes[:stco] || boxes[:co64]).fields.entry_list)
     }
   end
 
@@ -93,6 +87,10 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
 
   defp pop_size(%{sample_size: size} = cursor) do
     {size, cursor}
+  end
+
+  defp chunk(groups, offsets) do
+    %{groups: groups, offsets: offsets, no: 0, samples_per_chunk: 0, left: 0, position: 0}
   end
 
   defp next_in_chunk(%{left: 0} = chunk, size) do
