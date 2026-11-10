@@ -39,6 +39,8 @@ defmodule Membrane.MP4.Container.PackedList do
   end
 
   defimpl Enumerable do
+    alias Membrane.MP4.Container.PackedList
+
     @impl true
     def count(%{data: data, width: width}), do: {:ok, div(bit_size(data), width)}
 
@@ -54,7 +56,7 @@ defmodule Membrane.MP4.Container.PackedList do
           <<_skipped::bitstring-size(^offset), entry::bitstring-size(^width), _rest::bitstring>> =
             data
 
-          @for.expand(list, entry)
+          PackedList.expand(list, entry)
         end
       end
 
@@ -71,7 +73,7 @@ defmodule Membrane.MP4.Container.PackedList do
     end
 
     def reduce(list, {:cont, acc}, fun) do
-      case @for.pop(list) do
+      case PackedList.pop(list) do
         :empty -> {:done, acc}
         {entry, rest} -> reduce(rest, fun.(entry, acc), fun)
       end
