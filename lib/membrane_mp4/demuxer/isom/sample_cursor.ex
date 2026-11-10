@@ -4,17 +4,24 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
   alias Membrane.MP4.Container
   alias Membrane.MP4.Container.PackedList
 
-  @enforce_keys [:remaining, :sample_size, :sample_sizes, :deltas, :offsets, :chunk]
+  @enforce_keys [
+    :remaining_samples,
+    :sample_size,
+    :sample_sizes,
+    :deltas,
+    :offsets,
+    :current_chunk
+  ]
   defstruct @enforce_keys
 
   @typedoc "Where the cursor is in each of the track's sample tables, with the entries it has not read yet."
   @type t :: %__MODULE__{
-          remaining: non_neg_integer(),
+          remaining_samples: non_neg_integer(),
           sample_size: non_neg_integer(),
           sample_sizes: PackedList.t() | nil,
           deltas: run(),
           offsets: run() | nil,
-          chunk: chunk()
+          current_chunk: chunk()
         }
 
   @typedoc "The unread entries of an stts or ctts table together with the current value and how many more samples share it."
@@ -41,24 +48,24 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
   @spec new(stbl :: %{fields: Container.fields_t(), children: Container.t()}) :: t()
   def new(%{children: boxes}) do
     %__MODULE__{
-      remaining: boxes[:stsz].fields.sample_count,
+      remaining_samples: boxes[:stsz].fields.sample_count,
       sample_size: boxes[:stsz].fields.sample_size,
       sample_sizes: boxes[:stsz].fields[:entry_list],
       deltas: run(boxes[:stts].fields.entry_list),
       offsets: boxes[:ctts] && run(boxes[:ctts].fields.entry_list),
-      chunk:
+      current_chunk:
         chunk(boxes[:stsc].fields.entry_list, (boxes[:stco] || boxes[:co64]).fields.entry_list)
     }
   end
 
   @spec next(t()) :: {sample(), t()} | :end_of_stream
-  def next(%{remaining: 0}) do
+  def next(%{remaining_samples: 0}) do
     :end_of_stream
   end
 
   def next(cursor) do
     {size, cursor} = pop_size(cursor)
-    {offset, chunk} = next_in_chunk(cursor.chunk, size)
+    {offset, chunk} = next_in_chunk(cursor.current_chunk, size)
     {delta, deltas} = next_in_run(cursor.deltas, :sample_delta)
     {composition_offset, offsets} = next_in_run(cursor.offsets, :sample_composition_offset)
 
@@ -71,8 +78,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
 
     cursor = %{
       cursor
-      | remaining: cursor.remaining - 1,
-        chunk: chunk,
+      | remaining_samples: cursor.remaining_samples - 1,
+        current_chunk: chunk,
         deltas: deltas,
         offsets: offsets
     }
