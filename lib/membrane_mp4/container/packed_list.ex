@@ -6,14 +6,26 @@ defmodule Membrane.MP4.Container.PackedList do
   them eagerly into maps costs an order of magnitude more memory than the box itself.
   """
 
-  @enforce_keys [:data, :width, :expand]
+  alias Membrane.MP4.Container.ParseHelper
+
+  @enforce_keys [:data, :width, :type, :context]
   defstruct @enforce_keys
 
   @type t :: %__MODULE__{
           data: bitstring(),
           width: pos_integer(),
-          expand: (bitstring() -> term())
+          type: term(),
+          context: ParseHelper.context_t()
         }
+
+  @doc false
+  @spec expand(t(), bitstring()) :: term()
+  def expand(list, entry) do
+    {:ok, {term, <<>>}, _context} =
+      ParseHelper.parse_field(entry, {:entry, list.type}, list.context)
+
+    term
+  end
 
   defimpl Enumerable do
     @impl true
@@ -23,7 +35,7 @@ defmodule Membrane.MP4.Container.PackedList do
     def member?(_list, _entry), do: {:error, __MODULE__}
 
     @impl true
-    def slice(%{data: data, width: width, expand: expand}) do
+    def slice(%{data: data, width: width} = list) do
       slicer = fn start, length, step ->
         for index <- start..(start + (length - 1) * step)//step do
           offset = index * width
@@ -31,7 +43,7 @@ defmodule Membrane.MP4.Container.PackedList do
           <<_skipped::bitstring-size(^offset), entry::bitstring-size(^width), _rest::bitstring>> =
             data
 
-          expand.(entry)
+          @for.expand(list, entry)
         end
       end
 
@@ -53,7 +65,7 @@ defmodule Membrane.MP4.Container.PackedList do
 
     def reduce(%{data: data, width: width} = list, {:cont, acc}, fun) do
       <<entry::bitstring-size(^width), rest::bitstring>> = data
-      reduce(%{list | data: rest}, fun.(list.expand.(entry), acc), fun)
+      reduce(%{list | data: rest}, fun.(@for.expand(list, entry), acc), fun)
     end
   end
 

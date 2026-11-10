@@ -94,7 +94,10 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
-  defp parse_field(data, {:reserved, reserved}, context) do
+  @doc false
+  @spec parse_field(bitstring(), term(), context_t()) ::
+          {:ok, {term(), bitstring()}, context_t()} | {:error, term()}
+  def parse_field(data, {:reserved, reserved}, context) do
     size = bit_size(reserved)
 
     case data do
@@ -103,7 +106,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
-  defp parse_field(data, {name, {type, store: context_name, when: when_clause}}, context) do
+  def parse_field(data, {name, {type, store: context_name, when: when_clause}}, context) do
     if handle_when(when_clause, context) do
       parse_field(data, {name, {type, store: context_name}}, context)
     else
@@ -111,14 +114,14 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
-  defp parse_field(data, {name, {type, store: context_name}}, context) do
+  def parse_field(data, {name, {type, store: context_name}}, context) do
     {:ok, result, context} = parse_field(data, {name, type}, context)
     {value, _rest} = result
     context = Map.put(context, context_name, value)
     {:ok, result, context}
   end
 
-  defp parse_field(data, {name, {type, when: when_clause}}, context) do
+  def parse_field(data, {name, {type, when: when_clause}}, context) do
     if handle_when(when_clause, context) do
       parse_field(data, {name, type}, context)
     else
@@ -126,14 +129,14 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
-  defp parse_field(data, {name, subfields}, context) when is_list(subfields) do
+  def parse_field(data, {name, subfields}, context) when is_list(subfields) do
     case parse_fields(data, subfields, context) do
       {:ok, result, context} -> {:ok, result, context}
       {:error, context} -> parse_field_error(data, name, context)
     end
   end
 
-  defp parse_field(data, {name, {:int, size}}, context) do
+  def parse_field(data, {name, {:int, size}}, context) do
     case data do
       <<int::signed-integer-size(^size), rest::bitstring>> ->
         {:ok, {int, rest}, context}
@@ -143,7 +146,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
-  defp parse_field(data, {name, {:uint, size}}, context) do
+  def parse_field(data, {name, {:uint, size}}, context) do
     case data do
       <<uint::integer-size(^size), rest::bitstring>> ->
         {:ok, {uint, rest}, context}
@@ -153,7 +156,7 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
-  defp parse_field(data, {name, {:fp, int_size, frac_size}}, context) do
+  def parse_field(data, {name, {:fp, int_size, frac_size}}, context) do
     case data do
       <<int::integer-size(^int_size), frac::integer-size(^frac_size), rest::bitstring>> ->
         {:ok, {{int, frac}, rest}, context}
@@ -163,18 +166,18 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
-  defp parse_field(data, {_name, :bin}, context) do
+  def parse_field(data, {_name, :bin}, context) do
     {:ok, {data, <<>>}, context}
   end
 
-  defp parse_field(data, {name, {type, size}}, context) when type in [:bin, :str] do
+  def parse_field(data, {name, {type, size}}, context) when type in [:bin, :str] do
     case data do
       <<bin::bitstring-size(^size), rest::bitstring>> -> {:ok, {bin, rest}, context}
       _unknown_format -> parse_field_error(data, name)
     end
   end
 
-  defp parse_field(data, {_name, :str}, context) do
+  def parse_field(data, {_name, :str}, context) do
     case String.split(data, "\0", parts: 2) do
       [str, rest] ->
         {:ok, {str, rest}, context}
@@ -184,23 +187,23 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
-  defp parse_field(<<>>, {_name, {:list, _type}}, context) do
+  def parse_field(<<>>, {_name, {:list, _type}}, context) do
     {:ok, {[], <<>>}, context}
   end
 
-  defp parse_field(data, {name, {:list, type}}, context) do
+  def parse_field(data, {name, {:list, type}}, context) do
     case entry_bit_width(type, context) do
       :variable -> parse_to_list(data, name, type, context)
       width -> parse_to_packed_list(data, name, type, width, context)
     end
   end
 
-  defp parse_field(data, {name, {:list, type, length: length_key}}, context) do
+  def parse_field(data, {name, {:list, type, length: length_key}}, context) do
     count = Map.fetch!(context, length_key)
     parse_sized_list(data, name, type, entry_bit_width(type, context), count, context)
   end
 
-  defp parse_field(data, {name, _type}, _context), do: parse_field_error(data, name)
+  def parse_field(data, {name, _type}, _context), do: parse_field_error(data, name)
 
   defp parse_to_list(<<>>, _name, _type, context) do
     {:ok, {[], <<>>}, context}
@@ -216,12 +219,8 @@ defmodule Membrane.MP4.Container.ParseHelper do
   defp parse_to_packed_list(data, name, type, width, context) do
     case rem(bit_size(data), width) do
       0 ->
-        expand = fn entry ->
-          {:ok, {term, <<>>}, _context} = parse_field(entry, {name, type}, context)
-          term
-        end
-
-        {:ok, {%PackedList{data: data, width: width, expand: expand}, <<>>}, context}
+        {:ok, {%PackedList{data: data, width: width, type: type, context: context}, <<>>},
+         context}
 
       leftover ->
         parse_field_error(
