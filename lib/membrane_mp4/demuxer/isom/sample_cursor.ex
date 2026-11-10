@@ -35,7 +35,7 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
           position: non_neg_integer()
         }
 
-  @typedoc "A run-length encoded table and the entry in progress: its value and how many samples still take it."
+  @typedoc "The unread entries of an stts or ctts table together with the current value and how many more samples share it."
   @type run :: %{entries: PackedList.t(), value: integer(), left: non_neg_integer()}
 
   @type sample :: %{
