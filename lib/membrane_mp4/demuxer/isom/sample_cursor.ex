@@ -14,8 +14,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
   ]
   defstruct @enforce_keys ++
               [
-                delta_run: {0, 0},
-                offset_run: {0, 0},
                 chunk_no: 0,
                 samples_per_chunk: 0,
                 left_in_chunk: 0,
@@ -26,17 +24,18 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
           remaining: non_neg_integer(),
           sample_size: non_neg_integer(),
           sample_sizes: PackedList.t() | nil,
-          deltas: PackedList.t(),
-          offsets: PackedList.t() | nil,
+          deltas: run(),
+          offsets: run() | nil,
           chunk_groups: PackedList.t(),
           chunk_offsets: PackedList.t(),
-          delta_run: {integer(), non_neg_integer()},
-          offset_run: {integer(), non_neg_integer()},
           chunk_no: non_neg_integer(),
           samples_per_chunk: non_neg_integer(),
           left_in_chunk: non_neg_integer(),
           position: non_neg_integer()
         }
+
+  @typedoc "A run-length encoded table and the entry in progress: its value and how many samples still take it."
+  @type run :: %{entries: PackedList.t(), value: integer(), left: non_neg_integer()}
 
   @type sample :: %{
           size: non_neg_integer(),
@@ -51,8 +50,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
       remaining: boxes[:stsz].fields.sample_count,
       sample_size: boxes[:stsz].fields.sample_size,
       sample_sizes: boxes[:stsz].fields[:entry_list],
-      deltas: boxes[:stts].fields.entry_list,
-      offsets: boxes[:ctts] && boxes[:ctts].fields.entry_list,
+      deltas: run(boxes[:stts].fields.entry_list),
+      offsets: boxes[:ctts] && run(boxes[:ctts].fields.entry_list),
       chunk_groups: boxes[:stsc].fields.entry_list,
       chunk_offsets: (boxes[:stco] || boxes[:co64]).fields.entry_list
     }
@@ -66,8 +65,9 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
   def next(cursor) do
     {size, cursor} = pop_size(cursor)
     cursor = enter_chunk(cursor)
-    {delta, cursor} = run_value(cursor, :deltas, :delta_run, :sample_delta)
-    {offset, cursor} = run_value(cursor, :offsets, :offset_run, :sample_composition_offset)
+    {delta, deltas} = next_in_run(cursor.deltas, :sample_delta)
+    {offset, offsets} = next_in_run(cursor.offsets, :sample_composition_offset)
+    cursor = %{cursor | deltas: deltas, offsets: offsets}
 
     sample = %{
       size: size,
@@ -122,21 +122,21 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
     cursor
   end
 
-  defp run_value(cursor, list_key, run_key, value_key) do
-    case {Map.fetch!(cursor, run_key), Map.fetch!(cursor, list_key)} do
-      {{value, left}, _list} when left > 0 ->
-        {value, Map.put(cursor, run_key, {value, left - 1})}
+  defp run(entries) do
+    %{entries: entries, value: 0, left: 0}
+  end
 
-      {_run, nil} ->
-        {0, cursor}
+  defp next_in_run(nil, _value_key) do
+    {0, nil}
+  end
 
-      {_run, list} ->
-        {entry, list} = PackedList.pop(list)
+  defp next_in_run(%{left: left} = run, _value_key) when left > 0 do
+    {run.value, %{run | left: left - 1}}
+  end
 
-        cursor
-        |> Map.put(list_key, list)
-        |> Map.put(run_key, {Map.fetch!(entry, value_key), entry.sample_count})
-        |> run_value(list_key, run_key, value_key)
-    end
+  defp next_in_run(run, value_key) do
+    {entry, entries} = PackedList.pop(run.entries)
+    run = %{run | entries: entries, value: Map.fetch!(entry, value_key), left: entry.sample_count}
+    next_in_run(run, value_key)
   end
 end
