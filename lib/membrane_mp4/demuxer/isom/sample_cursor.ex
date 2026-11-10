@@ -4,22 +4,8 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
   alias Membrane.MP4.Container
   alias Membrane.MP4.Container.PackedList
 
-  @enforce_keys [
-    :remaining,
-    :sample_size,
-    :sample_sizes,
-    :deltas,
-    :offsets,
-    :chunk_groups,
-    :chunk_offsets
-  ]
-  defstruct @enforce_keys ++
-              [
-                chunk_no: 0,
-                samples_per_chunk: 0,
-                left_in_chunk: 0,
-                position: 0
-              ]
+  @enforce_keys [:remaining, :sample_size, :sample_sizes, :deltas, :offsets, :chunk]
+  defstruct @enforce_keys
 
   @type t :: %__MODULE__{
           remaining: non_neg_integer(),
@@ -27,16 +13,21 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
           sample_sizes: PackedList.t() | nil,
           deltas: run(),
           offsets: run() | nil,
-          chunk_groups: PackedList.t(),
-          chunk_offsets: PackedList.t(),
-          chunk_no: non_neg_integer(),
-          samples_per_chunk: non_neg_integer(),
-          left_in_chunk: non_neg_integer(),
-          position: non_neg_integer()
+          chunk: chunk()
         }
 
   @typedoc "The unread entries of an stts or ctts table together with the current value and how many more samples share it."
   @type run :: %{entries: PackedList.t(), value: integer(), left: non_neg_integer()}
+
+  @typedoc "The unread stsc groups and chunk offsets together with where the cursor is inside the current chunk."
+  @type chunk :: %{
+          groups: PackedList.t(),
+          offsets: PackedList.t(),
+          no: non_neg_integer(),
+          samples_per_chunk: non_neg_integer(),
+          left: non_neg_integer(),
+          position: non_neg_integer()
+        }
 
   @type sample :: %{
           size: non_neg_integer(),
@@ -53,8 +44,14 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
       sample_sizes: boxes[:stsz].fields[:entry_list],
       deltas: run(boxes[:stts].fields.entry_list),
       offsets: boxes[:ctts] && run(boxes[:ctts].fields.entry_list),
-      chunk_groups: boxes[:stsc].fields.entry_list,
-      chunk_offsets: (boxes[:stco] || boxes[:co64]).fields.entry_list
+      chunk: %{
+        groups: boxes[:stsc].fields.entry_list,
+        offsets: (boxes[:stco] || boxes[:co64]).fields.entry_list,
+        no: 0,
+        samples_per_chunk: 0,
+        left: 0,
+        position: 0
+      }
     }
   end
 
@@ -65,25 +62,26 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
 
   def next(cursor) do
     {size, cursor} = pop_size(cursor)
-    cursor = enter_chunk(cursor)
+    {offset, chunk} = next_in_chunk(cursor.chunk, size)
     {delta, deltas} = next_in_run(cursor.deltas, :sample_delta)
-    {offset, offsets} = next_in_run(cursor.offsets, :sample_composition_offset)
-    cursor = %{cursor | deltas: deltas, offsets: offsets}
+    {composition_offset, offsets} = next_in_run(cursor.offsets, :sample_composition_offset)
 
     sample = %{
       size: size,
       sample_delta: delta,
-      sample_composition_offset: offset,
-      sample_offset: cursor.position
+      sample_composition_offset: composition_offset,
+      sample_offset: offset
     }
 
-    {sample,
-     %{
-       cursor
-       | remaining: cursor.remaining - 1,
-         left_in_chunk: cursor.left_in_chunk - 1,
-         position: cursor.position + size
-     }}
+    cursor = %{
+      cursor
+      | remaining: cursor.remaining - 1,
+        chunk: chunk,
+        deltas: deltas,
+        offsets: offsets
+    }
+
+    {sample, cursor}
   end
 
   defp pop_size(%{sample_size: 0} = cursor) do
@@ -95,32 +93,26 @@ defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
     {size, cursor}
   end
 
-  defp enter_chunk(%{left_in_chunk: 0} = cursor) do
-    chunk_no = cursor.chunk_no + 1
+  defp next_in_chunk(%{left: 0} = chunk, size) do
+    no = chunk.no + 1
 
-    cursor =
-      case PackedList.pop(cursor.chunk_groups) do
-        {%{first_chunk: ^chunk_no, samples_per_chunk: samples_per_chunk}, chunk_groups} ->
-          %{cursor | chunk_groups: chunk_groups, samples_per_chunk: samples_per_chunk}
+    chunk =
+      case PackedList.pop(chunk.groups) do
+        {%{first_chunk: ^no, samples_per_chunk: samples_per_chunk}, groups} ->
+          %{chunk | groups: groups, samples_per_chunk: samples_per_chunk}
 
         _other ->
-          cursor
+          chunk
       end
 
-    {%{chunk_offset: position}, chunk_offsets} = PackedList.pop(cursor.chunk_offsets)
+    {%{chunk_offset: position}, offsets} = PackedList.pop(chunk.offsets)
 
-    %{
-      cursor
-      | chunk_no: chunk_no,
-        chunk_offsets: chunk_offsets,
-        left_in_chunk: cursor.samples_per_chunk,
-        position: position
-    }
-    |> enter_chunk()
+    %{chunk | no: no, offsets: offsets, left: chunk.samples_per_chunk, position: position}
+    |> next_in_chunk(size)
   end
 
-  defp enter_chunk(cursor) do
-    cursor
+  defp next_in_chunk(chunk, size) do
+    {chunk.position, %{chunk | left: chunk.left - 1, position: chunk.position + size}}
   end
 
   defp run(entries) do
