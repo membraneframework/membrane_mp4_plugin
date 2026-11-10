@@ -23,7 +23,20 @@ defmodule Membrane.MP4.Container.PackedList do
     def member?(_list, _entry), do: {:error, __MODULE__}
 
     @impl true
-    def slice(_list), do: {:error, __MODULE__}
+    def slice(%{data: data, width: width, expand: expand}) do
+      slicer = fn start, length, step ->
+        for index <- start..(start + (length - 1) * step)//step do
+          offset = index * width
+
+          <<_skipped::bitstring-size(^offset), entry::bitstring-size(^width), _rest::bitstring>> =
+            data
+
+          expand.(entry)
+        end
+      end
+
+      {:ok, div(bit_size(data), width), slicer}
+    end
 
     @impl true
     def reduce(_list, {:halt, acc}, _fun) do

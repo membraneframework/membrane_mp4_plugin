@@ -124,6 +124,12 @@ defmodule Membrane.MP4.ContainerTest do
     assert Enum.count(stsz.fields.entry_list) == stsz.fields.sample_count
     <<first::32, second::32, _rest::binary>> = stsz.fields.entry_list.data
     assert Enum.take(stsz.fields.entry_list, 2) == [%{entry_size: first}, %{entry_size: second}]
+    assert Enum.at(stsz.fields.entry_list, 1) == %{entry_size: second}
+    assert Enum.slice(stsz.fields.entry_list, 0..1) == Enum.take(stsz.fields.entry_list, 2)
+
+    assert Enum.slice(stsz.fields.entry_list, 1..-1//2) ==
+             stsz.fields.entry_list |> Enum.drop(1) |> Enum.take_every(2)
+
     assert boxes |> Container.serialize!() |> Container.parse!() == {boxes, <<>>}
   end
 
