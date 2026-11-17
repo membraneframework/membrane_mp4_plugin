@@ -71,7 +71,6 @@ defmodule Membrane.MP4.Demuxer.ISOM.Engine do
     %__MODULE__{provide_data_cb: provide_data_cb}
     |> find_box(:moov)
     |> read_box(:moov)
-    |> find_box(:mdat)
     |> initialize_tracks()
   end
 
