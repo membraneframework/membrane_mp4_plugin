@@ -187,13 +187,10 @@ defmodule Membrane.MP4.Container.ParseHelper do
     end
   end
 
-  def parse_field(<<>>, {_name, {:list, _type}}, context) do
-    {:ok, {[], <<>>}, context}
-  end
-
   def parse_field(data, {name, {:list, type}}, context) do
     case entry_bit_width(type, context) do
       :variable -> parse_to_list(data, name, type, context)
+      0 -> {:ok, {[], data}, context}
       width -> parse_to_packed_list(data, name, type, width, context)
     end
   end

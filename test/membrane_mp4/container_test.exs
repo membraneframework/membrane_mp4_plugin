@@ -165,6 +165,33 @@ defmodule Membrane.MP4.ContainerTest do
     assert Container.serialize!(boxes) == data
   end
 
+  test "an empty fixed-width list is an empty packed list" do
+    schema = Container.Schema.parse(test: [fields: [table: {:list, :uint32}]])
+
+    assert {:ok, [test: %{fields: %{table: %Container.PackedList{} = table}}], <<>>} =
+             Container.parse(<<8::32, "test">>, schema)
+
+    assert Enum.to_list(table) == []
+  end
+
+  test "a list of 0-bit-wide entries is empty and leaves its data as a leftover" do
+    schema =
+      Container.Schema.parse(
+        test: [
+          fields: [
+            flag: {:uint8, store: :flag},
+            table: {:list, [v: {:uint8, when: {:flag, value: 1}}]}
+          ]
+        ]
+      )
+
+    assert {:ok, [test: %{fields: %{table: []}}], <<>>} =
+             Container.parse(<<9::32, "test", 0>>, schema)
+
+    assert Container.parse(<<10::32, "test", 0, 7>>, schema) ==
+             {:error, box: :test, reason: {:non_empty_leftover, <<7>>}}
+  end
+
   test "a malformed entry in a sized list is an error, not a raise" do
     schema = Container.Schema.parse(sized_list_schema([{:reserved, <<0>>}, v: :uint8]))
     body = <<2::32, 0, 1, 0xFF, 2>>
