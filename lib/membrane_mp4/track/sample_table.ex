@@ -17,27 +17,24 @@ defmodule Membrane.MP4.Track.SampleTable do
           sample_description: struct,
           timescale: pos_integer,
           sample_count: non_neg_integer,
-          sample_sizes: [pos_integer],
+          sample_sizes: Enumerable.t(pos_integer),
           sync_samples: [pos_integer],
-          chunk_offsets: [non_neg_integer],
-          decoding_deltas: [
-            %{
+          chunk_offsets: Enumerable.t(non_neg_integer),
+          decoding_deltas:
+            Enumerable.t(%{
               sample_delta: Ratio.t(),
               sample_count: pos_integer
-            }
-          ],
-          composition_offsets: [
-            %{
+            }),
+          composition_offsets:
+            Enumerable.t(%{
               sample_composition_offset: Ratio.t(),
               sample_count: pos_integer
-            }
-          ],
-          samples_per_chunk: [
-            %{
+            }),
+          samples_per_chunk:
+            Enumerable.t(%{
               first_chunk: pos_integer,
               sample_count: pos_integer
-            }
-          ]
+            })
         }
 
   @enforce_keys [:timescale]

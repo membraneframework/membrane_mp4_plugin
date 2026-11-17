@@ -5,7 +5,7 @@ defmodule Membrane.MP4.Container.SerializeHelper do
   import Bitwise
 
   alias Membrane.MP4.Container
-  alias Membrane.MP4.Container.Schema
+  alias Membrane.MP4.Container.{PackedList, Schema}
 
   @box_name_size 4
   @box_size_size 4
@@ -172,6 +172,10 @@ defmodule Membrane.MP4.Container.SerializeHelper do
 
   defp serialize_field(term, :str, context) when is_binary(term) do
     {{:ok, term <> "\0"}, context}
+  end
+
+  defp serialize_field(%PackedList{data: data}, {:list, _type}, context) do
+    {{:ok, data}, context}
   end
 
   defp serialize_field(term, {:list, type}, context) when is_list(term) do

@@ -1,0 +1,149 @@
+defmodule Membrane.MP4.Demuxer.ISOM.SampleCursor do
+  @moduledoc "Walks the samples of one track, as described by its `stbl` box, one at a time."
+
+  alias Membrane.MP4.Container
+  alias Membrane.MP4.Container.PackedList
+
+  @enforce_keys [
+    :remaining_samples,
+    :sample_size,
+    :sample_sizes,
+    :deltas,
+    :offsets,
+    :chunk_groups,
+    :chunk_offsets
+  ]
+  defstruct @enforce_keys ++ [samples_per_chunk: 0, current_chunk: nil]
+
+  @typedoc "Where the cursor is in each of the track's sample tables, with the entries it has not read yet."
+  @type t :: %__MODULE__{
+          remaining_samples: non_neg_integer(),
+          sample_size: non_neg_integer(),
+          sample_sizes: PackedList.t() | nil,
+          deltas: run(),
+          offsets: run() | nil,
+          chunk_groups: PackedList.t(),
+          chunk_offsets: PackedList.t(),
+          samples_per_chunk: non_neg_integer(),
+          current_chunk: chunk()
+        }
+
+  @typep run :: %{entries: PackedList.t(), value: integer(), left: non_neg_integer()}
+
+  @typep chunk :: %{
+           no: non_neg_integer(),
+           samples_left: non_neg_integer(),
+           position: non_neg_integer()
+         }
+
+  @typedoc "One sample as the cursor hands it out, with its size and byte offset in the file and its timing."
+  @type sample :: %{
+          size: non_neg_integer(),
+          sample_delta: non_neg_integer(),
+          sample_composition_offset: integer(),
+          sample_offset: non_neg_integer()
+        }
+
+  @spec new(stbl :: %{fields: Container.fields_t(), children: Container.t()}) :: t()
+  def new(%{children: boxes}) do
+    %__MODULE__{
+      remaining_samples: boxes[:stsz].fields.sample_count,
+      sample_size: boxes[:stsz].fields.sample_size,
+      sample_sizes: boxes[:stsz].fields[:entry_list],
+      deltas: run(boxes[:stts].fields.entry_list),
+      offsets: boxes[:ctts] && run(boxes[:ctts].fields.entry_list),
+      chunk_groups: boxes[:stsc].fields.entry_list,
+      chunk_offsets: (boxes[:stco] || boxes[:co64]).fields.entry_list,
+      current_chunk: chunk(0, 0, 0)
+    }
+  end
+
+  @spec next(t()) :: {sample(), t()} | :end_of_stream
+  def next(%{remaining_samples: 0}) do
+    :end_of_stream
+  end
+
+  def next(cursor) do
+    {size, cursor} = pop_size(cursor)
+    {offset, cursor} = next_in_chunk(cursor, size)
+    {delta, deltas} = next_in_run(cursor.deltas, :sample_delta)
+    {composition_offset, offsets} = next_in_run(cursor.offsets, :sample_composition_offset)
+
+    sample = %{
+      size: size,
+      sample_delta: delta,
+      sample_composition_offset: composition_offset,
+      sample_offset: offset
+    }
+
+    cursor = %{
+      cursor
+      | remaining_samples: cursor.remaining_samples - 1,
+        deltas: deltas,
+        offsets: offsets
+    }
+
+    {sample, cursor}
+  end
+
+  defp pop_size(%{sample_size: 0} = cursor) do
+    {%{entry_size: size}, sizes} = PackedList.pop(cursor.sample_sizes)
+    {size, %{cursor | sample_sizes: sizes}}
+  end
+
+  defp pop_size(%{sample_size: size} = cursor) do
+    {size, cursor}
+  end
+
+  defp next_in_chunk(%{current_chunk: %{samples_left: 0}} = cursor, size) do
+    cursor |> enter_next_chunk() |> next_in_chunk(size)
+  end
+
+  defp next_in_chunk(%{current_chunk: chunk} = cursor, size) do
+    advanced = %{chunk | samples_left: chunk.samples_left - 1, position: chunk.position + size}
+    {chunk.position, %{cursor | current_chunk: advanced}}
+  end
+
+  defp enter_next_chunk(cursor) do
+    no = cursor.current_chunk.no + 1
+
+    cursor =
+      case PackedList.pop(cursor.chunk_groups) do
+        {%{first_chunk: ^no, samples_per_chunk: samples_per_chunk}, chunk_groups} ->
+          %{cursor | chunk_groups: chunk_groups, samples_per_chunk: samples_per_chunk}
+
+        _other ->
+          cursor
+      end
+
+    {%{chunk_offset: position}, chunk_offsets} = PackedList.pop(cursor.chunk_offsets)
+
+    %{
+      cursor
+      | chunk_offsets: chunk_offsets,
+        current_chunk: chunk(no, cursor.samples_per_chunk, position)
+    }
+  end
+
+  defp chunk(no, samples_left, position) do
+    %{no: no, samples_left: samples_left, position: position}
+  end
+
+  defp run(entries) do
+    %{entries: entries, value: 0, left: 0}
+  end
+
+  defp next_in_run(nil, _value_key) do
+    {0, nil}
+  end
+
+  defp next_in_run(%{left: left} = run, _value_key) when left > 0 do
+    {run.value, %{run | left: left - 1}}
+  end
+
+  defp next_in_run(run, value_key) do
+    {entry, entries} = PackedList.pop(run.entries)
+    run = %{run | entries: entries, value: Map.fetch!(entry, value_key), left: entry.sample_count}
+    next_in_run(run, value_key)
+  end
+end

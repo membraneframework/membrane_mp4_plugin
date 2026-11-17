@@ -5,13 +5,13 @@ defmodule Membrane.MP4.Container do
   Bases on MP4 structure specification from `#{inspect(__MODULE__)}.Schema`.
   """
   use Bunch
-  alias __MODULE__.{ParseHelper, Schema, SerializeHelper}
+  alias __MODULE__.{PackedList, ParseHelper, Schema, SerializeHelper}
 
   @schema Schema.Default.schema()
 
   @type box_name_t :: atom
   @type field_name_t :: atom
-  @type fields_t :: %{field_name_t => term | [term] | fields_t()}
+  @type fields_t :: %{field_name_t => term | [term] | PackedList.t() | fields_t()}
   @type t :: [{box_name_t, %{content: binary} | %{fields: fields_t, children: t}}]
 
   @type parse_error_context_t :: [
